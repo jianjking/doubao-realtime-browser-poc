@@ -10,6 +10,18 @@ const CALL_FIELDS = new Set([
   'endedAt',
 ]);
 
+const CALL_STATUSES = new Set([
+  'pending',
+  'connecting',
+  'active',
+  'ended',
+  'failed',
+]);
+
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value !== '';
+}
+
 function validateCall(call) {
   if (
     !call
@@ -36,17 +48,65 @@ function validateCall(call) {
   if (typeof call.roleSlug !== 'string' || call.roleSlug === '') {
     throw new TypeError('call.roleSlug must be a non-empty string');
   }
-  if (call.status !== 'pending') {
-    throw new TypeError('call.status must be pending');
+  if (!CALL_STATUSES.has(call.status)) {
+    throw new TypeError('call.status must be supported');
   }
   if (typeof call.createdAt !== 'string' || call.createdAt === '') {
     throw new TypeError('call.createdAt must be a non-empty string');
   }
-  if (call.startedAt !== null) {
-    throw new TypeError('call.startedAt must be null');
+
+  if (call.status === 'pending' || call.status === 'connecting') {
+    if (call.startedAt !== null) {
+      throw new TypeError(
+        `call.startedAt must be null for ${call.status}`
+      );
+    }
+    if (call.endedAt !== null) {
+      throw new TypeError(
+        `call.endedAt must be null for ${call.status}`
+      );
+    }
+    return;
   }
-  if (call.endedAt !== null) {
-    throw new TypeError('call.endedAt must be null');
+
+  if (call.status === 'active') {
+    if (!isNonEmptyString(call.startedAt)) {
+      throw new TypeError(
+        'call.startedAt must be a non-empty string for active'
+      );
+    }
+    if (call.endedAt !== null) {
+      throw new TypeError('call.endedAt must be null for active');
+    }
+    return;
+  }
+
+  if (call.status === 'ended') {
+    if (!isNonEmptyString(call.startedAt)) {
+      throw new TypeError(
+        'call.startedAt must be a non-empty string for ended'
+      );
+    }
+    if (!isNonEmptyString(call.endedAt)) {
+      throw new TypeError(
+        'call.endedAt must be a non-empty string for ended'
+      );
+    }
+    return;
+  }
+
+  if (
+    call.startedAt !== null
+    && !isNonEmptyString(call.startedAt)
+  ) {
+    throw new TypeError(
+      'call.startedAt must be null or a non-empty string for failed'
+    );
+  }
+  if (!isNonEmptyString(call.endedAt)) {
+    throw new TypeError(
+      'call.endedAt must be a non-empty string for failed'
+    );
   }
 }
 
@@ -59,8 +119,28 @@ class MemoryCallStore {
 
   save(call) {
     validateCall(call);
+    if (call.status !== 'pending') {
+      throw new TypeError('call.status must be pending when saved');
+    }
     if (this.#callsById.has(call.id)) {
       throw new Error('Call ID already exists');
+    }
+    this.#callsById.set(call.id, { ...call });
+  }
+
+  replace(call) {
+    validateCall(call);
+    const existingCall = this.#callsById.get(call.id);
+    if (!existingCall) {
+      throw new Error('Call does not exist');
+    }
+    if (
+      call.id !== existingCall.id
+      || call.userId !== existingCall.userId
+      || call.roleSlug !== existingCall.roleSlug
+      || call.createdAt !== existingCall.createdAt
+    ) {
+      throw new Error('Call identity fields cannot be changed');
     }
     this.#callsById.set(call.id, { ...call });
   }

@@ -2,6 +2,13 @@
 
 const crypto = require('node:crypto');
 
+const ALLOWED_SOURCE_STATUSES = Object.freeze({
+  connecting: Object.freeze(['pending']),
+  active: Object.freeze(['connecting']),
+  ended: Object.freeze(['active']),
+  failed: Object.freeze(['pending', 'connecting', 'active']),
+});
+
 function createPublicError(statusCode, code, publicMessage) {
   const error = new Error(publicMessage);
   error.statusCode = statusCode;
@@ -29,6 +36,17 @@ function createCallService({
   function validateUserId(userId) {
     if (typeof userId !== 'string' || userId === '') {
       throw new TypeError('userId must be a non-empty string');
+    }
+  }
+
+  function validateInternalCallId(callId) {
+    if (
+      typeof callId !== 'string'
+      || callId === ''
+      || callId.trim() === ''
+      || callId.trim() !== callId
+    ) {
+      throw new TypeError('callId must be a non-empty string');
     }
   }
 
@@ -123,9 +141,70 @@ function createCallService({
     return buildPublicCall(call);
   }
 
+  function transitionCall(callId, targetStatus) {
+    validateInternalCallId(callId);
+    const call = callStore.findById(callId);
+    if (!call) {
+      throw createPublicError(
+        404,
+        'CALL_NOT_FOUND',
+        'Requested call was not found'
+      );
+    }
+    if (call.status === targetStatus) {
+      return buildPublicCall(call);
+    }
+    if (
+      !ALLOWED_SOURCE_STATUSES[targetStatus].includes(call.status)
+    ) {
+      throw createPublicError(
+        409,
+        'INVALID_CALL_TRANSITION',
+        'Call state transition is not allowed'
+      );
+    }
+
+    const nextCall = {
+      ...call,
+      status: targetStatus,
+    };
+    if (targetStatus === 'connecting') {
+      nextCall.startedAt = null;
+      nextCall.endedAt = null;
+    } else if (targetStatus === 'active') {
+      nextCall.startedAt = new Date(clock()).toISOString();
+      nextCall.endedAt = null;
+    } else {
+      nextCall.endedAt = new Date(clock()).toISOString();
+    }
+
+    callStore.replace(nextCall);
+    return buildPublicCall(nextCall);
+  }
+
+  function markCallConnecting({ callId } = {}) {
+    return transitionCall(callId, 'connecting');
+  }
+
+  function markCallActive({ callId } = {}) {
+    return transitionCall(callId, 'active');
+  }
+
+  function markCallEnded({ callId } = {}) {
+    return transitionCall(callId, 'ended');
+  }
+
+  function markCallFailed({ callId } = {}) {
+    return transitionCall(callId, 'failed');
+  }
+
   return {
     createPendingCall,
     getPublicCallForUser,
+    markCallConnecting,
+    markCallActive,
+    markCallEnded,
+    markCallFailed,
   };
 }
 
