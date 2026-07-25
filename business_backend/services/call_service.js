@@ -26,14 +26,33 @@ function createCallService({
     throw new TypeError('idGenerator must be a function');
   }
 
-  function createPendingCall({ userId, roleSlug } = {}) {
+  function validateUserId(userId) {
     if (typeof userId !== 'string' || userId === '') {
-      throw createPublicError(
-        400,
-        'INVALID_CALL_REQUEST',
-        'A valid roleSlug is required'
-      );
+      throw new TypeError('userId must be a non-empty string');
     }
+  }
+
+  function buildPublicCall(call) {
+    const role = roleService.findPublicRoleBySlug(call.roleSlug);
+    if (!role) {
+      throw new Error('Stored call references an unknown role');
+    }
+
+    return {
+      id: call.id,
+      role: {
+        slug: role.slug,
+        displayName: role.displayName,
+      },
+      status: call.status,
+      createdAt: call.createdAt,
+      startedAt: call.startedAt,
+      endedAt: call.endedAt,
+    };
+  }
+
+  function createPendingCall({ userId, roleSlug } = {}) {
+    validateUserId(userId);
     if (
       typeof roleSlug !== 'string'
       || roleSlug === ''
@@ -74,21 +93,39 @@ function createCallService({
     };
     callStore.save(call);
 
-    return {
-      id: call.id,
-      role: {
-        slug: role.slug,
-        displayName: role.displayName,
-      },
-      status: call.status,
-      createdAt: call.createdAt,
-      startedAt: call.startedAt,
-      endedAt: call.endedAt,
-    };
+    return buildPublicCall(call);
+  }
+
+  function getPublicCallForUser({ userId, callId } = {}) {
+    validateUserId(userId);
+    if (
+      typeof callId !== 'string'
+      || callId === ''
+      || callId.trim() === ''
+      || callId.trim() !== callId
+    ) {
+      throw createPublicError(
+        400,
+        'INVALID_CALL_ID',
+        'A valid callId is required'
+      );
+    }
+
+    const call = callStore.findById(callId);
+    if (!call || call.userId !== userId) {
+      throw createPublicError(
+        404,
+        'CALL_NOT_FOUND',
+        'Requested call was not found'
+      );
+    }
+
+    return buildPublicCall(call);
   }
 
   return {
     createPendingCall,
+    getPublicCallForUser,
   };
 }
 
