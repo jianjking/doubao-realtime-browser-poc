@@ -1,15 +1,18 @@
 'use strict';
 
 const express = require('express');
+const { PUBLIC_ROLES } = require('./config/public_roles');
 const { createRequireSession } = require('./middleware/require_session');
 const { createAccountRouter } = require('./routes/account_routes');
 const { createAuthRouter } = require('./routes/auth_routes');
 const { healthRouter } = require('./routes/health_routes');
+const { createRoleRouter } = require('./routes/role_routes');
 const {
   createAuthService,
   maskChineseMobile,
 } = require('./services/auth_service');
 const { createAccountService } = require('./services/account_service');
+const { createRoleService } = require('./services/role_service');
 const { createSessionService } = require('./services/session_service');
 const {
   MemoryAccountStore,
@@ -23,6 +26,7 @@ function createApp(options = {}) {
   const sessionStore = new MemorySessionStore();
   const userStore = new MemoryUserStore();
   const accountStore = new MemoryAccountStore();
+  const roleService = createRoleService({ roles: PUBLIC_ROLES });
   const sessionService = createSessionService({
     sessionStore,
     clock: options.clock,
@@ -49,6 +53,7 @@ function createApp(options = {}) {
   app.disable('x-powered-by');
   app.use(express.json({ limit: '16kb' }));
   app.use('/api', healthRouter);
+  app.use('/api', createRoleRouter({ roleService }));
   app.use('/api', createAuthRouter({ sessionService, authService }));
   app.use('/api', createAccountRouter({
     requireSession,
