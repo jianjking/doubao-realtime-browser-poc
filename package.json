@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test:business-backend": "node --test business_backend/tests/health_test.js business_backend/tests/guest_session_test.js"
+    "test:business-backend": "node --test business_backend/tests/health_test.js business_backend/tests/guest_session_test.js business_backend/tests/phone_login_test.js"
   },
   "keywords": [],
   "author": "",

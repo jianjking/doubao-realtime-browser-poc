@@ -43,6 +43,7 @@ function createSessionService({
       id: sessionId,
       subjectType: 'guest',
       guestId,
+      userId: null,
       tokenHash,
       createdAt,
       expiresAt,
@@ -62,6 +63,41 @@ function createSessionService({
     };
   }
 
+  function createUserSession(userId) {
+    if (typeof userId !== 'string' || userId === '') {
+      throw new TypeError('userId is required');
+    }
+
+    const now = clock();
+    const rawToken = tokenGenerator();
+    const tokenHash = hashToken(rawToken);
+    const sessionId = idGenerator();
+    const createdAt = new Date(now).toISOString();
+    const expiresAt = new Date(now + GUEST_SESSION_TTL_MS).toISOString();
+
+    sessionStore.save({
+      id: sessionId,
+      subjectType: 'user',
+      guestId: null,
+      userId,
+      tokenHash,
+      createdAt,
+      expiresAt,
+      revokedAt: null,
+    });
+
+    return {
+      rawToken,
+      principal: {
+        type: 'user',
+        id: userId,
+      },
+      session: {
+        expiresAt,
+      },
+    };
+  }
+
   function verifySession(rawToken) {
     if (typeof rawToken !== 'string' || rawToken === '') {
       return null;
@@ -71,7 +107,6 @@ function createSessionService({
     const expiresAt = session ? Date.parse(session.expiresAt) : NaN;
     if (
       !session
-      || session.subjectType !== 'guest'
       || session.revokedAt !== null
       || !Number.isFinite(expiresAt)
       || expiresAt <= clock()
@@ -79,17 +114,30 @@ function createSessionService({
       return null;
     }
 
-    return {
-      sessionId: session.id,
-      principal: {
-        type: 'guest',
-        id: session.guestId,
-      },
-    };
+    if (session.subjectType === 'guest' && session.guestId) {
+      return {
+        sessionId: session.id,
+        principal: {
+          type: 'guest',
+          id: session.guestId,
+        },
+      };
+    }
+    if (session.subjectType === 'user' && session.userId) {
+      return {
+        sessionId: session.id,
+        principal: {
+          type: 'user',
+          id: session.userId,
+        },
+      };
+    }
+    return null;
   }
 
   return {
     createGuestSession,
+    createUserSession,
     verifySession,
   };
 }
