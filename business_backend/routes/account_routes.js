@@ -9,6 +9,7 @@ function createAccountRouter({
   requireSession,
   userStore,
   maskChineseMobile,
+  accountService,
 }) {
   const accountRouter = express.Router();
 
@@ -19,13 +20,18 @@ function createAccountRouter({
         response.status(401).json(AUTH_REQUIRED_RESPONSE);
         return;
       }
+      const account = accountService.getPublicAccountForUser(user.id);
+      if (!account) {
+        response.status(401).json(AUTH_REQUIRED_RESPONSE);
+        return;
+      }
 
       response.status(200).json({
         principal: request.auth.principal,
         profile: {
           phoneMasked: maskChineseMobile(user.phoneE164),
         },
-        account: null,
+        account,
         permissions: {
           canRecharge: true,
         },

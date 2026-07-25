@@ -49,13 +49,16 @@ function createPublicError(statusCode, code, publicMessage) {
 function createAuthService({
   userStore,
   sessionService,
+  accountService,
   clock = Date.now,
   idGenerator = () => crypto.randomUUID(),
   developmentVerificationCode =
     DEFAULT_DEVELOPMENT_VERIFICATION_CODE,
 } = {}) {
-  if (!userStore || !sessionService) {
-    throw new TypeError('userStore and sessionService are required');
+  if (!userStore || !sessionService || !accountService) {
+    throw new TypeError(
+      'userStore, sessionService, and accountService are required'
+    );
   }
 
   function login(requestBody) {
@@ -112,6 +115,7 @@ function createAuthService({
       userStore.save(user);
     }
 
+    accountService.ensureAccountForUser(user.id);
     const {
       rawToken,
       principal,

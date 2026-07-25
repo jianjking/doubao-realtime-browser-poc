@@ -139,8 +139,13 @@ function createTestApp() {
   });
 }
 
-async function login(port, phone = PUBLIC_TEST_PHONE) {
+async function login(
+  port,
+  phone = PUBLIC_TEST_PHONE,
+  additionalFields = {}
+) {
   return requestJson(port, '/api/auth/login', {
+    ...additionalFields,
     phone,
     code: TEST_DEVELOPMENT_CODE,
   });
@@ -179,7 +184,15 @@ test('phone login returns a sanitized user identity and session', async () => {
   const { port, server } = await startApp(createTestApp());
 
   try {
-    const loginResponse = await login(port);
+    const loginResponse = await login(port, PUBLIC_TEST_PHONE, {
+      balanceCents: 999999999,
+      remainingSeconds: 999999999,
+      currency: 'USD',
+      account: {
+        balanceCents: 999999999,
+      },
+      vip: true,
+    });
     assert.equal(loginResponse.statusCode, 200);
 
     const loginBody = parseJson(loginResponse.body);
@@ -205,6 +218,7 @@ test('phone login returns a sanitized user identity and session', async () => {
     assert.equal(loginResponse.body.includes('tokenHash'), false);
     assert.equal(loginResponse.body.includes('+8613800138000'), false);
     assert.equal(loginResponse.body.includes(TEST_DEVELOPMENT_CODE), false);
+    assert.equal(Object.hasOwn(loginBody, 'account'), false);
 
     const meResponse = await requestPath({
       port,
@@ -222,7 +236,11 @@ test('phone login returns a sanitized user identity and session', async () => {
       profile: {
         phoneMasked: '138****8000',
       },
-      account: null,
+      account: {
+        currency: 'CNY',
+        balanceCents: 1250,
+        remainingSeconds: 0,
+      },
       permissions: {
         canRecharge: true,
       },

@@ -9,7 +9,11 @@ const {
   createAuthService,
   maskChineseMobile,
 } = require('./services/auth_service');
+const { createAccountService } = require('./services/account_service');
 const { createSessionService } = require('./services/session_service');
+const {
+  MemoryAccountStore,
+} = require('./stores/memory_account_store');
 const {
   MemorySessionStore,
 } = require('./stores/memory_session_store');
@@ -18,15 +22,23 @@ const { MemoryUserStore } = require('./stores/memory_user_store');
 function createApp(options = {}) {
   const sessionStore = new MemorySessionStore();
   const userStore = new MemoryUserStore();
+  const accountStore = new MemoryAccountStore();
   const sessionService = createSessionService({
     sessionStore,
     clock: options.clock,
     tokenGenerator: options.tokenGenerator,
     idGenerator: options.idGenerator,
   });
+  const accountService = createAccountService({
+    accountStore,
+    clock: options.clock,
+    initialBalanceCents: options.initialBalanceCents,
+    initialRemainingSeconds: options.initialRemainingSeconds,
+  });
   const authService = createAuthService({
     userStore,
     sessionService,
+    accountService,
     clock: options.clock,
     idGenerator: options.idGenerator,
     developmentVerificationCode: options.developmentVerificationCode,
@@ -42,6 +54,7 @@ function createApp(options = {}) {
     requireSession,
     userStore,
     maskChineseMobile,
+    accountService,
   }));
   app.use((error, _request, response, next) => {
     if (error && error.type === 'entity.parse.failed') {
