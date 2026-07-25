@@ -1,9 +1,71 @@
 'use strict';
 
 (() => {
-  const HOME_URL = 'http://127.0.0.1:8765/'
-    + 'ui_prototypes/yuhuang_mobile_v1/home.html';
+  const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
+  const IDENTITY_ENTRY_PATH = '/ui_prototypes/yuhuang_mobile_v1/index.html';
+  const RETURN_NAVIGATION_ERROR =
+    '无法确定首页地址，请从首页重新进入通话';
+  const CALL_COMPONENT_LOAD_ERROR =
+    '通话组件加载失败，可返回首页后重新进入';
   const DEFAULT_CALL_CHARACTER_KEY = 'yuhuang';
+
+  function validateReturnHomeUrl(rawReturnUrl) {
+    if (typeof rawReturnUrl !== 'string' || rawReturnUrl === '') {
+      return null;
+    }
+
+    let returnHomeUrl;
+    try {
+      returnHomeUrl = new URL(rawReturnUrl);
+    } catch {
+      return null;
+    }
+
+    if (!['http:', 'https:'].includes(returnHomeUrl.protocol)
+      || returnHomeUrl.username !== ''
+      || returnHomeUrl.password !== ''
+      || returnHomeUrl.hostname !== window.location.hostname
+      || returnHomeUrl.pathname !== HOME_PATH
+      || returnHomeUrl.search !== ''
+      || returnHomeUrl.hash !== '') {
+      return null;
+    }
+
+    return returnHomeUrl;
+  }
+
+  function resolveReturnHomeUrl(searchParams) {
+    const rawReturnUrl = searchParams.get('returnUrl');
+    if (rawReturnUrl !== null) {
+      return validateReturnHomeUrl(rawReturnUrl);
+    }
+
+    if (!document.referrer) {
+      return null;
+    }
+
+    let referrerUrl;
+    try {
+      referrerUrl = new URL(document.referrer);
+    } catch {
+      return null;
+    }
+
+    if (!['http:', 'https:'].includes(referrerUrl.protocol)
+      || referrerUrl.username !== ''
+      || referrerUrl.password !== ''
+      || referrerUrl.hostname !== window.location.hostname) {
+      return null;
+    }
+
+    return validateReturnHomeUrl(
+      new URL(HOME_PATH, referrerUrl.origin).href
+    );
+  }
+
+  function buildIdentityEntryUrl(returnHomeUrl) {
+    return new URL(IDENTITY_ENTRY_PATH, returnHomeUrl.origin).href;
+  }
   const CALL_CHARACTER_CONFIGS = Object.freeze({
     yuhuang: Object.freeze({
       key: 'yuhuang',
@@ -138,6 +200,48 @@
       debugConnectText: '接通唐僧',
     }),
   });
+
+  const callStatusText = document.getElementById('callStatusText');
+  const callReturnButton = document.getElementById('callReturnButton');
+  const callIdentityEntry = document.getElementById('callIdentityEntry');
+  if (!callStatusText || !callReturnButton || !callIdentityEntry) {
+    return;
+  }
+
+  function initializeReturnNavigation(searchParams) {
+    const returnHomeUrl = resolveReturnHomeUrl(searchParams);
+    if (returnHomeUrl) {
+      callReturnButton.setAttribute('href', returnHomeUrl.href);
+      callIdentityEntry.setAttribute(
+        'href',
+        buildIdentityEntryUrl(returnHomeUrl)
+      );
+      callReturnButton.removeAttribute('aria-disabled');
+      callIdentityEntry.removeAttribute('aria-disabled');
+      callReturnButton.removeAttribute('tabindex');
+      callIdentityEntry.removeAttribute('tabindex');
+      return returnHomeUrl;
+    }
+
+    callReturnButton.removeAttribute('href');
+    callIdentityEntry.removeAttribute('href');
+    callReturnButton.setAttribute('aria-disabled', 'true');
+    callIdentityEntry.setAttribute('aria-disabled', 'true');
+    callReturnButton.setAttribute('tabindex', '-1');
+    callIdentityEntry.setAttribute('tabindex', '-1');
+    callStatusText.textContent = RETURN_NAVIGATION_ERROR;
+
+    const blockInvalidNavigation = (event) => {
+      event.preventDefault();
+      callStatusText.textContent = RETURN_NAVIGATION_ERROR;
+    };
+    callReturnButton.addEventListener('click', blockInvalidNavigation);
+    callIdentityEntry.addEventListener('click', blockInvalidNavigation);
+    return null;
+  }
+
+  const query = new URLSearchParams(window.location.search);
+  const returnHomeUrl = initializeReturnNavigation(query);
   const api = window.DoubaoRealtimeCall;
   const pageShell = document.querySelector('.page-shell');
   const characterImage = document.querySelector(
@@ -158,35 +262,35 @@
   const characterControls = document.querySelector(
     '[data-call-character-controls]'
   );
-  const callStatusText = document.getElementById('callStatusText');
   const callDuration = document.getElementById('callDuration');
   const callPrimaryButton = document.getElementById('callPrimaryButton');
-  const callReturnButton = document.getElementById('callReturnButton');
   const debugPanel = document.getElementById('debugPanel');
   const debugConnectButton = document.getElementById('connectButton');
   const debugStartMicrophoneButton = document.getElementById(
     'startMicrophoneButton'
   );
 
-  if (!api
-    || !pageShell
+  if (!api) {
+    if (callPrimaryButton) {
+      callPrimaryButton.disabled = true;
+    }
+    callStatusText.textContent = CALL_COMPONENT_LOAD_ERROR;
+    return;
+  }
+
+  if (!pageShell
     || !characterImage
     || !characterHeading
     || !characterLocation
     || !characterName
     || !characterMotto
     || !characterControls
-    || !callStatusText
     || !callDuration
     || !callPrimaryButton
-    || !callReturnButton
     || !debugPanel) {
     return;
   }
 
-  callReturnButton.setAttribute('href', HOME_URL);
-
-  const query = new URLSearchParams(window.location.search);
   if (query.get('debug') === '1') {
     debugPanel.hidden = false;
     document.body.classList.add('debug-mode');
@@ -367,14 +471,21 @@
   }
 
   renderProductState('idle');
+  if (!returnHomeUrl) {
+    callStatusText.textContent = RETURN_NAVIGATION_ERROR;
+  }
 
   function navigateHomeOnce() {
     if (!pendingNavigation || navigationStarted) {
       return;
     }
+    if (!returnHomeUrl) {
+      callStatusText.textContent = RETURN_NAVIGATION_ERROR;
+      return;
+    }
     navigationStarted = true;
     clearDurationTimer();
-    window.location.assign(HOME_URL);
+    window.location.assign(returnHomeUrl.href);
   }
 
   function handleRealtimeCallSnapshot(snapshot) {
@@ -573,6 +684,9 @@
   });
 
   callReturnButton.addEventListener('click', (event) => {
+    if (!returnHomeUrl) {
+      return;
+    }
     if (productState === 'idle'
       || productState === 'ended'
       || productState === 'failed') {

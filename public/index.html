@@ -28,13 +28,31 @@
       <a
         id="callReturnButton"
         class="return-home-link"
-        href="http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/index.html"
+        data-return-navigation
         aria-label="返回首页"
+        aria-disabled="true"
+        tabindex="-1"
       >
         <span class="back-mark" aria-hidden="true"></span>
         <span>返回首页</span>
       </a>
+      <a
+        id="callIdentityEntry"
+        class="return-home-link"
+        data-identity-entry
+        aria-label="返回身份入口"
+        aria-disabled="true"
+        tabindex="-1"
+      >
+        <span>身份入口</span>
+      </a>
     </header>
+
+    <noscript>
+      <p role="alert">
+        此通话页面需要启用 JavaScript，请返回首页后重新进入。
+      </p>
+    </noscript>
 
     <main class="call-main">
       <section

@@ -2,6 +2,7 @@
 
 (() => {
   const REALTIME_PAGE_URL = 'http://127.0.0.1:3001/';
+  const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
   const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
   const PENDING_ACTION_STORAGE_KEY = 'companion_pending_action_v1';
   const TOAST_DURATION_MS = 3200;
@@ -132,6 +133,18 @@
         : `${REALTIME_PAGE_URL}?characterKey=${character.key}`,
     ]))
   );
+
+  function buildRealtimeNavigationUrl(realtimeUrl) {
+    if (typeof URL !== 'function'
+      || !window.location.origin
+      || !window.location.href) {
+      return realtimeUrl;
+    }
+    const returnUrl = new URL(HOME_PATH, window.location.origin).href;
+    const callUrl = new URL(realtimeUrl, window.location.href);
+    callUrl.searchParams.set('returnUrl', returnUrl);
+    return callUrl.href;
+  }
   const characterImagePreloadPromises = new Map();
   const auxiliaryMessages = {
     guide: '点击“开始通话”后，允许使用麦克风，随后直接开口即可。',
@@ -1020,7 +1033,7 @@
       return;
     }
 
-    window.location.assign(realtimeUrl);
+    window.location.assign(buildRealtimeNavigationUrl(realtimeUrl));
   }
 
   function initializeUi() {

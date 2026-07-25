@@ -28,9 +28,15 @@ const MIC_JS_PATH = path.join(
   PROJECT_DIR,
   'public/doubao_mic_single_turn.js'
 );
-const HOME_URL = 'http://127.0.0.1:8765/'
-  + 'ui_prototypes/yuhuang_mobile_v1/home.html';
 const CALL_URL = 'http://127.0.0.1:3001/';
+const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
+const IDENTITY_ENTRY_PATH =
+  '/ui_prototypes/yuhuang_mobile_v1/index.html';
+const DEFAULT_HOME_URL = new URL(HOME_PATH, 'http://127.0.0.1:8765/').href;
+const DEFAULT_IDENTITY_ENTRY_URL = new URL(
+  IDENTITY_ENTRY_PATH,
+  DEFAULT_HOME_URL
+).href;
 
 const UI_MATRIX = Object.freeze([
   {
@@ -291,6 +297,7 @@ function loadHomeRuntime(options = {}) {
     '  initializeUi();',
     `  globalThis.__homeTest = {
       REALTIME_URLS_BY_CHARACTER_KEY,
+      buildRealtimeNavigationUrl,
       characters,
       closeOverlay,
       getActiveOverlay: () => activeOverlay,
@@ -302,6 +309,7 @@ function loadHomeRuntime(options = {}) {
       handlePackageSelection,
       handlePaymentSelection,
       handleRechargeConfirmation,
+      handleStartConversation,
       openOverlay,
       selectCharacter,
       warmAdjacentCharacterImages,
@@ -323,6 +331,9 @@ function loadHomeRuntime(options = {}) {
   const paymentButtons = [];
   const locationAssignments = [];
   const localStorage = createLocalStorage(options.storageEntries);
+  const homePageUrl = new URL(
+    options.homePageUrl || DEFAULT_HOME_URL
+  );
 
   class FakeImage {
     set src(value) {
@@ -388,12 +399,18 @@ function loadHomeRuntime(options = {}) {
       assign(url) {
         locationAssignments.push(url);
       },
+      href: homePageUrl.href,
+      hostname: homePageUrl.hostname,
+      origin: homePageUrl.origin,
+      port: homePageUrl.port,
+      protocol: homePageUrl.protocol,
     },
     setTimeout,
   };
   const context = {
     Element: FakeElement,
     Image: FakeImage,
+    URL,
     URLSearchParams,
     clearTimeout,
     console,
@@ -430,7 +447,7 @@ function pointerEvent(stage, pointerId, clientX, clientY) {
   };
 }
 
-function createCallRuntime(characterKey) {
+function createCallRuntime(characterKey, options = {}) {
   const selectors = {
     '.page-shell': new FakeElement(),
     '[data-call-character-image]': new FakeElement(),
@@ -442,6 +459,7 @@ function createCallRuntime(characterKey) {
   };
   const ids = {
     callDuration: new FakeElement(),
+    callIdentityEntry: new FakeElement(),
     callPrimaryButton: new FakeElement(),
     callReturnButton: new FakeElement(),
     callStatusText: new FakeElement(),
@@ -449,6 +467,10 @@ function createCallRuntime(characterKey) {
     debugPanel: new FakeElement(),
     startMicrophoneButton: new FakeElement(),
   };
+  ids.callReturnButton.setAttribute('aria-disabled', 'true');
+  ids.callReturnButton.setAttribute('tabindex', '-1');
+  ids.callIdentityEntry.setAttribute('aria-disabled', 'true');
+  ids.callIdentityEntry.setAttribute('tabindex', '-1');
   const subscriptions = [];
   const apiCounts = {
     connect: 0,
@@ -478,6 +500,7 @@ function createCallRuntime(characterKey) {
     body: {
       classList: new FakeClassList(),
     },
+    referrer: options.referrer || '',
     getElementById(id) {
       return ids[id] || null;
     },
@@ -487,11 +510,19 @@ function createCallRuntime(characterKey) {
     title: '',
   };
   const locationAssignments = [];
-  const search = characterKey === null
-    ? ''
-    : `?characterKey=${characterKey}`;
+  const callPageUrl = new URL(options.callPageUrl || CALL_URL);
+  const searchParams = new URLSearchParams();
+  if (characterKey !== null) {
+    searchParams.set('characterKey', characterKey);
+  }
+  const returnUrl = Object.hasOwn(options, 'returnUrl')
+    ? options.returnUrl
+    : DEFAULT_HOME_URL;
+  if (typeof returnUrl === 'string') {
+    searchParams.set('returnUrl', returnUrl);
+  }
+  callPageUrl.search = searchParams.toString();
   const window = {
-    DoubaoRealtimeCall: api,
     addEventListener() {},
     clearInterval() {},
     clearTimeout,
@@ -499,14 +530,23 @@ function createCallRuntime(characterKey) {
       assign(url) {
         locationAssignments.push(url);
       },
-      search,
+      href: callPageUrl.href,
+      hostname: callPageUrl.hostname,
+      origin: callPageUrl.origin,
+      port: callPageUrl.port,
+      protocol: callPageUrl.protocol,
+      search: callPageUrl.search,
     },
     setInterval() {
       return 1;
     },
     setTimeout,
   };
+  if (options.realtimeApiAvailable !== false) {
+    window.DoubaoRealtimeCall = api;
+  }
   vm.runInNewContext(fs.readFileSync(CALL_JS_PATH, 'utf8'), {
+    URL,
     URLSearchParams,
     console,
     document,
@@ -799,7 +839,11 @@ async function verifyCallPagesAndRestart() {
     assert.equal(runtime.document.title, `${expected.name} · 实时通话`);
     assert.equal(
       runtime.ids.callReturnButton.attributes.get('href'),
-      HOME_URL
+      DEFAULT_HOME_URL
+    );
+    assert.equal(
+      runtime.ids.callIdentityEntry.attributes.get('href'),
+      DEFAULT_IDENTITY_ENTRY_URL
     );
     assert.equal(pageShell.dataset.callCharacterKey, expected.key);
     assert.equal(
@@ -873,6 +917,230 @@ async function verifyCallPagesAndRestart() {
     assert.equal(runtime.apiCounts.connect, 2);
     assert.equal(pageShell.dataset.callCharacterKey, expected.key);
   }
+}
+
+async function verifyReturnUrlNavigation() {
+  const incorrectRootRelativeUrl = new URL(
+    HOME_PATH,
+    'http://127.0.0.1:3001/'
+  );
+  assert.equal(incorrectRootRelativeUrl.port, '3001');
+  assert.equal(
+    incorrectRootRelativeUrl.pathname,
+    HOME_PATH
+  );
+
+  for (const expected of [
+    {
+      homePageUrl:
+        'http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/home.html',
+      protocol: 'http:',
+      hostname: '127.0.0.1',
+      port: '8765',
+    },
+    {
+      homePageUrl:
+        'http://127.0.0.1:18765/ui_prototypes/yuhuang_mobile_v1/home.html',
+      protocol: 'http:',
+      hostname: '127.0.0.1',
+      port: '18765',
+    },
+    {
+      homePageUrl:
+        'https://example.com/ui_prototypes/yuhuang_mobile_v1/home.html',
+      protocol: 'https:',
+      hostname: 'example.com',
+      port: '',
+    },
+  ]) {
+    const runtime = loadHomeRuntime({
+      homePageUrl: expected.homePageUrl,
+    });
+    const callUrl = new URL(runtime.test.buildRealtimeNavigationUrl(
+      `${CALL_URL}?characterKey=sunwukong&debug=1`
+    ));
+    const returnUrl = new URL(callUrl.searchParams.get('returnUrl'));
+    assert.equal(callUrl.searchParams.get('characterKey'), 'sunwukong');
+    assert.equal(callUrl.searchParams.get('debug'), '1');
+    assert.equal(returnUrl.protocol, expected.protocol);
+    assert.equal(returnUrl.hostname, expected.hostname);
+    assert.equal(returnUrl.port, expected.port);
+    assert.equal(returnUrl.pathname, HOME_PATH);
+  }
+
+  const homeRuntime = loadHomeRuntime({
+    homePageUrl:
+      'http://127.0.0.1:18765/ui_prototypes/yuhuang_mobile_v1/home.html',
+  });
+  assert.equal(
+    await homeRuntime.test.selectCharacter('guanyin', 'swipe-left'),
+    true
+  );
+  homeRuntime.test.handleStartConversation();
+  const assignedCallUrl = new URL(
+    homeRuntime.locationAssignments.at(-1)
+  );
+  assert.equal(assignedCallUrl.port, '3001');
+  assert.equal(assignedCallUrl.searchParams.get('characterKey'), 'guanyin');
+  assert.equal(
+    new URL(assignedCallUrl.searchParams.get('returnUrl')).port,
+    '18765'
+  );
+
+  const validCallRuntime = createCallRuntime('sunwukong', {
+    callPageUrl: 'http://127.0.0.1:3001/',
+    returnUrl:
+      'http://127.0.0.1:18765/ui_prototypes/yuhuang_mobile_v1/home.html',
+  });
+  const validatedHomeUrl = new URL(
+    validCallRuntime.ids.callReturnButton.attributes.get('href')
+  );
+  assert.equal(validatedHomeUrl.port, '18765');
+  assert.notEqual(validatedHomeUrl.port, '3001');
+  assert.equal(validatedHomeUrl.pathname, HOME_PATH);
+  const identityEntryUrl = new URL(
+    validCallRuntime.ids.callIdentityEntry.attributes.get('href')
+  );
+  assert.equal(identityEntryUrl.origin, validatedHomeUrl.origin);
+  assert.equal(identityEntryUrl.pathname, IDENTITY_ENTRY_PATH);
+  assert.equal(
+    validCallRuntime.ids.callReturnButton.attributes.has('aria-disabled'),
+    false
+  );
+  assert.equal(
+    validCallRuntime.ids.callReturnButton.attributes.has('tabindex'),
+    false
+  );
+  assert.equal(
+    validCallRuntime.ids.callIdentityEntry.attributes.has('aria-disabled'),
+    false
+  );
+  assert.equal(
+    validCallRuntime.ids.callIdentityEntry.attributes.has('tabindex'),
+    false
+  );
+
+  validCallRuntime.ids.callPrimaryButton.click();
+  await wait();
+  validCallRuntime.ids.callReturnButton.click();
+  await wait();
+  assert.equal(
+    validCallRuntime.locationAssignments.at(-1),
+    validatedHomeUrl.href
+  );
+
+  const secureCallRuntime = createCallRuntime(null, {
+    callPageUrl: 'https://example.com/',
+    returnUrl:
+      'https://example.com/ui_prototypes/yuhuang_mobile_v1/home.html',
+  });
+  const secureHomeUrl = new URL(
+    secureCallRuntime.ids.callReturnButton.attributes.get('href')
+  );
+  assert.equal(secureHomeUrl.protocol, 'https:');
+  assert.equal(secureHomeUrl.hostname, 'example.com');
+
+  const invalidReturnUrls = [
+    'https://evil.example/ui_prototypes/yuhuang_mobile_v1/home.html',
+    'javascript:alert(1)',
+    'data:text/html,invalid',
+    'file:///ui_prototypes/yuhuang_mobile_v1/home.html',
+    'http://user:password@127.0.0.1:18765'
+      + '/ui_prototypes/yuhuang_mobile_v1/home.html',
+    'http://127.0.0.1:18765/not-the-home-page.html',
+    'http://127.0.0.1:18765'
+      + '/ui_prototypes/yuhuang_mobile_v1/home.html?source=call',
+    'http://127.0.0.1:18765'
+      + '/ui_prototypes/yuhuang_mobile_v1/home.html#account',
+    'not a valid URL',
+  ];
+  for (const returnUrl of invalidReturnUrls) {
+    const runtime = createCallRuntime(null, { returnUrl });
+    assert.equal(
+      runtime.ids.callReturnButton.attributes.has('href'),
+      false
+    );
+    assert.equal(
+      runtime.ids.callIdentityEntry.attributes.has('href'),
+      false
+    );
+    assert.equal(
+      runtime.ids.callReturnButton.attributes.get('aria-disabled'),
+      'true'
+    );
+    assert.equal(
+      runtime.ids.callIdentityEntry.attributes.get('aria-disabled'),
+      'true'
+    );
+    assert.equal(
+      runtime.ids.callReturnButton.attributes.get('tabindex'),
+      '-1'
+    );
+    assert.equal(
+      runtime.ids.callIdentityEntry.attributes.get('tabindex'),
+      '-1'
+    );
+    assert.equal(
+      runtime.ids.callStatusText.textContent,
+      '无法确定首页地址，请从首页重新进入通话'
+    );
+    runtime.ids.callReturnButton.click();
+    runtime.ids.callIdentityEntry.click();
+    assert.equal(runtime.locationAssignments.length, 0);
+  }
+
+  const missingReturnUrlRuntime = createCallRuntime(null, {
+    returnUrl: null,
+  });
+  assert.equal(
+    missingReturnUrlRuntime.ids.callReturnButton.attributes.has('href'),
+    false
+  );
+  assert.equal(
+    missingReturnUrlRuntime.ids.callStatusText.textContent,
+    '无法确定首页地址，请从首页重新进入通话'
+  );
+
+  const referrerRuntime = createCallRuntime(null, {
+    referrer:
+      'http://127.0.0.1:18765/ui_prototypes/yuhuang_mobile_v1/home.html',
+    returnUrl: null,
+  });
+  assert.equal(
+    new URL(
+      referrerRuntime.ids.callReturnButton.attributes.get('href')
+    ).port,
+    '18765'
+  );
+
+  const missingApiRuntime = createCallRuntime('sunwukong', {
+    callPageUrl: 'http://127.0.0.1:3001/',
+    realtimeApiAvailable: false,
+    returnUrl:
+      'http://127.0.0.1:18765/ui_prototypes/yuhuang_mobile_v1/home.html',
+  });
+  assert.equal(
+    missingApiRuntime.ids.callReturnButton.attributes.get('href'),
+    'http://127.0.0.1:18765'
+      + '/ui_prototypes/yuhuang_mobile_v1/home.html'
+  );
+  assert.equal(
+    missingApiRuntime.ids.callIdentityEntry.attributes.get('href'),
+    'http://127.0.0.1:18765'
+      + '/ui_prototypes/yuhuang_mobile_v1/index.html'
+  );
+  assert.equal(missingApiRuntime.ids.callPrimaryButton.disabled, true);
+  assert.equal(
+    missingApiRuntime.ids.callStatusText.textContent,
+    '通话组件加载失败，可返回首页后重新进入'
+  );
+  assert.equal(missingApiRuntime.subscriptions.length, 0);
+  assert.deepEqual(missingApiRuntime.apiCounts, {
+    connect: 0,
+    disconnect: 0,
+    startAudio: 0,
+    warmupPlayback: 0,
+  });
 }
 
 function verifyUnavailableCharacters() {
@@ -976,6 +1244,7 @@ function verifyStaticSafetyAndCurrentUi() {
   const homeJs = fs.readFileSync(HOME_JS_PATH, 'utf8');
   const authHtml = fs.readFileSync(AUTH_HTML_PATH, 'utf8');
   const authJs = fs.readFileSync(AUTH_JS_PATH, 'utf8');
+  const callHtml = fs.readFileSync(CALL_HTML_PATH, 'utf8');
   const callJs = fs.readFileSync(CALL_JS_PATH, 'utf8');
   const micJs = fs.readFileSync(MIC_JS_PATH, 'utf8');
 
@@ -989,7 +1258,32 @@ function verifyStaticSafetyAndCurrentUi() {
   assert.match(homeJs, /new Set\(\[/);
   assert.doesNotMatch(homeJs, /function warmCharacterImages/);
 
-  assert.match(callJs, /ui_prototypes\/yuhuang_mobile_v1\/home\.html/);
+  assert.match(homeJs, /function buildRealtimeNavigationUrl\(/);
+  assert.match(callJs, /function resolveReturnHomeUrl\(/);
+  assert.match(callJs, /function validateReturnHomeUrl\(/);
+  assert.match(callHtml, /id="callReturnButton"/);
+  assert.match(callHtml, /data-return-navigation/);
+  assert.match(callHtml, /id="callIdentityEntry"/);
+  assert.match(
+    callHtml,
+    /id="callReturnButton"[\s\S]{0,240}aria-disabled="true"[\s\S]{0,80}tabindex="-1"/
+  );
+  assert.match(
+    callHtml,
+    /id="callIdentityEntry"[\s\S]{0,240}aria-disabled="true"[\s\S]{0,80}tabindex="-1"/
+  );
+  assert.match(
+    callHtml,
+    /<noscript>[\s\S]*?<p role="alert">[\s\S]*?此通话页面需要启用 JavaScript，请返回首页后重新进入。[\s\S]*?<\/noscript>/
+  );
+  assert.doesNotMatch(
+    callHtml,
+    /href="\/ui_prototypes\/yuhuang_mobile_v1\/(?:home|index)\.html"/
+  );
+  assert.doesNotMatch(
+    `${homeJs}\n${callHtml}\n${callJs}`,
+    /(?:127\.0\.0\.1|localhost):(?:8765|18765)/
+  );
   assert.match(
     micJs,
     /characterKey: resolveRequestedCharacterKey\(\)/
@@ -1027,6 +1321,7 @@ async function main() {
   await verifyHomeConfigurationAndPreloading();
   await verifySwipeAndImageSafety();
   await verifyCallPagesAndRestart();
+  await verifyReturnUrlNavigation();
   await verifyMicReconnectCharacterKey();
   verifyUnavailableCharacters();
 
@@ -1036,7 +1331,7 @@ async function main() {
     'verified=auth-entry,home-guard,account-profile,recharge-gate,'
       + 'swipe-only,trusted-urls,adjacent-preload,39px,41px,'
       + 'vertical-swipe,overlay-lock,image-failure,race-safety,call-states,'
-      + 'ended,restart,new-websocket,current-character-hello,'
+      + 'ended,restart,return-url-navigation,new-websocket,current-character-hello,'
       + 'unavailable-keys,fixed-custom-wechat-alipay-refresh-balance\n'
   );
 }
