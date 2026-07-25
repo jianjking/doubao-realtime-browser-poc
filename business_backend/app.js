@@ -5,6 +5,7 @@ const { PUBLIC_ROLES } = require('./config/public_roles');
 const { createRequireSession } = require('./middleware/require_session');
 const { createAccountRouter } = require('./routes/account_routes');
 const { createAuthRouter } = require('./routes/auth_routes');
+const { createCallRouter } = require('./routes/call_routes');
 const { healthRouter } = require('./routes/health_routes');
 const { createRoleRouter } = require('./routes/role_routes');
 const {
@@ -12,11 +13,13 @@ const {
   maskChineseMobile,
 } = require('./services/auth_service');
 const { createAccountService } = require('./services/account_service');
+const { createCallService } = require('./services/call_service');
 const { createRoleService } = require('./services/role_service');
 const { createSessionService } = require('./services/session_service');
 const {
   MemoryAccountStore,
 } = require('./stores/memory_account_store');
+const { MemoryCallStore } = require('./stores/memory_call_store');
 const {
   MemorySessionStore,
 } = require('./stores/memory_session_store');
@@ -26,6 +29,7 @@ function createApp(options = {}) {
   const sessionStore = new MemorySessionStore();
   const userStore = new MemoryUserStore();
   const accountStore = new MemoryAccountStore();
+  const callStore = new MemoryCallStore();
   const roleService = createRoleService({ roles: PUBLIC_ROLES });
   const sessionService = createSessionService({
     sessionStore,
@@ -47,6 +51,12 @@ function createApp(options = {}) {
     idGenerator: options.idGenerator,
     developmentVerificationCode: options.developmentVerificationCode,
   });
+  const callService = createCallService({
+    callStore,
+    roleService,
+    clock: options.clock,
+    idGenerator: options.callIdGenerator,
+  });
   const requireSession = createRequireSession({ sessionService });
   const app = express();
 
@@ -61,12 +71,26 @@ function createApp(options = {}) {
     maskChineseMobile,
     accountService,
   }));
-  app.use((error, _request, response, next) => {
+  app.use('/api', createCallRouter({
+    requireSession,
+    userStore,
+    accountService,
+    callService,
+  }));
+  app.use((error, request, response, next) => {
     if (error && error.type === 'entity.parse.failed') {
+      const isCallRequest = (
+        request.method === 'POST'
+        && request.path === '/api/calls'
+      );
       response.status(400).json({
         error: {
-          code: 'INVALID_LOGIN_REQUEST',
-          message: 'Phone and verification code are required',
+          code: isCallRequest
+            ? 'INVALID_CALL_REQUEST'
+            : 'INVALID_LOGIN_REQUEST',
+          message: isCallRequest
+            ? 'A valid roleSlug is required'
+            : 'Phone and verification code are required',
         },
       });
       return;
