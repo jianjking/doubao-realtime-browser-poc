@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="基于传统文化 IP 的老龄化多模态陪伴系统静态界面原型">
+  <title>传统文化智慧陪伴｜玉皇大帝</title>
+  <link rel="stylesheet" href="./ui.css">
+</head>
+<body>
+  <div class="sky-decoration sky-decoration-left" aria-hidden="true">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
+  <div class="sky-decoration sky-decoration-right" aria-hidden="true">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
+
+  <header class="site-header">
+    <div class="page-shell brand-bar">
+      <span class="cloud-mark" aria-hidden="true"><i></i></span>
+      <p class="brand-name">传统文化智慧陪伴</p>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="character-card" aria-labelledby="character-name">
+      <div class="character-portrait">
+        <span class="portrait-halo" aria-hidden="true"></span>
+        <img src="./assets/yuhuang_emperor_cloud_v2.png" alt="云海中的玉皇大帝慈祥庄重的半身角色形象" width="1122" height="1402">
+      </div>
+
+      <div class="character-copy">
+        <p class="section-kicker">今日陪伴角色</p>
+        <h1 id="character-name">玉皇大帝</h1>
+        <p class="character-summary">陪您聊聊天，听您讲讲心里话</p>
+        <p class="speaking-note">
+          <span class="note-mark" aria-hidden="true">言</span>
+          <span><strong>说话很简单：</strong>您可以直接说话，我回答时也可以随时插话。</span>
+        </p>
+      </div>
+    </section>
+
+    <section class="status-panel" role="status" aria-live="polite" aria-labelledby="current-status">
+      <p class="status-label">当前状态</p>
+      <div class="status-icon" aria-hidden="true">
+        <span class="status-icon-core">候</span>
+      </div>
+      <h2 id="current-status">准备好后，点击开始陪伴</h2>
+      <p>开始后，您不用按住按钮，直接说话即可。</p>
+    </section>
+
+    <section class="actions-panel" aria-label="陪伴操作">
+      <button class="button button-primary" type="button">
+        <span class="button-symbol button-symbol-play" aria-hidden="true"></span>
+        <span>开始陪伴</span>
+      </button>
+      <button class="button button-secondary" type="button" disabled aria-describedby="stop-button-help">
+        <span class="button-symbol button-symbol-stop" aria-hidden="true"></span>
+        <span>停止陪伴</span>
+        <small id="stop-button-help">尚未开始</small>
+      </button>
+    </section>
+
+    <section class="transcript-section" aria-labelledby="transcript-title">
+      <div class="section-heading">
+        <span class="heading-line" aria-hidden="true"></span>
+        <h2 id="transcript-title">刚才说的话</h2>
+        <span class="heading-line" aria-hidden="true"></span>
+      </div>
+
+      <div class="transcript-grid">
+        <article class="transcript-card user-transcript">
+          <div class="speaker-heading">
+            <span class="speaker-mark" aria-hidden="true">您</span>
+            <h3>您说</h3>
+          </div>
+          <p>今天天气不错，我想找个人说说话。</p>
+        </article>
+
+        <article class="transcript-card character-transcript">
+          <div class="speaker-heading">
+            <span class="speaker-mark" aria-hidden="true">玉</span>
+            <h3>玉皇大帝</h3>
+          </div>
+          <p>好啊，朕就在这里陪您慢慢聊。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="interrupt-tip" aria-labelledby="interrupt-title">
+      <div class="microphone-mark" aria-hidden="true">
+        <span></span>
+      </div>
+      <div>
+        <h2 id="interrupt-title">想说就直接说</h2>
+        <p>玉皇大帝说话时，您也可以直接开口。</p>
+        <p>系统听到后会停止原来的回答。</p>
+      </div>
+    </section>
+
+    <section class="error-example" aria-labelledby="error-title">
+      <p class="example-badge">异常提示示例</p>
+      <div class="error-layout">
+        <div class="error-mark" aria-hidden="true">!</div>
+        <div class="error-copy">
+          <h2 id="error-title">暂时没有连接成功</h2>
+          <p>请检查网络后，点击“重新尝试”。</p>
+        </div>
+        <button class="button button-retry" type="button">重新尝试</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="help-footer">
+    <div class="page-shell">
+      <h2>使用小提示</h2>
+      <ol class="help-list">
+        <li><span>1</span>说话时不用按住按钮</li>
+        <li><span>2</span>玉皇大帝回答时可以直接插话</li>
+        <li><span>3</span>点击停止陪伴即可结束</li>
+      </ol>
+      <p class="prototype-note">本页为界面样式展示，暂不提供真实陪伴功能。</p>
+    </div>
+  </footer>
+</body>
+</html>

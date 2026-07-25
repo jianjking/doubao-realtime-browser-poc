@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#481a20">
+  <title>玉皇大帝 · 实时通话</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./doubao_realtime.css">
+</head>
+<body>
+  <div
+    class="page-shell"
+    data-call-state="idle"
+    data-call-character-key="yuhuang"
+    aria-label="玉皇大帝实时通话页面"
+  >
+    <div class="scene-layer">
+      <img
+        class="scene-image"
+        data-call-character-image
+        src="./assets/characters/yuhuang/yuhuang-home-hero-v1.png"
+        alt="玉皇大帝角色主视觉"
+      >
+    </div>
+
+    <header class="topbar" aria-label="页面导航">
+      <a
+        id="callReturnButton"
+        class="return-home-link"
+        href="http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/index.html"
+        aria-label="返回首页"
+      >
+        <span class="back-mark" aria-hidden="true"></span>
+        <span>返回首页</span>
+      </a>
+    </header>
+
+    <main class="call-main">
+      <section
+        class="character-heading"
+        data-call-character-heading
+        aria-labelledby="pageTitle"
+      >
+        <p class="hero-kicker" data-call-character-location>
+          凌霄宝殿 · 实时陪伴
+        </p>
+        <h1 id="pageTitle" data-call-character-name>玉皇大帝</h1>
+        <p data-call-character-motto>端坐凌霄，听您慢慢说</p>
+      </section>
+
+      <section
+        class="call-console"
+        data-call-character-controls
+        aria-label="与玉皇大帝实时通话控制"
+      >
+        <p
+          id="callStatusText"
+          class="call-status-text"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          玉帝已准备好，轻触下方即可通话
+        </p>
+        <time id="callDuration" class="call-duration" datetime="PT0S">
+          00:00
+        </time>
+        <button
+          id="callPrimaryButton"
+          class="call-primary-button"
+          type="button"
+          aria-label="开始与玉皇大帝通话"
+        >
+          开始通话
+        </button>
+      </section>
+    </main>
+
+    <section
+      id="debugPanel"
+      class="debug-panel"
+      aria-labelledby="debugTitle"
+      hidden
+    >
+      <div class="debug-heading">
+        <p>仅供本地排查</p>
+        <h2 id="debugTitle">Realtime 调试控制</h2>
+      </div>
+
+      <div class="debug-statuses">
+        <p
+          id="connectionState"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          状态：未连接
+        </p>
+        <p
+          id="microphoneState"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          麦克风：未启动
+        </p>
+        <p
+          id="playbackState"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          播放：未开始
+        </p>
+        <p
+          id="turnState"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          当前对话：等待开始
+        </p>
+      </div>
+
+      <div class="debug-control-group" aria-label="连接控制">
+        <button id="connectButton" type="button">接通玉帝</button>
+        <button id="disconnectButton" type="button">断开连接</button>
+      </div>
+
+      <div class="debug-control-group" aria-label="麦克风控制">
+        <button
+          id="startMicrophoneButton"
+          type="button"
+          aria-label="开始与玉皇大帝通话"
+        >
+          开始麦克风
+        </button>
+        <button
+          id="stopMicrophoneButton"
+          type="button"
+          aria-label="停止实时通话"
+        >
+          停止麦克风
+        </button>
+      </div>
+
+      <div class="debug-log">
+        <h3>运行日志</h3>
+        <pre id="logOutput" aria-label="运行日志"></pre>
+      </div>
+    </section>
+  </div>
+
+  <script src="/doubao_mic_single_turn.js"></script>
+  <script src="/realtime_call_ui.js"></script>
+</body>
+</html>

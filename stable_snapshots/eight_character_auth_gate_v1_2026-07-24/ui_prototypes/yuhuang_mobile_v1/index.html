@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#481a20">
+  <title>登录 · 传统文化智慧陪伴</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./auth.css">
+</head>
+<body>
+  <main class="auth-page">
+    <div class="auth-ambient" aria-hidden="true">
+      <span class="auth-halo"></span>
+      <span class="auth-cloud auth-cloud-left"></span>
+      <span class="auth-cloud auth-cloud-right"></span>
+    </div>
+
+    <section class="auth-card" aria-labelledby="auth-title">
+      <header class="auth-header">
+        <div class="auth-emblem" aria-hidden="true">福</div>
+        <p class="auth-kicker">安心相伴 · 本地原型</p>
+        <h1 id="auth-title">传统文化智慧陪伴</h1>
+        <p class="auth-introduction">登录后可充值并保存账户状态<br>游客也可先进入体验</p>
+      </header>
+
+      <form class="phone-auth-form" novalidate>
+        <div class="auth-field">
+          <label for="phone-input">手机号</label>
+          <input
+            id="phone-input"
+            name="phone"
+            type="tel"
+            inputmode="numeric"
+            autocomplete="tel"
+            maxlength="11"
+            placeholder="请输入11位手机号"
+            aria-describedby="phone-error">
+          <p class="auth-field-error" id="phone-error" role="alert" hidden></p>
+        </div>
+
+        <div class="auth-field">
+          <label for="code-input">验证码</label>
+          <div class="code-input-row">
+            <input
+              id="code-input"
+              name="code"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              placeholder="请输入6位验证码"
+              aria-describedby="code-error demo-code-note">
+            <button class="send-code-button" type="button">发送验证码</button>
+          </div>
+          <p class="auth-field-error" id="code-error" role="alert" hidden></p>
+        </div>
+
+        <label class="consent-row">
+          <input class="consent-checkbox" type="checkbox">
+          <span>我已阅读并同意本地原型使用说明</span>
+        </label>
+        <p class="auth-field-error consent-error" role="alert" hidden>请先阅读并同意本地原型使用说明</p>
+
+        <button class="phone-login-button" type="submit">手机号登录／注册</button>
+      </form>
+
+      <div class="auth-separator" aria-hidden="true"><span>或</span></div>
+      <button class="guest-entry-button" type="button">以游客身份进入</button>
+
+      <aside class="prototype-note" id="demo-code-note">
+        <strong>演示说明</strong>
+        <p>当前为本地原型，验证码不会通过真实短信发送。</p>
+        <p>演示验证码：<span>123456</span></p>
+      </aside>
+
+      <p class="auth-status" role="status" aria-live="polite" aria-atomic="true"></p>
+    </section>
+  </main>
+  <script src="./auth.js"></script>
+</body>
+</html>

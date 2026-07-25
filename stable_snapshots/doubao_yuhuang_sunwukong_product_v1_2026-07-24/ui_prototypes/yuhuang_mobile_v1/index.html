@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#481a20">
+  <title>玉皇大帝 · 传统文化智慧陪伴</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./ui.css">
+</head>
+<body>
+  <div class="app-shell">
+    <div class="app-background" aria-hidden="true">
+      <span class="warm-halo"></span>
+      <span class="cloud-mist cloud-mist-back"></span>
+      <span class="cloud-mist cloud-mist-front"></span>
+    </div>
+
+    <div class="scene-layer">
+      <img
+        class="scene-image"
+        src="./assets/characters/yuhuang/yuhuang-home-hero-v1.png"
+        width="941"
+        height="1672"
+        alt="玉皇大帝角色主视觉"
+        draggable="false"
+        decoding="async"
+        fetchpriority="high">
+    </div>
+
+    <header class="top-controls">
+      <h1 class="visually-hidden">玉皇大帝 · 传统文化智慧陪伴</h1>
+      <button
+        class="character-switch"
+        type="button"
+        aria-label="切换陪伴角色，当前仙伴玉皇大帝"
+        aria-controls="character-picker"
+        aria-expanded="false">
+        <span class="character-switch-copy">
+          <small>当前仙伴</small>
+          <strong>玉皇大帝</strong>
+        </span>
+        <span class="character-switch-action">
+          <span>切换</span>
+          <span aria-hidden="true">⌄</span>
+        </span>
+      </button>
+
+      <button
+        class="time-recharge-entry"
+        type="button"
+        aria-label="当前话费12.50元，进入话费充值"
+        aria-controls="recharge-panel"
+        aria-expanded="false">
+        <span class="time-entry-summary">
+          <span>当前话费</span>
+          <span data-current-credit>12.50元</span>
+        </span>
+        <strong>充值</strong>
+      </button>
+    </header>
+
+    <nav class="side-actions side-actions-left" aria-label="使用帮助">
+      <button class="side-action" type="button" aria-label="查看使用说明" data-action="guide">
+        <span class="side-icon icon-guide" aria-hidden="true"></span>
+        <span>使用说明</span>
+      </button>
+    </nav>
+
+    <nav class="side-actions side-actions-right" aria-label="陪伴功能">
+      <button class="side-action" type="button" aria-label="查看文化内容" data-action="culture">
+        <span class="side-icon icon-culture" aria-hidden="true"></span>
+        <span>文化内容</span>
+      </button>
+      <button class="side-action" type="button" aria-label="分享陪伴" data-action="share">
+        <span class="side-icon icon-share" aria-hidden="true"></span>
+        <span>分享陪伴</span>
+      </button>
+    </nav>
+
+    <main class="home-main">
+      <section class="character-stage" aria-label="玉皇大帝角色主视觉" data-current-character-key="yuhuang">
+        <p class="character-motto">端坐凌霄，听您慢慢说</p>
+        <p class="swipe-hint">
+          <span class="swipe-hint-icon swipe-hint-icon-left" aria-hidden="true">←</span>
+          <span>左右滑可切换角色</span>
+          <span class="swipe-hint-icon swipe-hint-icon-right" aria-hidden="true">→</span>
+        </p>
+      </section>
+
+      <section class="status-caption" role="status" aria-live="polite" aria-atomic="true">
+        <h2 data-character-ready-text>玉帝已准备好，轻触下方即可通话</h2>
+        <p data-character-status-detail>启用后，您只管开口，无需按住</p>
+      </section>
+
+      <section class="call-control" aria-label="开始与玉皇大帝通话">
+        <button class="call-button" type="button" aria-label="开始与玉皇大帝通话">
+          <span class="voice-icon" aria-hidden="true"></span>
+          <span class="visually-hidden call-button-label">开始通话</span>
+        </button>
+        <p>开始通话</p>
+      </section>
+
+      <section class="bottom-guidance" aria-label="使用提示">
+        <p class="usage-fee-note">话费用于与角色进行语音通话</p>
+      </section>
+    </main>
+
+    <section
+      class="character-picker prototype-overlay"
+      id="character-picker"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      hidden
+      aria-labelledby="character-picker-title">
+      <div class="overlay-card">
+        <header class="overlay-header">
+          <div>
+            <h2 id="character-picker-title">选择陪伴角色</h2>
+            <p>选一位喜欢的角色陪您通话</p>
+          </div>
+          <button class="overlay-close" type="button" aria-label="关闭角色选择" data-close-overlay>关闭</button>
+        </header>
+
+        <div class="role-list">
+          <button class="role-card is-current" type="button" aria-current="true" data-character-key="yuhuang">
+            <span class="role-copy">
+              <strong></strong>
+              <span></span>
+            </span>
+            <span class="role-status"></span>
+          </button>
+
+          <button class="role-card" type="button" data-character-key="sunwukong">
+            <span class="role-copy">
+              <strong></strong>
+              <span></span>
+            </span>
+            <span class="role-status"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section
+      class="recharge-panel prototype-overlay"
+      id="recharge-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      hidden
+      aria-labelledby="recharge-panel-title">
+      <div class="overlay-card">
+        <header class="overlay-header">
+          <div>
+            <h2 id="recharge-panel-title">话费充值</h2>
+            <p>选择充值金额和支付方式</p>
+          </div>
+          <button class="overlay-close" type="button" aria-label="关闭话费充值" data-close-overlay>关闭</button>
+        </header>
+
+        <div class="recharge-scroll-content">
+          <section class="overlay-account-summary" aria-label="当前话费">
+            <p>
+              <span>当前话费</span>
+              <strong data-current-credit>12.50元</strong>
+            </p>
+          </section>
+
+          <section class="recharge-amounts" aria-labelledby="recharge-amounts-title">
+            <h3 id="recharge-amounts-title">充值金额</h3>
+            <div class="package-grid" aria-label="选择充值金额">
+              <button class="package-option is-selected" type="button" data-package-mode="preset" data-package-amount="10元" data-package-value="10" aria-pressed="true">
+                <strong>10元</strong>
+                <span>约30分钟</span>
+                <small class="selection-status">已选</small>
+              </button>
+              <button class="package-option" type="button" data-package-mode="preset" data-package-amount="20元" data-package-value="20" aria-pressed="false">
+                <strong>20元</strong>
+                <span>约70分钟</span>
+                <small class="selection-status">选择</small>
+              </button>
+              <button class="package-option" type="button" data-package-mode="preset" data-package-amount="50元" data-package-value="50" aria-pressed="false">
+                <strong>50元</strong>
+                <span>约200分钟</span>
+                <small class="selection-status">选择</small>
+              </button>
+              <button class="package-option custom-amount-option" type="button" data-package-mode="custom" aria-pressed="false" aria-controls="custom-amount-field">
+                <strong>任意金额</strong>
+                <span>1至999元</span>
+                <small class="selection-status">选择</small>
+              </button>
+            </div>
+            <div class="custom-amount-field" id="custom-amount-field" hidden>
+              <label for="custom-amount-input">请输入充值金额</label>
+              <div class="custom-amount-input-shell">
+                <span aria-hidden="true">¥</span>
+                <input
+                  class="custom-amount-input"
+                  id="custom-amount-input"
+                  type="number"
+                  min="1"
+                  max="999"
+                  step="0.01"
+                  required
+                  inputmode="decimal"
+                  placeholder="1至999元"
+                  aria-describedby="custom-amount-help custom-amount-error">
+              </div>
+              <p id="custom-amount-help">最低1元，最高999元，最多两位小数</p>
+              <p class="custom-amount-error" id="custom-amount-error" role="alert" hidden>请输入1至999元之间的金额</p>
+            </div>
+          </section>
+
+          <p class="package-note">实际可用时长以充值页面说明为准</p>
+
+          <section class="payment-methods" aria-labelledby="payment-methods-title">
+            <h3 id="payment-methods-title">支付方式</h3>
+            <div class="payment-options" role="radiogroup" aria-label="选择支付方式">
+              <button class="payment-option is-selected" type="button" role="radio" aria-checked="true" data-payment-method="wechat" data-payment-name="微信支付">
+                <img class="payment-icon" src="./assets/payment/wechat-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
+                <span class="payment-name">微信支付</span>
+                <small class="selection-status">已选</small>
+              </button>
+              <button class="payment-option" type="button" role="radio" aria-checked="false" data-payment-method="alipay" data-payment-name="支付宝支付">
+                <img class="payment-icon" src="./assets/payment/alipay-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
+                <span class="payment-name">支付宝支付</span>
+                <small class="selection-status">选择</small>
+              </button>
+            </div>
+            <p class="payment-demo-note">当前为支付功能演示，不会产生真实扣款</p>
+          </section>
+        </div>
+
+        <div class="recharge-actions">
+          <p class="recharge-selection-summary" aria-live="polite">
+            本次充值：10元 · 微信支付（演示）
+          </p>
+          <button class="recharge-confirm" type="button">立即充值</button>
+          <p class="recharge-result" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <div class="ui-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+  </div>
+  <script src="./ui.js"></script>
+</body>
+</html>

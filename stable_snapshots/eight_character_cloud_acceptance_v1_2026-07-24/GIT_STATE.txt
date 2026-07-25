@@ -1,0 +1,35 @@
+阶段 9.2A / 9.2B Git 仓库边界记录
+date=2026-07-24
+
+当前项目没有独立 Git 仓库。
+
+项目目录：
+C:\Users\xiaob\Desktop\梦\realtime_web_poc\doubao_realtime_browser_poc
+
+项目目录中不存在 .git。
+
+Git 向上识别到的父仓库：
+C:\Users\xiaob\Desktop\梦
+
+当前项目在父仓库中整体未跟踪：
+?? realtime_web_poc/doubao_realtime_browser_poc/
+
+git ls-files 对本项目返回 0 个已跟踪文件。
+
+因此父仓库的分支、HEAD、remote 及其他文件状态，
+不作为本项目稳定快照的版本依据。
+
+本快照使用文件 SHA-256、旧快照完整性校验、
+配置审计和自动测试作为稳定性依据。
+
+以下父仓库事实仅作环境说明，不是本项目版本基线：
+
+父仓库分支：master
+父仓库 HEAD：6b6675abfe7e671977473e5cd7679f4e532e4480
+父仓库 remote：origin https://gitee.com/sunshaozhen/Ca.git
+父仓库远程分支：origin/master
+origin/main：不存在
+
+本轮未执行 git init、git add、git commit、git push、
+git reset、git restore、git checkout 或 git clean。
+

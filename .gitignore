@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+*.pid.lock
+
+# Test and browser generated output
+.playwright-cli/
+playwright-report/
+test-results/
+coverage/
+.cache/
+dist/
+build/
+
+output/asset_candidates/
+output/imagegen/
+output/playwright/*
+!output/playwright/eight_character_auth_gate/
+!output/playwright/eight_character_auth_gate/**
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary audio and media output
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*~
+*.swp
+*.pcm
+*.raw

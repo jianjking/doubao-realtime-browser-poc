@@ -1,0 +1,33 @@
+# Normalize ordinary project text to LF
+* text=auto eol=lf
+
+# Stable snapshots are immutable byte-for-byte audit artifacts.
+# Do not apply text or end-of-line conversion inside this directory.
+stable_snapshots/** -text -eol
+
+# Binary images and media
+*.png -text -eol
+*.jpg -text -eol
+*.jpeg -text -eol
+*.webp -text -eol
+*.gif -text -eol
+*.ico -text -eol
+*.bmp -text -eol
+*.wav -text -eol
+*.mp3 -text -eol
+*.mp4 -text -eol
+*.webm -text -eol
+*.mov -text -eol
+
+# Binary archives and design assets
+*.zip -text -eol
+*.7z -text -eol
+*.rar -text -eol
+*.fig -text -eol
+*.pdf -text -eol
+
+# Binary fonts
+*.ttf -text -eol
+*.otf -text -eol
+*.woff -text -eol
+*.woff2 -text -eol
