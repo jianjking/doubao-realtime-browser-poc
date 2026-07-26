@@ -37,6 +37,9 @@ const DEFAULT_IDENTITY_ENTRY_URL = new URL(
   IDENTITY_ENTRY_PATH,
   DEFAULT_HOME_URL
 ).href;
+const INVALID_BUSINESS_CALL_ID_MESSAGE =
+  '通话信息无效，请返回首页重新进入。';
+let businessCallIdScenarioCount = 0;
 
 const UI_MATRIX = Object.freeze([
   {
@@ -569,7 +572,12 @@ async function verifyMicReconnectCharacterKey() {
   const source = originalSource.replace(
     "publishRealtimeCallState('idle');",
     "publishRealtimeCallState('idle');\n"
-      + 'globalThis.__micTest = { connectRelay };'
+      + `globalThis.__micTest = {
+        connectRelay,
+        setActiveProductCallId(callId) {
+          activeProductCallId = callId;
+        },
+      };`
   );
 
   for (const expected of UI_MATRIX) {
@@ -635,10 +643,12 @@ async function verifyMicReconnectCharacterKey() {
     const search = expected.key === 'yuhuang'
       ? ''
       : `?characterKey=${expected.key}`;
+    const pageUrl = new URL(search, CALL_URL);
     const window = {
       addEventListener() {},
       clearTimeout,
       location: {
+        href: pageUrl.href,
         search,
       },
       setTimeout,
@@ -648,6 +658,7 @@ async function verifyMicReconnectCharacterKey() {
       Blob,
       Element: FakeElement,
       Int16Array,
+      URL,
       URLSearchParams,
       WebSocket: FakeWebSocket,
       clearTimeout,
@@ -678,6 +689,11 @@ async function verifyMicReconnectCharacterKey() {
       client: 'doubao-browser-poc',
       characterKey: expected.key,
     });
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(firstSocket.sent[0], 'callId'),
+      false
+    );
+    businessCallIdScenarioCount += 1;
 
     firstSocket.close(1000, 'local test complete');
     await wait();
@@ -697,6 +713,193 @@ async function verifyMicReconnectCharacterKey() {
       client: 'doubao-browser-poc',
       characterKey: expected.key,
     });
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(secondSocket.sent[0], 'callId'),
+      false
+    );
+    businessCallIdScenarioCount += 1;
+
+    secondSocket.close(1000, 'local test complete');
+    await wait();
+
+    if (expected.key === 'yuhuang' || expected.key === 'sunwukong') {
+      const businessCallId = expected.key === 'yuhuang'
+        ? 'call-123'
+        : 'call-业务/片?%';
+      const businessSearch = expected.key === 'yuhuang'
+        ? '?callId=call-123'
+        : '?characterKey=sunwukong'
+          + '&callId=call-%E4%B8%9A%E5%8A%A1%2F%E7%89%87%3F%25';
+      const businessPageUrl = new URL(businessSearch, CALL_URL);
+      window.location.href = businessPageUrl.href;
+      window.location.search = businessPageUrl.search;
+      const localCallId = 37;
+      context.__micTest.setActiveProductCallId(localCallId);
+      const result = await context.__micTest.connectRelay({
+        callId: localCallId,
+      });
+      assert.equal(result.status, 'created');
+      assert.equal(result.callId, localCallId);
+      assert.equal(sockets.length, 3);
+      const businessSocket = sockets[2];
+      businessSocket.readyState = FakeWebSocket.OPEN;
+      businessSocket.emit('message', {
+        data: JSON.stringify({
+          type: 'relay.ready',
+          version: 'local-fake',
+        }),
+      });
+      assert.deepEqual(businessSocket.sent[0], {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: expected.key,
+        callId: businessCallId,
+      });
+      assert.notEqual(businessSocket.sent[0].callId, localCallId);
+      businessCallIdScenarioCount += 1;
+
+      if (expected.key === 'yuhuang') {
+        const invalidActiveUrl = new URL(CALL_URL);
+        const invalidActiveCallId = 'bad\u0085id';
+        invalidActiveUrl.searchParams.set('callId', invalidActiveCallId);
+        window.location.href = invalidActiveUrl.href;
+        window.location.search = invalidActiveUrl.search;
+        const socketCountBefore = sockets.length;
+        const sentCountBefore = businessSocket.sent.length;
+        const turnStateBefore = elements.get('turnState').textContent;
+        const snapshotBefore = window.DoubaoRealtimeCall.getSnapshot();
+        const activeResult = await context.__micTest.connectRelay({
+          callId: localCallId,
+        });
+        businessCallIdScenarioCount += 1;
+        assert.equal(activeResult.status, 'already-active');
+        assert.equal(activeResult.socket, businessSocket);
+        assert.equal(activeResult.callId, localCallId);
+        assert.equal(sockets.length, socketCountBefore);
+        assert.equal(businessSocket.sent.length, sentCountBefore);
+        assert.equal(
+          elements.get('turnState').textContent,
+          turnStateBefore
+        );
+        assert.equal(
+          window.DoubaoRealtimeCall.getSnapshot(),
+          snapshotBefore
+        );
+        assert.equal(
+          elements.get('logOutput').textContent.includes(
+            invalidActiveCallId
+          ),
+          false
+        );
+      }
+
+      businessSocket.close(1000, 'local business call test complete');
+      await wait();
+      continue;
+    }
+
+    const c1InvalidCallIds = [
+      `bad${String.fromCharCode(0x80)}id`,
+      `bad${String.fromCharCode(0x85)}id`,
+      `bad${String.fromCharCode(0x9f)}id`,
+    ];
+    const invalidSearches = {
+      guanyin: [{
+        search: '?characterKey=guanyin&callId=call-A&callId=call-B',
+        unsafeFragments: ['call-A', 'call-B'],
+      }],
+      caishen: [{
+        search: '?characterKey=caishen&callId=',
+        unsafeFragments: [],
+      }],
+      rulai: [{
+        search: '?characterKey=rulai&callId=%20%20',
+        unsafeFragments: [],
+      }],
+      zhubajie: [
+        {
+          search: '?characterKey=zhubajie&callId=%20abc',
+          unsafeFragments: ['abc'],
+        },
+        {
+          search: '?characterKey=zhubajie&callId=abc%20',
+          unsafeFragments: ['abc'],
+        },
+      ],
+      shawujing: [{
+        search: `?characterKey=shawujing&callId=${'x'.repeat(129)}`,
+        unsafeFragments: ['x'.repeat(129)],
+      }],
+      tangseng: [
+        {
+          search: '?characterKey=tangseng&callId=bad%00id',
+          unsafeFragments: ['bad', 'id'],
+        },
+        {
+          search: '?characterKey=tangseng&callId=bad%1Fid',
+          unsafeFragments: ['bad', 'id'],
+        },
+        {
+          search: '?characterKey=tangseng&callId=bad%7Fid',
+          unsafeFragments: ['bad', 'id'],
+        },
+        ...c1InvalidCallIds.map((callId) => ({
+          callId,
+          unsafeFragments: [callId],
+        })),
+      ],
+    };
+
+    for (const scenario of invalidSearches[expected.key]) {
+      const invalidPageUrl = scenario.callId === undefined
+        ? new URL(scenario.search, CALL_URL)
+        : new URL(CALL_URL);
+      if (scenario.callId !== undefined) {
+        invalidPageUrl.searchParams.set('characterKey', expected.key);
+        invalidPageUrl.searchParams.set('callId', scenario.callId);
+      }
+      window.location.href = invalidPageUrl.href;
+      window.location.search = invalidPageUrl.search;
+      const socketCountBefore = sockets.length;
+      const result = await context.__micTest.connectRelay();
+      businessCallIdScenarioCount += 1;
+      assert.equal(result.status, 'invalid-business-call-id');
+      assert.equal(result.socket, null);
+      assert.equal(result.message, INVALID_BUSINESS_CALL_ID_MESSAGE);
+      assert.equal(sockets.length, socketCountBefore);
+      assert.equal(
+        elements.get('turnState').textContent,
+        `当前对话：${INVALID_BUSINESS_CALL_ID_MESSAGE}`
+      );
+      assert.ok(
+        elements.get('logOutput').textContent.includes(
+          INVALID_BUSINESS_CALL_ID_MESSAGE
+        )
+      );
+      for (const unsafeFragment of scenario.unsafeFragments) {
+        assert.equal(
+          elements.get('logOutput').textContent.includes(unsafeFragment),
+          false
+        );
+      }
+    }
+  }
+}
+
+function verifyBrowserLifecycleBoundary() {
+  const browserSource = fs.readFileSync(MIC_JS_PATH, 'utf8');
+  const forbiddenPatterns = [
+    /internal_call_lifecycle_client/,
+    /relay_internal_call_lifecycle_bootstrap/,
+    /\bmarkConnecting\s*\(/,
+    /\bmarkActive\s*\(/,
+    /\bmarkEnded\s*\(/,
+    /\bmarkFailed\s*\(/,
+    /\bBUSINESS_INTERNAL_API_TOKEN\b/,
+    /\bBUSINESS_BACKEND_INTERNAL_BASE_URL\b/,
+  ];
+  for (const pattern of forbiddenPatterns) {
+    assert.doesNotMatch(browserSource, pattern);
   }
 }
 
@@ -1316,6 +1519,7 @@ function verifyStaticSafetyAndCurrentUi() {
 }
 
 async function main() {
+  verifyBrowserLifecycleBoundary();
   verifyStaticSafetyAndCurrentUi();
   verifyAuthGateAndRechargeRegression();
   await verifyHomeConfigurationAndPreloading();
@@ -1332,7 +1536,11 @@ async function main() {
       + 'swipe-only,trusted-urls,adjacent-preload,39px,41px,'
       + 'vertical-swipe,overlay-lock,image-failure,race-safety,call-states,'
       + 'ended,restart,return-url-navigation,new-websocket,current-character-hello,'
-      + 'unavailable-keys,fixed-custom-wechat-alipay-refresh-balance\n'
+      + 'business-call-id-url,unavailable-keys,'
+      + 'fixed-custom-wechat-alipay-refresh-balance,lifecycle-boundary\n'
+  );
+  process.stdout.write(
+    `businessCallIdScenarios=${businessCallIdScenarioCount}\n`
   );
 }
 

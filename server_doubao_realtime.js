@@ -121,9 +121,23 @@ const BROWSER_AUDIO_STATS_INTERVAL = 25;
 const UPSTREAM_AUDIO_MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const TTS_PCM_SAMPLE_RATE = 24000;
 const BROWSER_TTS_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+const BUSINESS_CALL_ID_MAX_LENGTH = 128;
+const INVALID_BUSINESS_CALL_ID_MESSAGE =
+  'Invalid business call identifier';
+const CONFLICTING_BROWSER_HELLO_MESSAGE =
+  'Conflicting browser.hello';
 
 function log(message) {
   console.log(`${new Date().toISOString()} ${message}`);
+}
+
+function isValidBusinessCallId(value) {
+  return typeof value === 'string'
+    && value.length >= 1
+    && value.length <= BUSINESS_CALL_ID_MAX_LENGTH
+    && value.trim() === value
+    && value.trim() !== ''
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
 }
 
 function isProtocolDebugEnabled() {
@@ -1915,18 +1929,35 @@ function handleBrowserMessage(context, rawData) {
     && message.type === 'browser.hello'
     && message.client === 'doubao-browser-poc') {
     log('[Relay] 收到 browser.hello');
-    if (context.characterResolved) {
-      log('[Relay] 已忽略重复 browser.hello，保持首次确认的角色');
+
+    const hasBusinessCallId = Object.prototype.hasOwnProperty.call(
+      message,
+      'callId'
+    );
+    if (hasBusinessCallId && !isValidBusinessCallId(message.callId)) {
+      log('[Relay] browser.hello 包含非法业务通话标识');
       sendJson(context.browserSocket, {
-        type: 'relay.hello_ack',
-        received: true,
+        type: 'relay.error',
+        message: INVALID_BUSINESS_CALL_ID_MESSAGE,
       });
       return;
     }
+    const candidateBusinessCallId = hasBusinessCallId
+      ? message.callId
+      : null;
 
     const rawCharacterKey = Object.hasOwn(message, 'characterKey')
       ? message.characterKey
       : MISSING_CHARACTER_KEY;
+    if (context.characterResolved
+      && rawCharacterKey === MISSING_CHARACTER_KEY) {
+      log('[Relay] 重复 browser.hello 与首次握手冲突');
+      sendJson(context.browserSocket, {
+        type: 'relay.error',
+        message: CONFLICTING_BROWSER_HELLO_MESSAGE,
+      });
+      return;
+    }
     let characterConfig;
     try {
       characterConfig = resolveCharacterConfig(rawCharacterKey);
@@ -1943,10 +1974,29 @@ function handleBrowserMessage(context, rawData) {
       return;
     }
 
+    if (context.characterResolved) {
+      if (characterConfig.key !== context.characterKey
+        || candidateBusinessCallId !== context.businessCallId) {
+        log('[Relay] 重复 browser.hello 与首次握手冲突');
+        sendJson(context.browserSocket, {
+          type: 'relay.error',
+          message: CONFLICTING_BROWSER_HELLO_MESSAGE,
+        });
+        return;
+      }
+      log('[Relay] 已确认幂等重复 browser.hello');
+      sendJson(context.browserSocket, {
+        type: 'relay.hello_ack',
+        received: true,
+      });
+      return;
+    }
+
     context.characterKey = characterConfig.key;
     context.characterDisplayName = characterConfig.displayName;
     context.characterSystemPrompt = characterConfig.systemPrompt;
     context.speakerId = characterConfig.speakerId;
+    context.businessCallId = candidateBusinessCallId;
     context.characterResolved = true;
     sendJson(context.browserSocket, {
       type: 'relay.hello_ack',
@@ -2147,6 +2197,7 @@ function handleBrowserConnection(socket, request, contexts) {
   const remoteAddress = request.socket.remoteAddress || 'unknown';
   const context = {
     browserSocket: socket,
+    businessCallId: null,
     upstreamSocket: undefined,
     sessionId: undefined,
     speakerId: undefined,

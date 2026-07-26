@@ -6,6 +6,48 @@ const TARGET_SAMPLE_RATE = 16000;
 const PCM_SAMPLES_PER_CHUNK = 320;
 const PCM_BYTES_PER_CHUNK = 640;
 const TTS_SAMPLE_RATE = 24000;
+const BUSINESS_CALL_ID_MAX_LENGTH = 128;
+const INVALID_BUSINESS_CALL_ID_MESSAGE =
+  '通话信息无效，请返回首页重新进入。';
+
+function isValidBusinessCallId(value) {
+  return typeof value === 'string'
+    && value.length >= 1
+    && value.length <= BUSINESS_CALL_ID_MAX_LENGTH
+    && value.trim() === value
+    && value.trim() !== ''
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
+function resolveBusinessCallIdFromUrl() {
+  let url;
+  try {
+    url = new URL(window.location.href);
+  } catch {
+    return {
+      valid: false,
+      businessCallId: null,
+    };
+  }
+
+  const values = url.searchParams.getAll('callId');
+  if (values.length === 0) {
+    return {
+      valid: true,
+      businessCallId: null,
+    };
+  }
+  if (values.length !== 1 || !isValidBusinessCallId(values[0])) {
+    return {
+      valid: false,
+      businessCallId: null,
+    };
+  }
+  return {
+    valid: true,
+    businessCallId: values[0],
+  };
+}
 
 function resolveRequestedCharacterKey() {
   const searchParams = new URLSearchParams(window.location.search);
@@ -1171,6 +1213,10 @@ async function handleRelayMessage(event, socketContext) {
   const callId = socketContext
     ? socketContext.callId
     : null;
+  const businessCallId = socketContext
+    && typeof socketContext.businessCallId === 'string'
+    ? socketContext.businessCallId
+    : null;
   let message;
 
   try {
@@ -1188,11 +1234,15 @@ async function handleRelayMessage(event, socketContext) {
       return;
     }
 
-    messageSocket.send(JSON.stringify({
+    const helloMessage = {
       type: 'browser.hello',
       client: 'doubao-browser-poc',
       characterKey: resolveRequestedCharacterKey(),
-    }));
+    };
+    if (businessCallId !== null) {
+      helloMessage.callId = businessCallId;
+    }
+    messageSocket.send(JSON.stringify(helloMessage));
     appendLog('已发送 browser.hello');
     return;
   }
@@ -1642,6 +1692,22 @@ async function connectRelay(options = {}) {
     };
   }
 
+  const businessCallIdResult = resolveBusinessCallIdFromUrl();
+  if (!businessCallIdResult.valid) {
+    setTurnStateText(INVALID_BUSINESS_CALL_ID_MESSAGE);
+    appendLog(INVALID_BUSINESS_CALL_ID_MESSAGE);
+    publishRealtimeCallState('failed', {
+      message: INVALID_BUSINESS_CALL_ID_MESSAGE,
+    }, callId);
+    return {
+      status: 'invalid-business-call-id',
+      socket: null,
+      callId,
+      message: INVALID_BUSINESS_CALL_ID_MESSAGE,
+    };
+  }
+  const { businessCallId } = businessCallIdResult;
+
   cloudSessionReady = false;
   conversationActive = false;
   conversationAudioActive = false;
@@ -1673,6 +1739,7 @@ async function connectRelay(options = {}) {
 
   const socket = new WebSocket(RELAY_URL);
   const socketContext = {
+    businessCallId,
     callId,
     socket,
     audioActivePublished: false,
@@ -1884,7 +1951,8 @@ function connectForProduct() {
       || connectResult.callId !== callId
       || !connectResult.socket) {
       throw createProductBusyError(
-        `Relay 暂不可创建新连接：${connectResult.status}`,
+        connectResult.message
+          || `Relay 暂不可创建新连接：${connectResult.status}`,
         'RELAY_CONNECT_BLOCKED'
       );
     }

@@ -92,6 +92,11 @@ const EVENT = Object.freeze({
   SESSION_FAILED: 91,
   DIALOG_COMMON_ERROR: 92,
 });
+const INVALID_BUSINESS_CALL_ID_MESSAGE =
+  'Invalid business call identifier';
+const CONFLICTING_BROWSER_HELLO_MESSAGE =
+  'Conflicting browser.hello';
+let businessCallIdScenarioCount = 0;
 
 function createEnabledEnvironment() {
   const environment = {
@@ -304,7 +309,7 @@ class FakeBrowserSocket {
   }
 }
 
-function connectRole(runtime, role, secondCharacterKey) {
+function createBrowserConnection(runtime) {
   const browserSocket = new FakeBrowserSocket();
   const contexts = new Set();
   runtime.exports.handleBrowserConnection(
@@ -317,6 +322,19 @@ function connectRole(runtime, role, secondCharacterKey) {
     contexts
   );
   assert.equal(contexts.size, 1);
+  const context = [...contexts][0];
+  assert.equal(context.businessCallId, null);
+  return {
+    browserSocket,
+    context,
+  };
+}
+
+function connectRole(runtime, role, secondCharacterKey) {
+  const {
+    browserSocket,
+    context,
+  } = createBrowserConnection(runtime);
 
   browserSocket.emitJson({
     type: 'browser.hello',
@@ -329,9 +347,10 @@ function connectRole(runtime, role, secondCharacterKey) {
     displayName: 'forged-name',
     enabled: false,
   });
+  businessCallIdScenarioCount += 1;
 
   assert.equal(runtime.upstreamInstances.length, 1);
-  const context = [...contexts][0];
+  assert.equal(context.businessCallId, null);
   assert.equal(context.characterKey, role.key);
   assert.equal(context.characterDisplayName, role.displayName);
   assert.equal(context.speakerId, role.speakerId);
@@ -364,8 +383,33 @@ function connectRole(runtime, role, secondCharacterKey) {
   browserSocket.emitJson({
     type: 'browser.hello',
     client: 'doubao-browser-poc',
+    characterKey: role.key,
+  });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    browserSocket.sent[browserSocket.sent.length - 1],
+    {
+      type: 'relay.hello_ack',
+      received: true,
+    }
+  );
+  assert.equal(context.businessCallId, null);
+  assert.equal(context.characterKey, role.key);
+  assert.equal(runtime.upstreamInstances.length, 1);
+
+  browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
     characterKey: secondCharacterKey,
   });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    browserSocket.sent[browserSocket.sent.length - 1],
+    {
+      type: 'relay.error',
+      message: CONFLICTING_BROWSER_HELLO_MESSAGE,
+    }
+  );
   assert.equal(runtime.upstreamInstances.length, 1);
   assert.equal(context.characterKey, role.key);
   assert.equal(
@@ -386,6 +430,305 @@ function connectRole(runtime, role, secondCharacterKey) {
     context,
     sessionEvent: sessionEvents[0],
   };
+}
+
+function verifyBusinessCallIdBinding() {
+  const runtime = createRuntime(createEnabledEnvironment());
+  const {
+    browserSocket,
+    context,
+  } = createBrowserConnection(runtime);
+  const businessCallId = 'call-业务/relay-%';
+  const expectedCharacterKey = 'yuhuang';
+
+  browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: expectedCharacterKey,
+    callId: businessCallId,
+  });
+  businessCallIdScenarioCount += 1;
+  assert.equal(context.businessCallId, businessCallId);
+  assert.equal(runtime.upstreamInstances.length, 1);
+  const expectedSpeakerId = context.speakerId;
+  const expectedSystemPrompt = context.characterSystemPrompt;
+
+  browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: expectedCharacterKey,
+    callId: businessCallId,
+  });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    browserSocket.sent[browserSocket.sent.length - 1],
+    {
+      type: 'relay.hello_ack',
+      received: true,
+    }
+  );
+  assert.equal(context.businessCallId, businessCallId);
+  assert.equal(runtime.upstreamInstances.length, 1);
+
+  browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: expectedCharacterKey,
+    callId: 'call-different',
+  });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    browserSocket.sent[browserSocket.sent.length - 1],
+    {
+      type: 'relay.error',
+      message: CONFLICTING_BROWSER_HELLO_MESSAGE,
+    }
+  );
+  assert.equal(context.businessCallId, businessCallId);
+  assert.equal(context.characterKey, expectedCharacterKey);
+  assert.equal(runtime.upstreamInstances.length, 1);
+
+  browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'sunwukong',
+    callId: businessCallId,
+  });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    browserSocket.sent[browserSocket.sent.length - 1],
+    {
+      type: 'relay.error',
+      message: CONFLICTING_BROWSER_HELLO_MESSAGE,
+    }
+  );
+  assert.equal(context.businessCallId, businessCallId);
+  assert.equal(context.characterKey, expectedCharacterKey);
+  assert.equal(context.speakerId, expectedSpeakerId);
+  assert.equal(context.characterSystemPrompt, expectedSystemPrompt);
+  assert.equal(runtime.upstreamInstances.length, 1);
+
+  browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: expectedCharacterKey,
+  });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    browserSocket.sent[browserSocket.sent.length - 1],
+    {
+      type: 'relay.error',
+      message: CONFLICTING_BROWSER_HELLO_MESSAGE,
+    }
+  );
+  assert.equal(context.businessCallId, businessCallId);
+  assert.equal(context.characterKey, expectedCharacterKey);
+  assert.equal(context.speakerId, expectedSpeakerId);
+  assert.equal(context.characterSystemPrompt, expectedSystemPrompt);
+  assert.equal(runtime.upstreamInstances.length, 1);
+
+  browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: expectedCharacterKey,
+    callId: 'unsafe\u0085control',
+  });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    browserSocket.sent[browserSocket.sent.length - 1],
+    {
+      type: 'relay.error',
+      message: INVALID_BUSINESS_CALL_ID_MESSAGE,
+    }
+  );
+  assert.equal(context.businessCallId, businessCallId);
+  assert.equal(context.characterKey, expectedCharacterKey);
+  assert.equal(context.speakerId, expectedSpeakerId);
+  assert.equal(context.characterSystemPrompt, expectedSystemPrompt);
+  assert.equal(runtime.upstreamInstances.length, 1);
+
+  const conflictingCharacterMessages = [
+    {
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        callId: businessCallId,
+      },
+      expectedMessage: CONFLICTING_BROWSER_HELLO_MESSAGE,
+    },
+    {
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: ' invalid-role',
+        callId: businessCallId,
+      },
+      expectedMessage: '角色键格式无效',
+    },
+    {
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: 'unknown-role',
+        callId: businessCallId,
+      },
+      expectedMessage: '未知角色',
+    },
+  ];
+  for (const scenario of conflictingCharacterMessages) {
+    browserSocket.emitJson(scenario.message);
+    businessCallIdScenarioCount += 1;
+    assert.deepEqual(
+      browserSocket.sent[browserSocket.sent.length - 1],
+      {
+        type: 'relay.error',
+        message: scenario.expectedMessage,
+      }
+    );
+    assert.equal(context.businessCallId, businessCallId);
+    assert.equal(context.characterKey, expectedCharacterKey);
+    assert.equal(context.speakerId, expectedSpeakerId);
+    assert.equal(context.characterSystemPrompt, expectedSystemPrompt);
+    assert.equal(runtime.upstreamInstances.length, 1);
+  }
+
+  const missingIdRuntime = createRuntime(createEnabledEnvironment());
+  const missingIdConnection = createBrowserConnection(missingIdRuntime);
+  missingIdConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: expectedCharacterKey,
+  });
+  businessCallIdScenarioCount += 1;
+  assert.equal(missingIdConnection.context.businessCallId, null);
+  assert.equal(missingIdRuntime.upstreamInstances.length, 1);
+  const missingIdSpeakerId = missingIdConnection.context.speakerId;
+  const missingIdSystemPrompt =
+    missingIdConnection.context.characterSystemPrompt;
+
+  missingIdConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: expectedCharacterKey,
+    callId: businessCallId,
+  });
+  businessCallIdScenarioCount += 1;
+  assert.deepEqual(
+    missingIdConnection.browserSocket.sent[
+      missingIdConnection.browserSocket.sent.length - 1
+    ],
+    {
+      type: 'relay.error',
+      message: CONFLICTING_BROWSER_HELLO_MESSAGE,
+    }
+  );
+  assert.equal(missingIdConnection.context.businessCallId, null);
+  assert.equal(
+    missingIdConnection.context.characterKey,
+    expectedCharacterKey
+  );
+  assert.equal(
+    missingIdConnection.context.speakerId,
+    missingIdSpeakerId
+  );
+  assert.equal(
+    missingIdConnection.context.characterSystemPrompt,
+    missingIdSystemPrompt
+  );
+  assert.equal(missingIdRuntime.upstreamInstances.length, 1);
+
+  const upstream = runtime.upstreamInstances[0];
+  upstream.emitOpen();
+  upstream.emitFrame({
+    eventId: EVENT.CONNECTION_STARTED,
+    eventName: 'ConnectionStarted',
+    json: {},
+    messageType: 1,
+    payload: Buffer.alloc(0),
+  });
+  assert.equal(
+    JSON.stringify(runtime.encodedEvents).includes(businessCallId),
+    false
+  );
+  assert.equal(
+    JSON.stringify(upstream.options).includes(businessCallId),
+    false
+  );
+  assert.equal(runtime.logs.join('\n').includes(businessCallId), false);
+
+  const invalidValues = [
+    null,
+    42,
+    '',
+    '   ',
+    ' leading-call',
+    'trailing-call ',
+    'x'.repeat(129),
+    'unsafe\u0000control',
+    'unsafe\u001fcontrol',
+    'unsafe\u007fcontrol',
+    'unsafe\u0080control',
+    'unsafe\u0085control',
+    'unsafe\u009fcontrol',
+  ];
+  for (const invalidValue of invalidValues) {
+    const invalidRuntime = createRuntime(createEnabledEnvironment());
+    const invalidConnection = createBrowserConnection(invalidRuntime);
+    invalidConnection.browserSocket.emitJson({
+      type: 'browser.hello',
+      client: 'doubao-browser-poc',
+      characterKey: 'yuhuang',
+      callId: invalidValue,
+    });
+    businessCallIdScenarioCount += 1;
+
+    assert.equal(invalidConnection.context.businessCallId, null);
+    assert.equal(invalidConnection.context.characterResolved, false);
+    assert.equal(invalidRuntime.upstreamInstances.length, 0);
+    assert.deepEqual(
+      invalidConnection.browserSocket.sent[
+        invalidConnection.browserSocket.sent.length - 1
+      ],
+      {
+        type: 'relay.error',
+        message: INVALID_BUSINESS_CALL_ID_MESSAGE,
+      }
+    );
+    assert.equal(
+      invalidConnection.browserSocket.sent.some((message) => (
+        JSON.stringify(message).includes(
+          typeof invalidValue === 'string' ? invalidValue : 'never-match'
+        )
+        && message.type === 'relay.error'
+        && message.message !== INVALID_BUSINESS_CALL_ID_MESSAGE
+      )),
+      false
+    );
+    if (typeof invalidValue === 'string'
+      && invalidValue.trim().length >= 4) {
+      assert.equal(
+        invalidRuntime.logs.join('\n').includes(invalidValue),
+        false
+      );
+    }
+  }
+}
+
+function verifyLifecycleBoundary() {
+  const serverSource = fs.readFileSync(SERVER_PATH, 'utf8');
+  const forbiddenPatterns = [
+    /internal_call_lifecycle_client/,
+    /relay_internal_call_lifecycle_bootstrap/,
+    /\bmarkConnecting\s*\(/,
+    /\bmarkActive\s*\(/,
+    /\bmarkEnded\s*\(/,
+    /\bmarkFailed\s*\(/,
+    /\bBUSINESS_INTERNAL_API_TOKEN\b/,
+    /\bBUSINESS_BACKEND_INTERNAL_BASE_URL\b/,
+  ];
+  for (const pattern of forbiddenPatterns) {
+    assert.doesNotMatch(serverSource, pattern);
+  }
 }
 
 function extractPrompt(source, functionName) {
@@ -542,6 +885,8 @@ function main() {
   verifyMissingSpeakers();
   verifyUnknownCharacters();
   const promptHashes = verifyEightRoleConnections();
+  verifyBusinessCallIdBinding();
+  verifyLifecycleBoundary();
 
   process.stdout.write('eight_character_role_matrix_test: PASS\n');
   process.stdout.write(`roles=${ROLE_MATRIX.map((role) => role.key).join(',')}\n`);
@@ -553,7 +898,12 @@ function main() {
   }
   process.stdout.write(
     'verified=enable-switches,missing-speakers,malicious-fields,'
-      + 'unknown-keys,repeated-hello,start-connection,start-session\n'
+      + 'unknown-keys,repeated-hello,start-connection,start-session,'
+      + 'business-call-id-binding,invalid-call-ids,upstream-isolation,'
+      + 'lifecycle-boundary\n'
+  );
+  process.stdout.write(
+    `businessCallIdScenarios=${businessCallIdScenarioCount}\n`
   );
 }
 
