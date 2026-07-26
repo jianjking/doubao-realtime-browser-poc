@@ -9,6 +9,9 @@ const vm = require('node:vm');
 const {
   createRelayInternalCallLifecycleDependency,
 } = require('../relay_internal_call_lifecycle_bootstrap');
+const realLifecycleCoordinatorModule = require(
+  '../relay_internal_call_lifecycle_coordinator'
+);
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const START_SCRIPT_PATH = path.join(PROJECT_DIR, 'start_full_demo.sh');
@@ -361,6 +364,7 @@ function instrumentServerStartupSource() {
 
 function createLifecycleStartupRuntime(environment = {}) {
   const bootstrapCalls = [];
+  const coordinatorFactoryCalls = [];
   const dependencies = [];
   const events = [];
   const httpServers = [];
@@ -482,6 +486,20 @@ function createLifecycleStartupRuntime(environment = {}) {
           },
         };
       }
+      if (moduleName === './relay_internal_call_lifecycle_coordinator') {
+        return {
+          createRelayInternalCallLifecycleCoordinator(options) {
+            const coordinator = realLifecycleCoordinatorModule
+              .createRelayInternalCallLifecycleCoordinator(options);
+            coordinatorFactoryCalls.push({
+              dependency: options.dependency,
+              callId: options.callId,
+              coordinator,
+            });
+            return coordinator;
+          },
+        };
+      }
       throw new Error(`unexpected require: ${moduleName}`);
     },
     setTimeout,
@@ -493,6 +511,7 @@ function createLifecycleStartupRuntime(environment = {}) {
 
   return {
     bootstrapCalls,
+    coordinatorFactoryCalls,
     dependencies,
     events,
     exports: context.__startupLifecycleTestExports,
@@ -541,6 +560,7 @@ function verifyLifecycleStartupAssembly() {
     lifecycleFetchImpl: disabledFetchImpl,
   });
   assert.equal(disabledRuntime.bootstrapCalls.length, 1);
+  assert.equal(disabledRuntime.coordinatorFactoryCalls.length, 0);
   assert.equal(disabledRuntime.dependencies.length, 1);
   assert.equal(disabledRuntime.dependencies[0].enabled, false);
   assert.equal(disabledRuntime.dependencies[0].client, null);
@@ -573,6 +593,7 @@ function verifyLifecycleStartupAssembly() {
     lifecycleFetchImpl: enabledFetchImpl,
   });
   assert.equal(enabledRuntime.bootstrapCalls.length, 1);
+  assert.equal(enabledRuntime.coordinatorFactoryCalls.length, 0);
   assert.equal(enabledRuntime.bootstrapCalls[0].env, enabledEnv);
   assert.equal(
     enabledRuntime.bootstrapCalls[0].fetchImpl,
@@ -621,6 +642,7 @@ function verifyLifecycleStartupAssembly() {
     secondContext.internalCallLifecycleDependency
   );
   assert.equal(enabledRuntime.bootstrapCalls.length, 1);
+  assert.equal(enabledRuntime.coordinatorFactoryCalls.length, 0);
   assert.equal(enabledFetchCalls, 0);
 
   const pairRuntime = createLifecycleStartupRuntime();
@@ -641,6 +663,7 @@ function verifyLifecycleStartupAssembly() {
       + 'BUSINESS_INTERNAL_API_TOKEN must be configured together',
   });
   assert.equal(pairRuntime.bootstrapCalls.length, 1);
+  assert.equal(pairRuntime.coordinatorFactoryCalls.length, 0);
   assert.equal(pairFetchCalls, 0);
   assertStartupFailedBeforeServer(pairRuntime);
 
@@ -661,6 +684,7 @@ function verifyLifecycleStartupAssembly() {
     name: 'TypeError',
   });
   assert.equal(invalidRuntime.bootstrapCalls.length, 1);
+  assert.equal(invalidRuntime.coordinatorFactoryCalls.length, 0);
   assert.equal(invalidFetchCalls, 0);
   assertStartupFailedBeforeServer(invalidRuntime);
 
@@ -692,6 +716,7 @@ function verifyLifecycleStartupAssembly() {
     return true;
   });
   assert.equal(getterRuntime.bootstrapCalls.length, 1);
+  assert.equal(getterRuntime.coordinatorFactoryCalls.length, 0);
   assert.equal(getterFetchCalls, 0);
   assertStartupFailedBeforeServer(getterRuntime);
 }
@@ -773,6 +798,9 @@ function createServerLoggingRuntime(environment) {
         return {
           createRelayInternalCallLifecycleDependency,
         };
+      }
+      if (moduleName === './relay_internal_call_lifecycle_coordinator') {
+        return realLifecycleCoordinatorModule;
       }
       throw new Error(`unexpected require: ${moduleName}`);
     },

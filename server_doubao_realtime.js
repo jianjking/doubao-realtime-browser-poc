@@ -16,6 +16,9 @@ const {
 const {
   createRelayInternalCallLifecycleDependency,
 } = require('./relay_internal_call_lifecycle_bootstrap');
+const {
+  createRelayInternalCallLifecycleCoordinator,
+} = require('./relay_internal_call_lifecycle_coordinator');
 
 const HOST = '127.0.0.1';
 const PORT = 3001;
@@ -1949,7 +1952,7 @@ function handleBrowserMessage(context, rawData) {
       });
       return;
     }
-    const candidateBusinessCallId = hasBusinessCallId
+    const nextBusinessCallId = hasBusinessCallId
       ? message.callId
       : null;
 
@@ -1983,7 +1986,7 @@ function handleBrowserMessage(context, rawData) {
 
     if (context.characterResolved) {
       if (characterConfig.key !== context.characterKey
-        || candidateBusinessCallId !== context.businessCallId) {
+        || nextBusinessCallId !== context.businessCallId) {
         log('[Relay] 重复 browser.hello 与首次握手冲突');
         sendJson(context.browserSocket, {
           type: 'relay.error',
@@ -1999,11 +2002,21 @@ function handleBrowserMessage(context, rawData) {
       return;
     }
 
+    let nextInternalCallLifecycleCoordinator = null;
+    if (nextBusinessCallId !== null) {
+      nextInternalCallLifecycleCoordinator =
+        createRelayInternalCallLifecycleCoordinator({
+          dependency: context.internalCallLifecycleDependency,
+          callId: nextBusinessCallId,
+        });
+    }
     context.characterKey = characterConfig.key;
     context.characterDisplayName = characterConfig.displayName;
     context.characterSystemPrompt = characterConfig.systemPrompt;
     context.speakerId = characterConfig.speakerId;
-    context.businessCallId = candidateBusinessCallId;
+    context.businessCallId = nextBusinessCallId;
+    context.internalCallLifecycleCoordinator =
+      nextInternalCallLifecycleCoordinator;
     context.characterResolved = true;
     sendJson(context.browserSocket, {
       type: 'relay.hello_ack',
@@ -2212,6 +2225,7 @@ function handleBrowserConnection(
     browserSocket: socket,
     businessCallId: null,
     internalCallLifecycleDependency,
+    internalCallLifecycleCoordinator: null,
     upstreamSocket: undefined,
     sessionId: undefined,
     speakerId: undefined,
