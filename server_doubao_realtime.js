@@ -13,6 +13,9 @@ const {
   getEventName,
   DoubaoProtocolError,
 } = require('./doubao_protocol.js');
+const {
+  createRelayInternalCallLifecycleDependency,
+} = require('./relay_internal_call_lifecycle_bootstrap');
 
 const HOST = '127.0.0.1';
 const PORT = 3001;
@@ -47,6 +50,10 @@ const DANGEROUS_CHARACTER_KEYS = new Set([
   'toString',
   'hasOwnProperty',
 ]);
+const DISABLED_INTERNAL_CALL_LIFECYCLE_DEPENDENCY = Object.freeze({
+  enabled: false,
+  client: null,
+});
 const CHARACTER_CONFIGS = Object.freeze({
   yuhuang: Object.freeze({
     key: 'yuhuang',
@@ -2193,11 +2200,18 @@ function handleBrowserBinaryAudio(context, rawData) {
   return taskRequestSent;
 }
 
-function handleBrowserConnection(socket, request, contexts) {
+function handleBrowserConnection(
+  socket,
+  request,
+  contexts,
+  internalCallLifecycleDependency =
+    DISABLED_INTERNAL_CALL_LIFECYCLE_DEPENDENCY
+) {
   const remoteAddress = request.socket.remoteAddress || 'unknown';
   const context = {
     browserSocket: socket,
     businessCallId: null,
+    internalCallLifecycleDependency,
     upstreamSocket: undefined,
     sessionId: undefined,
     speakerId: undefined,
@@ -2301,7 +2315,17 @@ function handleBrowserConnection(socket, request, contexts) {
   });
 }
 
-function startServer() {
+function startServer({
+  lifecycleEnv = process.env,
+  lifecycleTimeoutMs = 3000,
+  lifecycleFetchImpl = globalThis.fetch,
+} = {}) {
+  const internalCallLifecycleDependency =
+    createRelayInternalCallLifecycleDependency({
+      env: lifecycleEnv,
+      timeoutMs: lifecycleTimeoutMs,
+      fetchImpl: lifecycleFetchImpl,
+    });
   const app = express();
   const server = http.createServer(app);
   const websocketServer = new WebSocketServer({ noServer: true });
@@ -2347,7 +2371,12 @@ function startServer() {
   });
 
   websocketServer.on('connection', (socket, request) => {
-    handleBrowserConnection(socket, request, contexts);
+    handleBrowserConnection(
+      socket,
+      request,
+      contexts,
+      internalCallLifecycleDependency
+    );
   });
 
   server.on('error', (error) => {

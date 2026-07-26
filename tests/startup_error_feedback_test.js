@@ -6,6 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const vm = require('node:vm');
+const {
+  createRelayInternalCallLifecycleDependency,
+} = require('../relay_internal_call_lifecycle_bootstrap');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const START_SCRIPT_PATH = path.join(PROJECT_DIR, 'start_full_demo.sh');
@@ -341,6 +344,358 @@ function instrumentServerLoggingSource() {
   );
 }
 
+function instrumentServerStartupSource() {
+  return fs.readFileSync(SERVER_JS_PATH, 'utf8')
+    .replace(
+      '  const contexts = new Set();',
+      '  const contexts = new Set();\n'
+        + '  globalThis.__startupLifecycleContexts = contexts;'
+    )
+    .replace(
+      /\nstartServer\(\);\s*$/,
+      '\nglobalThis.__startupLifecycleTestExports = {\n'
+        + '  startServer,\n'
+        + '};\n'
+    );
+}
+
+function createLifecycleStartupRuntime(environment = {}) {
+  const bootstrapCalls = [];
+  const dependencies = [];
+  const events = [];
+  const httpServers = [];
+  const websocketServers = [];
+
+  class FakeHttpServer {
+    constructor() {
+      this.handlers = new Map();
+      this.listenCalls = [];
+    }
+
+    on(eventName, handler) {
+      this.handlers.set(eventName, handler);
+    }
+
+    listen(...args) {
+      events.push('listen');
+      this.listenCalls.push(args);
+    }
+  }
+
+  class FakeWebSocketServer {
+    constructor(options) {
+      events.push('websocket-create');
+      this.clients = new Set();
+      this.handlers = new Map();
+      this.options = options;
+      websocketServers.push(this);
+    }
+
+    on(eventName, handler) {
+      if (eventName === 'connection') {
+        events.push('connection-handler');
+      }
+      this.handlers.set(eventName, handler);
+    }
+  }
+
+  class FakeWebSocket {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSED = 3;
+  }
+
+  const protocol = {
+    EVENT: {},
+    DoubaoProtocolError: class DoubaoProtocolError extends Error {},
+    encodeClientAudioEvent() {
+      return Buffer.alloc(0);
+    },
+    encodeClientJsonEvent() {
+      return Buffer.alloc(0);
+    },
+    getEventName() {
+      return 'test-event';
+    },
+    parseServerFrame(value) {
+      return value;
+    },
+  };
+  const context = {
+    Buffer,
+    URL,
+    __dirname: PROJECT_DIR,
+    __filename: SERVER_JS_PATH,
+    clearTimeout,
+    console: {
+      log() {},
+    },
+    process: {
+      env: {
+        VOLCENGINE_API_KEY: 'local-vm-test-key',
+        ...environment,
+      },
+      once() {},
+    },
+    require(moduleName) {
+      if (moduleName === 'node:crypto') {
+        return require('node:crypto');
+      }
+      if (moduleName === 'node:http') {
+        return {
+          createServer() {
+            events.push('http-create');
+            const server = new FakeHttpServer();
+            httpServers.push(server);
+            return server;
+          },
+        };
+      }
+      if (moduleName === 'node:path') {
+        return path;
+      }
+      if (moduleName === 'express') {
+        const express = () => ({
+          use() {},
+        });
+        express.static = () => () => {};
+        return express;
+      }
+      if (moduleName === 'ws') {
+        return {
+          WebSocket: FakeWebSocket,
+          WebSocketServer: FakeWebSocketServer,
+        };
+      }
+      if (moduleName === './doubao_protocol.js') {
+        return protocol;
+      }
+      if (moduleName === './relay_internal_call_lifecycle_bootstrap') {
+        return {
+          createRelayInternalCallLifecycleDependency(options) {
+            events.push('lifecycle-dependency');
+            bootstrapCalls.push(options);
+            const dependency =
+              createRelayInternalCallLifecycleDependency(options);
+            dependencies.push(dependency);
+            return dependency;
+          },
+        };
+      }
+      throw new Error(`unexpected require: ${moduleName}`);
+    },
+    setTimeout,
+  };
+
+  vm.runInNewContext(instrumentServerStartupSource(), context, {
+    filename: SERVER_JS_PATH,
+  });
+
+  return {
+    bootstrapCalls,
+    dependencies,
+    events,
+    exports: context.__startupLifecycleTestExports,
+    get contexts() {
+      return context.__startupLifecycleContexts;
+    },
+    httpServers,
+    websocketServers,
+  };
+}
+
+class FakeStartupBrowserSocket {
+  constructor() {
+    this.handlers = new Map();
+    this.readyState = 1;
+    this.sent = [];
+  }
+
+  on(eventName, handler) {
+    this.handlers.set(eventName, handler);
+  }
+
+  send(data, callback) {
+    this.sent.push(JSON.parse(data));
+    if (callback) {
+      callback();
+    }
+  }
+}
+
+function assertStartupFailedBeforeServer(runtime) {
+  assert.equal(runtime.httpServers.length, 0);
+  assert.equal(runtime.websocketServers.length, 0);
+  assert.equal(runtime.events.includes('listen'), false);
+}
+
+function verifyLifecycleStartupAssembly() {
+  let disabledFetchCalls = 0;
+  const disabledFetchImpl = async () => {
+    disabledFetchCalls += 1;
+    throw new Error('disabled lifecycle fetch must not run');
+  };
+  const disabledRuntime = createLifecycleStartupRuntime();
+  disabledRuntime.exports.startServer({
+    lifecycleEnv: {},
+    lifecycleFetchImpl: disabledFetchImpl,
+  });
+  assert.equal(disabledRuntime.bootstrapCalls.length, 1);
+  assert.equal(disabledRuntime.dependencies.length, 1);
+  assert.equal(disabledRuntime.dependencies[0].enabled, false);
+  assert.equal(disabledRuntime.dependencies[0].client, null);
+  assert.equal(Object.isFrozen(disabledRuntime.dependencies[0]), true);
+  assert.equal(disabledRuntime.httpServers.length, 1);
+  assert.equal(disabledRuntime.websocketServers.length, 1);
+  assert.equal(disabledRuntime.httpServers[0].listenCalls.length, 1);
+  assert.equal(disabledFetchCalls, 0);
+  assert.deepEqual(disabledRuntime.events, [
+    'lifecycle-dependency',
+    'http-create',
+    'websocket-create',
+    'connection-handler',
+    'listen',
+  ]);
+
+  const enabledEnv = {
+    BUSINESS_BACKEND_INTERNAL_BASE_URL: 'http://127.0.0.1:3002',
+    BUSINESS_INTERNAL_API_TOKEN:
+      'startup_lifecycle_token_0123456789ABCDEF',
+  };
+  let enabledFetchCalls = 0;
+  const enabledFetchImpl = async () => {
+    enabledFetchCalls += 1;
+    throw new Error('enabled lifecycle fetch must not run during startup');
+  };
+  const enabledRuntime = createLifecycleStartupRuntime();
+  enabledRuntime.exports.startServer({
+    lifecycleEnv: enabledEnv,
+    lifecycleFetchImpl: enabledFetchImpl,
+  });
+  assert.equal(enabledRuntime.bootstrapCalls.length, 1);
+  assert.equal(enabledRuntime.bootstrapCalls[0].env, enabledEnv);
+  assert.equal(
+    enabledRuntime.bootstrapCalls[0].fetchImpl,
+    enabledFetchImpl
+  );
+  assert.equal(enabledRuntime.dependencies.length, 1);
+  assert.equal(enabledRuntime.dependencies[0].enabled, true);
+  assert.equal(Object.isFrozen(enabledRuntime.dependencies[0]), true);
+  assert.equal(Object.isFrozen(enabledRuntime.dependencies[0].client), true);
+  assert.equal(enabledRuntime.httpServers.length, 1);
+  assert.equal(enabledRuntime.websocketServers.length, 1);
+  assert.equal(enabledRuntime.httpServers[0].listenCalls.length, 1);
+  assert.equal(enabledFetchCalls, 0);
+
+  const connectionHandler =
+    enabledRuntime.websocketServers[0].handlers.get('connection');
+  assert.equal(typeof connectionHandler, 'function');
+  connectionHandler(
+    new FakeStartupBrowserSocket(),
+    {
+      socket: {
+        remoteAddress: '127.0.0.1',
+      },
+    }
+  );
+  connectionHandler(
+    new FakeStartupBrowserSocket(),
+    {
+      socket: {
+        remoteAddress: '127.0.0.2',
+      },
+    }
+  );
+  const [firstContext, secondContext] = [...enabledRuntime.contexts];
+  assert.equal(enabledRuntime.contexts.size, 2);
+  assert.equal(
+    firstContext.internalCallLifecycleDependency,
+    enabledRuntime.dependencies[0]
+  );
+  assert.equal(
+    secondContext.internalCallLifecycleDependency,
+    enabledRuntime.dependencies[0]
+  );
+  assert.equal(
+    firstContext.internalCallLifecycleDependency,
+    secondContext.internalCallLifecycleDependency
+  );
+  assert.equal(enabledRuntime.bootstrapCalls.length, 1);
+  assert.equal(enabledFetchCalls, 0);
+
+  const pairRuntime = createLifecycleStartupRuntime();
+  let pairFetchCalls = 0;
+  assert.throws(() => {
+    pairRuntime.exports.startServer({
+      lifecycleEnv: {
+        BUSINESS_BACKEND_INTERNAL_BASE_URL: 'http://127.0.0.1:3002',
+      },
+      lifecycleFetchImpl: async () => {
+        pairFetchCalls += 1;
+      },
+    });
+  }, {
+    name: 'TypeError',
+    message:
+      'BUSINESS_BACKEND_INTERNAL_BASE_URL and '
+      + 'BUSINESS_INTERNAL_API_TOKEN must be configured together',
+  });
+  assert.equal(pairRuntime.bootstrapCalls.length, 1);
+  assert.equal(pairFetchCalls, 0);
+  assertStartupFailedBeforeServer(pairRuntime);
+
+  const invalidRuntime = createLifecycleStartupRuntime();
+  let invalidFetchCalls = 0;
+  assert.throws(() => {
+    invalidRuntime.exports.startServer({
+      lifecycleEnv: {
+        BUSINESS_BACKEND_INTERNAL_BASE_URL: 'not-a-url',
+        BUSINESS_INTERNAL_API_TOKEN:
+          'startup_lifecycle_token_0123456789ABCDEF',
+      },
+      lifecycleFetchImpl: async () => {
+        invalidFetchCalls += 1;
+      },
+    });
+  }, {
+    name: 'TypeError',
+  });
+  assert.equal(invalidRuntime.bootstrapCalls.length, 1);
+  assert.equal(invalidFetchCalls, 0);
+  assertStartupFailedBeforeServer(invalidRuntime);
+
+  const getterSecret = 'startup getter secret must stay private';
+  const getterRuntime = createLifecycleStartupRuntime();
+  let getterFetchCalls = 0;
+  assert.throws(() => {
+    getterRuntime.exports.startServer({
+      lifecycleEnv: {
+        get BUSINESS_BACKEND_INTERNAL_BASE_URL() {
+          throw new Error(getterSecret);
+        },
+        BUSINESS_INTERNAL_API_TOKEN:
+          'startup_lifecycle_token_0123456789ABCDEF',
+      },
+      lifecycleFetchImpl: async () => {
+        getterFetchCalls += 1;
+      },
+    });
+  }, (error) => {
+    assert.equal(error.name, 'TypeError');
+    assert.equal(
+      error.message,
+      'Unable to read Relay internal lifecycle configuration'
+    );
+    assert.equal(error.message.includes(getterSecret), false);
+    assert.equal(String(error.stack).includes(getterSecret), false);
+    assert.equal(Object.hasOwn(error, 'cause'), false);
+    return true;
+  });
+  assert.equal(getterRuntime.bootstrapCalls.length, 1);
+  assert.equal(getterFetchCalls, 0);
+  assertStartupFailedBeforeServer(getterRuntime);
+}
+
 function createServerLoggingRuntime(environment) {
   const logs = [];
   const upstreamInstances = [];
@@ -413,6 +768,11 @@ function createServerLoggingRuntime(environment) {
       }
       if (moduleName === './doubao_protocol.js') {
         return protocol;
+      }
+      if (moduleName === './relay_internal_call_lifecycle_bootstrap') {
+        return {
+          createRelayInternalCallLifecycleDependency,
+        };
       }
       throw new Error(`unexpected require: ${moduleName}`);
     },
@@ -526,6 +886,7 @@ function verifySpeakerIdsAreRedactedFromTerminalLogs() {
 async function main() {
   verifyStartupScript();
   await verifyImmediateRelayErrorFeedback();
+  verifyLifecycleStartupAssembly();
   verifySafeServerCharacterLogging();
   verifySpeakerIdsAreRedactedFromTerminalLogs();
 
@@ -534,7 +895,7 @@ async function main() {
     'verified=3001-preflight,8765-preflight,strict-shell,static-alive,'
       + 'session-waiter-immediate,audio-waiter-immediate,'
       + 'active-nonfatal-preserved,sanitized-role-log,'
-      + 'speaker-id-redaction\n'
+      + 'speaker-id-redaction,lifecycle-startup-assembly\n'
   );
 }
 

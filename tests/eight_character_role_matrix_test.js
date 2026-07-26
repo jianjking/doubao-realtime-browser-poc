@@ -5,6 +5,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const LIFECYCLE_BOOTSTRAP_MODULE = require(
+  '../relay_internal_call_lifecycle_bootstrap'
+);
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const SERVER_PATH = path.join(PROJECT_DIR, 'server_doubao_realtime.js');
@@ -264,6 +267,9 @@ function createRuntime(environment) {
       if (moduleName === './doubao_protocol.js') {
         return protocol;
       }
+      if (moduleName === './relay_internal_call_lifecycle_bootstrap') {
+        return LIFECYCLE_BOOTSTRAP_MODULE;
+      }
       throw new Error(`unexpected require: ${moduleName}`);
     },
     setTimeout,
@@ -307,27 +313,149 @@ class FakeBrowserSocket {
       false
     );
   }
+
+  emitClose(code = 1000) {
+    this.handlers.get('close')(code);
+  }
 }
 
-function createBrowserConnection(runtime) {
+function createBrowserConnection(
+  runtime,
+  internalCallLifecycleDependency
+) {
   const browserSocket = new FakeBrowserSocket();
   const contexts = new Set();
-  runtime.exports.handleBrowserConnection(
-    browserSocket,
-    {
-      socket: {
-        remoteAddress: '127.0.0.1',
-      },
+  const request = {
+    socket: {
+      remoteAddress: '127.0.0.1',
     },
-    contexts
-  );
+  };
+  if (internalCallLifecycleDependency === undefined) {
+    runtime.exports.handleBrowserConnection(
+      browserSocket,
+      request,
+      contexts
+    );
+  } else {
+    runtime.exports.handleBrowserConnection(
+      browserSocket,
+      request,
+      contexts,
+      internalCallLifecycleDependency
+    );
+  }
   assert.equal(contexts.size, 1);
   const context = [...contexts][0];
   assert.equal(context.businessCallId, null);
+  if (internalCallLifecycleDependency === undefined) {
+    assert.equal(
+      context.internalCallLifecycleDependency.enabled,
+      false
+    );
+    assert.equal(
+      context.internalCallLifecycleDependency.client,
+      null
+    );
+    assert.equal(
+      Object.isFrozen(context.internalCallLifecycleDependency),
+      true
+    );
+  } else {
+    assert.equal(
+      context.internalCallLifecycleDependency,
+      internalCallLifecycleDependency
+    );
+  }
   return {
     browserSocket,
     context,
+    contexts,
   };
+}
+
+async function verifyLifecycleDependencyInjection() {
+  const lifecycleCalls = {
+    markConnecting: 0,
+    markActive: 0,
+    markEnded: 0,
+    markFailed: 0,
+  };
+  const injectedDependency = Object.freeze({
+    enabled: true,
+    client: Object.freeze({
+      markConnecting() {
+        lifecycleCalls.markConnecting += 1;
+      },
+      markActive() {
+        lifecycleCalls.markActive += 1;
+      },
+      markEnded() {
+        lifecycleCalls.markEnded += 1;
+      },
+      markFailed() {
+        lifecycleCalls.markFailed += 1;
+      },
+    }),
+  });
+  const runtime = createRuntime(createEnabledEnvironment());
+  const firstConnection = createBrowserConnection(
+    runtime,
+    injectedDependency
+  );
+  const secondConnection = createBrowserConnection(
+    runtime,
+    injectedDependency
+  );
+
+  assert.equal(
+    firstConnection.context.internalCallLifecycleDependency,
+    injectedDependency
+  );
+  assert.equal(
+    secondConnection.context.internalCallLifecycleDependency,
+    injectedDependency
+  );
+  assert.equal(
+    firstConnection.context.internalCallLifecycleDependency,
+    secondConnection.context.internalCallLifecycleDependency
+  );
+
+  firstConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+  });
+  assert.equal(runtime.upstreamInstances.length, 1);
+  const upstream = runtime.upstreamInstances[0];
+  upstream.emitOpen();
+  upstream.emitFrame({
+    eventId: EVENT.CONNECTION_STARTED,
+    eventName: 'ConnectionStarted',
+    json: {},
+    messageType: 1,
+    payload: Buffer.alloc(0),
+  });
+  upstream.emitFrame({
+    eventId: EVENT.SESSION_STARTED,
+    eventName: 'SessionStarted',
+    json: {},
+    messageType: 1,
+    payload: Buffer.alloc(0),
+    sessionId: firstConnection.context.sessionId,
+  });
+  firstConnection.browserSocket.emitClose();
+  await firstConnection.context.closePromise;
+  await Promise.resolve();
+  assert.equal(
+    firstConnection.contexts.has(firstConnection.context),
+    false
+  );
+  assert.deepEqual(lifecycleCalls, {
+    markConnecting: 0,
+    markActive: 0,
+    markEnded: 0,
+    markFailed: 0,
+  });
 }
 
 function connectRole(runtime, role, secondCharacterKey) {
@@ -716,15 +844,26 @@ function verifyBusinessCallIdBinding() {
 
 function verifyLifecycleBoundary() {
   const serverSource = fs.readFileSync(SERVER_PATH, 'utf8');
+  assert.match(
+    serverSource,
+    /require\('\.\/relay_internal_call_lifecycle_bootstrap'\)/
+  );
+  assert.match(
+    serverSource,
+    /createRelayInternalCallLifecycleDependency\s*\(\{/
+  );
   const forbiddenPatterns = [
     /internal_call_lifecycle_client/,
-    /relay_internal_call_lifecycle_bootstrap/,
-    /\bmarkConnecting\s*\(/,
-    /\bmarkActive\s*\(/,
-    /\bmarkEnded\s*\(/,
-    /\bmarkFailed\s*\(/,
+    /\.markConnecting\s*\(/,
+    /\.markActive\s*\(/,
+    /\.markEnded\s*\(/,
+    /\.markFailed\s*\(/,
     /\bBUSINESS_INTERNAL_API_TOKEN\b/,
     /\bBUSINESS_BACKEND_INTERNAL_BASE_URL\b/,
+    /lifecycleState/,
+    /lifecycleRequestTail/,
+    /lifecycleFinalized/,
+    /lifecycleRequestInFlight/,
   ];
   for (const pattern of forbiddenPatterns) {
     assert.doesNotMatch(serverSource, pattern);
@@ -879,13 +1018,14 @@ function verifyEightRoleConnections() {
   return promptHashes;
 }
 
-function main() {
+async function main() {
   verifyPromptRegression();
   verifyStrictEnableSwitches();
   verifyMissingSpeakers();
   verifyUnknownCharacters();
   const promptHashes = verifyEightRoleConnections();
   verifyBusinessCallIdBinding();
+  await verifyLifecycleDependencyInjection();
   verifyLifecycleBoundary();
 
   process.stdout.write('eight_character_role_matrix_test: PASS\n');
@@ -900,6 +1040,7 @@ function main() {
     'verified=enable-switches,missing-speakers,malicious-fields,'
       + 'unknown-keys,repeated-hello,start-connection,start-session,'
       + 'business-call-id-binding,invalid-call-ids,upstream-isolation,'
+      + 'lifecycle-dependency-injection,lifecycle-zero-calls,'
       + 'lifecycle-boundary\n'
   );
   process.stdout.write(
@@ -907,4 +1048,7 @@ function main() {
   );
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
