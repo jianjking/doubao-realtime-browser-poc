@@ -31,7 +31,9 @@ function startServer() {
     ? String(DEFAULT_PORT)
     : process.env.BUSINESS_BACKEND_PORT;
   const port = parsePort(rawPort);
-  const app = createApp();
+  const app = createApp({
+    internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
+  });
 
   const server = app.listen(port, host, () => {
     console.log(`business-backend listening on ${host}:${port}`);

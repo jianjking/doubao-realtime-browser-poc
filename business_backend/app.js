@@ -2,11 +2,17 @@
 
 const express = require('express');
 const { PUBLIC_ROLES } = require('./config/public_roles');
+const {
+  createRequireInternalToken,
+} = require('./middleware/require_internal_token');
 const { createRequireSession } = require('./middleware/require_session');
 const { createAccountRouter } = require('./routes/account_routes');
 const { createAuthRouter } = require('./routes/auth_routes');
 const { createCallRouter } = require('./routes/call_routes');
 const { healthRouter } = require('./routes/health_routes');
+const {
+  createInternalCallRouter,
+} = require('./routes/internal_call_routes');
 const { createRoleRouter } = require('./routes/role_routes');
 const {
   createAuthService,
@@ -61,6 +67,19 @@ function createApp(options = {}) {
   const app = express();
 
   app.disable('x-powered-by');
+  if (
+    options.internalApiToken !== undefined
+    && options.internalApiToken !== null
+    && options.internalApiToken !== ''
+  ) {
+    const requireInternalToken = createRequireInternalToken({
+      token: options.internalApiToken,
+    });
+    app.use('/internal', createInternalCallRouter({
+      requireInternalToken,
+      callService,
+    }));
+  }
   app.use(express.json({ limit: '16kb' }));
   app.use('/api', healthRouter);
   app.use('/api', createRoleRouter({ roleService }));
