@@ -2018,6 +2018,13 @@ function handleBrowserMessage(context, rawData) {
     context.internalCallLifecycleCoordinator =
       nextInternalCallLifecycleCoordinator;
     context.characterResolved = true;
+    if (context.internalCallLifecycleCoordinator !== null) {
+      void context.internalCallLifecycleCoordinator
+        .markConnecting()
+        .catch(() => {
+          log('[Relay] 内部 Call 生命周期 connecting 状态上报失败');
+        });
+    }
     sendJson(context.browserSocket, {
       type: 'relay.hello_ack',
       received: true,

@@ -166,6 +166,8 @@ function createRuntime(environment) {
       this.readyState = FakeUpstreamWebSocket.CONNECTING;
       this.handlers = new Map();
       this.sent = [];
+      this.closeCalls = 0;
+      this.terminateCalls = 0;
       upstreamInstances.push(this);
     }
 
@@ -184,6 +186,7 @@ function createRuntime(environment) {
     }
 
     close(code = 1000, reason = '') {
+      this.closeCalls += 1;
       this.readyState = FakeUpstreamWebSocket.CLOSED;
       const handler = this.handlers.get('close');
       if (handler) {
@@ -192,6 +195,7 @@ function createRuntime(environment) {
     }
 
     terminate() {
+      this.terminateCalls += 1;
       this.readyState = FakeUpstreamWebSocket.CLOSED;
     }
 
@@ -277,12 +281,33 @@ function createRuntime(environment) {
       if (moduleName === './relay_internal_call_lifecycle_coordinator') {
         return {
           createRelayInternalCallLifecycleCoordinator(options) {
-            const coordinator = LIFECYCLE_COORDINATOR_MODULE
+            const realCoordinator = LIFECYCLE_COORDINATOR_MODULE
               .createRelayInternalCallLifecycleCoordinator(options);
+            const coordinatorMethodCalls = createLifecycleCalls();
+            const coordinator = Object.freeze({
+              markConnecting() {
+                coordinatorMethodCalls.markConnecting += 1;
+                return realCoordinator.markConnecting();
+              },
+              markActive() {
+                coordinatorMethodCalls.markActive += 1;
+                return realCoordinator.markActive();
+              },
+              markEnded() {
+                coordinatorMethodCalls.markEnded += 1;
+                return realCoordinator.markEnded();
+              },
+              markFailed() {
+                coordinatorMethodCalls.markFailed += 1;
+                return realCoordinator.markFailed();
+              },
+            });
             coordinatorFactoryCalls.push({
               dependency: options.dependency,
               callId: options.callId,
+              realCoordinator,
               coordinator,
+              coordinatorMethodCalls,
             });
             return coordinator;
           },
@@ -313,6 +338,7 @@ class FakeBrowserSocket {
     this.readyState = 1;
     this.handlers = new Map();
     this.sent = [];
+    this.closeCalls = 0;
   }
 
   on(eventName, handler) {
@@ -324,6 +350,11 @@ class FakeBrowserSocket {
     if (callback) {
       callback();
     }
+  }
+
+  close() {
+    this.closeCalls += 1;
+    this.readyState = 3;
   }
 
   emitJson(message) {
@@ -393,30 +424,165 @@ function createBrowserConnection(
   };
 }
 
-function assertLifecycleCallsZero(lifecycleCalls) {
-  assert.deepEqual(lifecycleCalls, {
+function createLifecycleCalls() {
+  return {
     markConnecting: 0,
+    markActive: 0,
+    markEnded: 0,
+    markFailed: 0,
+  };
+}
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
+function assertLifecycleCalls(lifecycleCalls, expectedMarkConnecting) {
+  assert.deepEqual(lifecycleCalls, {
+    markConnecting: expectedMarkConnecting,
     markActive: 0,
     markEnded: 0,
     markFailed: 0,
   });
 }
 
+function countBrowserMessages(browserSocket, type) {
+  return browserSocket.sent.filter((message) => message.type === type).length;
+}
+
+async function completeBasicSession(connection, runtime) {
+  const relayErrorCount = countBrowserMessages(
+    connection.browserSocket,
+    'relay.error'
+  );
+  const upstream = runtime.upstreamInstances[0];
+  upstream.emitOpen();
+  upstream.emitFrame({
+    eventId: EVENT.CONNECTION_STARTED,
+    eventName: 'ConnectionStarted',
+    json: {},
+    messageType: 1,
+    payload: Buffer.alloc(0),
+  });
+  upstream.emitFrame({
+    eventId: EVENT.SESSION_STARTED,
+    eventName: 'SessionStarted',
+    json: {},
+    messageType: 1,
+    payload: Buffer.alloc(0),
+    sessionId: connection.context.sessionId,
+  });
+  connection.browserSocket.emitJson({
+    type: 'browser.audio_start',
+    format: 'pcm_s16le',
+    sampleRate: 16000,
+    channels: 1,
+    inputSampleRate: 48000,
+  });
+  connection.browserSocket.handlers.get('message')(
+    Buffer.alloc(640),
+    true
+  );
+  connection.browserSocket.emitJson({
+    type: 'browser.audio_stop',
+  });
+  assert.equal(
+    countBrowserMessages(connection.browserSocket, 'relay.error'),
+    relayErrorCount
+  );
+  connection.browserSocket.emitClose();
+  await connection.context.closePromise;
+  await Promise.resolve();
+  assert.equal(upstream.readyState, 3);
+  assert.equal(upstream.closeCalls + upstream.terminateCalls, 1);
+  assert.equal(connection.contexts.has(connection.context), false);
+  return upstream;
+}
+
+async function verifyLifecycleConnectionPair(callIds) {
+  const lifecycleCalls = createLifecycleCalls();
+  const receivedCallIds = [];
+  const dependency = Object.freeze({
+    enabled: true,
+    client: Object.freeze({
+      markConnecting(callId) {
+        lifecycleCalls.markConnecting += 1;
+        receivedCallIds.push(callId);
+      },
+      markActive() {
+        lifecycleCalls.markActive += 1;
+      },
+      markEnded() {
+        lifecycleCalls.markEnded += 1;
+      },
+      markFailed() {
+        lifecycleCalls.markFailed += 1;
+      },
+    }),
+  });
+  const runtime = createRuntime(createEnabledEnvironment());
+  const firstConnection = createBrowserConnection(runtime, dependency);
+  const secondConnection = createBrowserConnection(runtime, dependency);
+  firstConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+    callId: callIds[0],
+  });
+  secondConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'sunwukong',
+    callId: callIds[1],
+  });
+  assert.equal(runtime.coordinatorFactoryCalls.length, 2);
+  assert.notStrictEqual(
+    runtime.coordinatorFactoryCalls[0].coordinator,
+    runtime.coordinatorFactoryCalls[1].coordinator
+  );
+  for (const coordinatorCall of runtime.coordinatorFactoryCalls) {
+    assertLifecycleCalls(coordinatorCall.coordinatorMethodCalls, 1);
+  }
+  assertLifecycleCalls(lifecycleCalls, 0);
+  assert.equal(runtime.upstreamInstances.length, 2);
+  assert.equal(
+    countBrowserMessages(firstConnection.browserSocket, 'relay.hello_ack'),
+    1
+  );
+  assert.equal(
+    countBrowserMessages(secondConnection.browserSocket, 'relay.hello_ack'),
+    1
+  );
+  await Promise.resolve();
+  for (const coordinatorCall of runtime.coordinatorFactoryCalls) {
+    assertLifecycleCalls(coordinatorCall.coordinatorMethodCalls, 1);
+  }
+  assertLifecycleCalls(lifecycleCalls, 2);
+  assert.deepEqual(receivedCallIds, callIds);
+}
+
 async function verifyLifecycleDependencyInjection() {
-  const lifecycleCalls = {
-    markConnecting: 0,
-    markActive: 0,
-    markEnded: 0,
-    markFailed: 0,
-  };
+  const lifecycleCalls = createLifecycleCalls();
+  const connectingCallIds = [];
   const lifecycleLeakMarker = 'relay-lifecycle-private-marker';
   const injectedDependency = Object.freeze({
     enabled: true,
     lifecycleLeakMarker,
     client: Object.freeze({
       lifecycleLeakMarker,
-      markConnecting() {
+      markConnecting(callId) {
         lifecycleCalls.markConnecting += 1;
+        connectingCallIds.push(callId);
       },
       markActive() {
         lifecycleCalls.markActive += 1;
@@ -469,7 +635,10 @@ async function verifyLifecycleDependencyInjection() {
   );
   assert.equal(noIdRuntime.coordinatorFactoryCalls.length, 0);
   assert.equal(noIdRuntime.upstreamInstances.length, 1);
-  assertLifecycleCallsZero(lifecycleCalls);
+  assertLifecycleCalls(lifecycleCalls, 0);
+  await completeBasicSession(noIdConnection, noIdRuntime);
+  assert.equal(noIdRuntime.coordinatorFactoryCalls.length, 0);
+  assertLifecycleCalls(lifecycleCalls, 0);
 
   const disabledDependency = Object.freeze({
     enabled: false,
@@ -508,7 +677,141 @@ async function verifyLifecycleDependencyInjection() {
     assert.equal(typeof disabledCoordinator[methodName], 'function');
   }
   assert.equal(disabledRuntime.upstreamInstances.length, 1);
-  assertLifecycleCallsZero(lifecycleCalls);
+  assert.deepEqual(
+    disabledConnection.browserSocket.sent[
+      disabledConnection.browserSocket.sent.length - 1
+    ],
+    {
+      type: 'relay.hello_ack',
+      received: true,
+    }
+  );
+  assertLifecycleCalls(lifecycleCalls, 0);
+  assertLifecycleCalls(
+    disabledRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1
+  );
+  assert.equal(
+    disabledRuntime.logs.some(
+      (message) => message.includes('connecting 状态上报失败')
+    ),
+    false
+  );
+
+  const pendingLifecycleCalls = createLifecycleCalls();
+  const pendingCallIds = [];
+  const connectingDeferred = createDeferred();
+  let connectingSettled = false;
+  void connectingDeferred.promise.then(() => {
+    connectingSettled = true;
+  });
+  const pendingDependency = Object.freeze({
+    enabled: true,
+    client: Object.freeze({
+      markConnecting(callId) {
+        pendingLifecycleCalls.markConnecting += 1;
+        pendingCallIds.push(callId);
+        return connectingDeferred.promise;
+      },
+      markActive() {
+        pendingLifecycleCalls.markActive += 1;
+      },
+      markEnded() {
+        pendingLifecycleCalls.markEnded += 1;
+      },
+      markFailed() {
+        pendingLifecycleCalls.markFailed += 1;
+      },
+    }),
+  });
+  const pendingRuntime = createRuntime(createEnabledEnvironment());
+  const pendingConnection = createBrowserConnection(
+    pendingRuntime,
+    pendingDependency
+  );
+  const pendingCallId = 'call-pending-connecting';
+  pendingConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+    callId: pendingCallId,
+  });
+  assert.equal(pendingRuntime.coordinatorFactoryCalls.length, 1);
+  const pendingCoordinatorCall =
+    pendingRuntime.coordinatorFactoryCalls[0];
+  assertLifecycleCalls(pendingCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(pendingLifecycleCalls, 0);
+  assert.equal(
+    countBrowserMessages(
+      pendingConnection.browserSocket,
+      'relay.hello_ack'
+    ),
+    1
+  );
+  assert.equal(pendingRuntime.upstreamInstances.length, 1);
+  assert.equal(pendingConnection.context.characterResolved, true);
+  assert.equal(pendingConnection.context.businessCallId, pendingCallId);
+  assert.equal(
+    pendingConnection.context.internalCallLifecycleCoordinator,
+    pendingCoordinatorCall.coordinator
+  );
+  assert.equal(pendingConnection.browserSocket.readyState, 1);
+  assert.equal(pendingConnection.browserSocket.closeCalls, 0);
+  assert.equal(pendingRuntime.upstreamInstances[0].readyState, 0);
+  assert.equal(pendingRuntime.upstreamInstances[0].closeCalls, 0);
+  assert.equal(pendingRuntime.upstreamInstances[0].terminateCalls, 0);
+  assert.equal(
+    countBrowserMessages(pendingConnection.browserSocket, 'relay.error'),
+    0
+  );
+  assert.equal(
+    pendingRuntime.logs.some(
+      (message) => message.includes('connecting 状态上报失败')
+    ),
+    false
+  );
+  assert.equal(connectingSettled, false);
+  await Promise.resolve();
+  await Promise.resolve();
+  assertLifecycleCalls(pendingCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(pendingLifecycleCalls, 1);
+  assert.deepEqual(pendingCallIds, [pendingCallId]);
+  assert.equal(
+    countBrowserMessages(
+      pendingConnection.browserSocket,
+      'relay.hello_ack'
+    ),
+    1
+  );
+  assert.equal(pendingRuntime.upstreamInstances.length, 1);
+  assert.equal(pendingConnection.browserSocket.readyState, 1);
+  assert.equal(pendingConnection.browserSocket.closeCalls, 0);
+  assert.equal(pendingRuntime.upstreamInstances[0].readyState, 0);
+  assert.equal(pendingRuntime.upstreamInstances[0].closeCalls, 0);
+  assert.equal(pendingRuntime.upstreamInstances[0].terminateCalls, 0);
+  assert.equal(
+    countBrowserMessages(pendingConnection.browserSocket, 'relay.error'),
+    0
+  );
+  assert.equal(
+    pendingRuntime.logs.some(
+      (message) => message.includes('connecting 状态上报失败')
+    ),
+    false
+  );
+  assert.equal(connectingSettled, false);
+  connectingDeferred.resolve('connecting-finished');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(connectingSettled, true);
+  assertLifecycleCalls(pendingCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(pendingLifecycleCalls, 1);
+  assert.equal(
+    pendingRuntime.logs.some(
+      (message) => message.includes('connecting 状态上报失败')
+    ),
+    false
+  );
 
   const failingFactoryRuntime = createRuntime(
     createEnabledEnvironment()
@@ -574,21 +877,41 @@ async function verifyLifecycleDependencyInjection() {
   );
   assert.equal(firstConnection.context.businessCallId, firstCallId);
   assert.equal(runtime.coordinatorFactoryCalls.length, 1);
+  const firstCoordinatorCall = runtime.coordinatorFactoryCalls[0];
   assert.equal(
-    runtime.coordinatorFactoryCalls[0].dependency,
+    firstCoordinatorCall.dependency,
     injectedDependency
   );
   assert.equal(
-    runtime.coordinatorFactoryCalls[0].callId,
+    firstCoordinatorCall.callId,
     firstCallId
   );
   assert.equal(
-    runtime.coordinatorFactoryCalls[0].coordinator,
+    firstCoordinatorCall.coordinator,
     firstCoordinator
   );
+  assert.notStrictEqual(
+    firstCoordinatorCall.realCoordinator,
+    firstCoordinatorCall.coordinator
+  );
+  assert.equal(Object.isFrozen(firstCoordinatorCall.realCoordinator), true);
   assert.equal(Object.isFrozen(firstCoordinator), true);
   assert.equal(runtime.upstreamInstances.length, 1);
-  assertLifecycleCallsZero(lifecycleCalls);
+  assert.deepEqual(
+    firstConnection.browserSocket.sent[
+      firstConnection.browserSocket.sent.length - 1
+    ],
+    {
+      type: 'relay.hello_ack',
+      received: true,
+    }
+  );
+  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(lifecycleCalls, 0);
+  await Promise.resolve();
+  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(lifecycleCalls, 1);
+  assert.deepEqual(connectingCallIds, [firstCallId]);
 
   firstConnection.browserSocket.emitJson({
     type: 'browser.hello',
@@ -604,6 +927,9 @@ async function verifyLifecycleDependencyInjection() {
   assert.equal(firstConnection.context.businessCallId, firstCallId);
   assert.equal(firstConnection.context.characterKey, 'yuhuang');
   assert.equal(runtime.upstreamInstances.length, 1);
+  await Promise.resolve();
+  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(lifecycleCalls, 1);
 
   firstConnection.browserSocket.emitJson({
     type: 'browser.hello',
@@ -627,6 +953,8 @@ async function verifyLifecycleDependencyInjection() {
   );
   assert.equal(firstConnection.context.businessCallId, firstCallId);
   assert.equal(runtime.upstreamInstances.length, 1);
+  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(lifecycleCalls, 1);
 
   firstConnection.browserSocket.emitJson({
     type: 'browser.hello',
@@ -651,6 +979,8 @@ async function verifyLifecycleDependencyInjection() {
   assert.equal(firstConnection.context.businessCallId, firstCallId);
   assert.equal(firstConnection.context.characterKey, 'yuhuang');
   assert.equal(runtime.upstreamInstances.length, 1);
+  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(lifecycleCalls, 1);
 
   const invalidRoleRuntime = createRuntime(createEnabledEnvironment());
   const invalidRoleConnection = createBrowserConnection(
@@ -670,6 +1000,7 @@ async function verifyLifecycleDependencyInjection() {
     null
   );
   assert.equal(invalidRoleRuntime.upstreamInstances.length, 0);
+  assertLifecycleCalls(lifecycleCalls, 1);
 
   const invalidCallIdRuntime = createRuntime(createEnabledEnvironment());
   const invalidCallIdConnection = createBrowserConnection(
@@ -698,6 +1029,108 @@ async function verifyLifecycleDependencyInjection() {
     null
   );
   assert.equal(invalidCallIdRuntime.upstreamInstances.length, 0);
+  assertLifecycleCalls(lifecycleCalls, 1);
+
+  const disabledRoleEnvironment = createEnabledEnvironment();
+  disabledRoleEnvironment.DOUBAO_ENABLE_GUANYIN = '0';
+  const invalidLifecycleScenarios = [
+    {
+      environment: createEnabledEnvironment(),
+      message: {
+        type: 'browser.invalid',
+        client: 'doubao-browser-poc',
+        characterKey: 'yuhuang',
+        callId: 'call-invalid-type',
+      },
+    },
+    {
+      environment: createEnabledEnvironment(),
+      message: {
+        type: 'browser.hello',
+        client: 'invalid-client',
+        characterKey: 'yuhuang',
+        callId: 'call-invalid-client',
+      },
+    },
+    {
+      environment: disabledRoleEnvironment,
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: 'guanyin',
+        callId: 'call-disabled-role',
+      },
+    },
+    {
+      environment: createEnabledEnvironment(),
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: 'yuhuang',
+        callId: null,
+      },
+    },
+    {
+      environment: createEnabledEnvironment(),
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: 'yuhuang',
+        callId: '',
+      },
+    },
+    {
+      environment: createEnabledEnvironment(),
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: 'yuhuang',
+        callId: 'trailing-call-id ',
+      },
+    },
+    {
+      environment: createEnabledEnvironment(),
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: 'yuhuang',
+        callId: 'unsafe\u0000control',
+      },
+    },
+    {
+      environment: createEnabledEnvironment(),
+      message: {
+        type: 'browser.hello',
+        client: 'doubao-browser-poc',
+        characterKey: 'yuhuang',
+        callId: 'x'.repeat(129),
+      },
+    },
+  ];
+  for (const scenario of invalidLifecycleScenarios) {
+    const invalidRuntime = createRuntime(scenario.environment);
+    const invalidConnection = createBrowserConnection(
+      invalidRuntime,
+      injectedDependency
+    );
+    invalidConnection.browserSocket.emitJson(scenario.message);
+    assert.equal(invalidRuntime.coordinatorFactoryCalls.length, 0);
+    assert.equal(invalidConnection.context.characterResolved, false);
+    assert.equal(invalidConnection.context.businessCallId, null);
+    assert.equal(
+      invalidConnection.context.internalCallLifecycleCoordinator,
+      null
+    );
+    assert.equal(
+      countBrowserMessages(
+        invalidConnection.browserSocket,
+        'relay.hello_ack'
+      ),
+      0
+    );
+    assert.equal(invalidRuntime.upstreamInstances.length, 0);
+    assertLifecycleCalls(lifecycleCalls, 1);
+  }
 
   const lateIdRuntime = createRuntime(createEnabledEnvironment());
   const lateIdConnection = createBrowserConnection(
@@ -731,6 +1164,17 @@ async function verifyLifecycleDependencyInjection() {
     null
   );
   assert.equal(lateIdRuntime.upstreamInstances.length, 1);
+  assertLifecycleCalls(lifecycleCalls, 1);
+
+  await verifyLifecycleConnectionPair([
+    'call-pair-different-first',
+    'call-pair-different-second',
+  ]);
+  await verifyLifecycleConnectionPair([
+    'call-pair-shared',
+    'call-pair-shared',
+  ]);
+  assertLifecycleCalls(lifecycleCalls, 1);
 
   const isolationRuntime = createRuntime(createEnabledEnvironment());
   const isolatedFirstConnection = createBrowserConnection(
@@ -766,6 +1210,10 @@ async function verifyLifecycleDependencyInjection() {
     callId: sharedCallId,
   });
   assert.equal(isolationRuntime.coordinatorFactoryCalls.length, 3);
+  for (const coordinatorCall of isolationRuntime.coordinatorFactoryCalls) {
+    assertLifecycleCalls(coordinatorCall.coordinatorMethodCalls, 1);
+  }
+  assertLifecycleCalls(lifecycleCalls, 1);
   assert.equal(
     isolatedFirstConnection.context.internalCallLifecycleDependency,
     isolatedSecondConnection.context.internalCallLifecycleDependency
@@ -819,27 +1267,29 @@ async function verifyLifecycleDependencyInjection() {
     sharedCallId
   );
   assert.equal(isolationRuntime.upstreamInstances.length, 3);
-  assert.equal(runtime.upstreamInstances.length, 1);
-  const upstream = runtime.upstreamInstances[0];
-  upstream.emitOpen();
-  upstream.emitFrame({
-    eventId: EVENT.CONNECTION_STARTED,
-    eventName: 'ConnectionStarted',
-    json: {},
-    messageType: 1,
-    payload: Buffer.alloc(0),
-  });
-  upstream.emitFrame({
-    eventId: EVENT.SESSION_STARTED,
-    eventName: 'SessionStarted',
-    json: {},
-    messageType: 1,
-    payload: Buffer.alloc(0),
-    sessionId: firstConnection.context.sessionId,
-  });
-  firstConnection.browserSocket.emitClose();
-  await firstConnection.context.closePromise;
+  for (const connection of [
+    isolatedFirstConnection,
+    isolatedSecondConnection,
+    isolatedThirdConnection,
+  ]) {
+    assert.equal(
+      countBrowserMessages(connection.browserSocket, 'relay.hello_ack'),
+      1
+    );
+  }
   await Promise.resolve();
+  for (const coordinatorCall of isolationRuntime.coordinatorFactoryCalls) {
+    assertLifecycleCalls(coordinatorCall.coordinatorMethodCalls, 1);
+  }
+  assertLifecycleCalls(lifecycleCalls, 4);
+  assert.deepEqual(connectingCallIds, [
+    firstCallId,
+    sharedCallId,
+    differentCallId,
+    sharedCallId,
+  ]);
+  assert.equal(runtime.upstreamInstances.length, 1);
+  await completeBasicSession(firstConnection, runtime);
   assert.equal(
     firstConnection.context.internalCallLifecycleCoordinator,
     firstCoordinator
@@ -848,7 +1298,120 @@ async function verifyLifecycleDependencyInjection() {
     firstConnection.contexts.has(firstConnection.context),
     false
   );
-  assertLifecycleCallsZero(lifecycleCalls);
+  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1);
+  assertLifecycleCalls(lifecycleCalls, 4);
+  assert.equal(
+    connectingCallIds.filter((callId) => callId === firstCallId).length,
+    1
+  );
+
+  const rejectionCalls = createLifecycleCalls();
+  const rejectionSecret = 'SECRET_CONNECTING_FAILURE_94721';
+  const rejectionCallId = 'call-rejected-connecting';
+  const rejectionCallIds = [];
+  const originalRejectionError = new Error(rejectionSecret);
+  const rejectionDependency = Object.freeze({
+    enabled: true,
+    client: Object.freeze({
+      markConnecting(callId) {
+        rejectionCalls.markConnecting += 1;
+        rejectionCallIds.push(callId);
+        return Promise.reject(originalRejectionError);
+      },
+      markActive() {
+        rejectionCalls.markActive += 1;
+      },
+      markEnded() {
+        rejectionCalls.markEnded += 1;
+      },
+      markFailed() {
+        rejectionCalls.markFailed += 1;
+      },
+    }),
+  });
+  const rejectionRuntime = createRuntime(createEnabledEnvironment());
+  const rejectionConnection = createBrowserConnection(
+    rejectionRuntime,
+    rejectionDependency
+  );
+  rejectionConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+    callId: rejectionCallId,
+  });
+  assert.equal(rejectionRuntime.coordinatorFactoryCalls.length, 1);
+  const rejectionCoordinatorCall =
+    rejectionRuntime.coordinatorFactoryCalls[0];
+  assertLifecycleCalls(
+    rejectionCoordinatorCall.coordinatorMethodCalls,
+    1
+  );
+  assertLifecycleCalls(rejectionCalls, 0);
+  assert.deepEqual(
+    rejectionConnection.browserSocket.sent[
+      rejectionConnection.browserSocket.sent.length - 1
+    ],
+    {
+      type: 'relay.hello_ack',
+      received: true,
+    }
+  );
+  assert.equal(rejectionRuntime.upstreamInstances.length, 1);
+  assert.equal(rejectionConnection.browserSocket.readyState, 1);
+  assert.equal(rejectionConnection.browserSocket.closeCalls, 0);
+  assert.equal(rejectionRuntime.upstreamInstances[0].readyState, 0);
+  assert.equal(rejectionRuntime.upstreamInstances[0].closeCalls, 0);
+  assert.equal(rejectionRuntime.upstreamInstances[0].terminateCalls, 0);
+  assert.equal(
+    rejectionConnection.browserSocket.sent.some(
+      (message) => message.type === 'relay.error'
+    ),
+    false
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assertLifecycleCalls(
+    rejectionCoordinatorCall.coordinatorMethodCalls,
+    1
+  );
+  assertLifecycleCalls(rejectionCalls, 1);
+  assert.deepEqual(rejectionCallIds, [rejectionCallId]);
+  assert.equal(rejectionConnection.browserSocket.readyState, 1);
+  assert.equal(rejectionConnection.browserSocket.closeCalls, 0);
+  assert.equal(rejectionRuntime.upstreamInstances[0].readyState, 0);
+  assert.equal(rejectionRuntime.upstreamInstances[0].closeCalls, 0);
+  assert.equal(rejectionRuntime.upstreamInstances[0].terminateCalls, 0);
+  assert.equal(rejectionRuntime.upstreamInstances.length, 1);
+  assert.equal(
+    countBrowserMessages(rejectionConnection.browserSocket, 'relay.error'),
+    0
+  );
+  assert.equal(
+    rejectionRuntime.logs.filter(
+      (message) => (
+        message.includes(
+          '[Relay] 内部 Call 生命周期 connecting 状态上报失败'
+        )
+      )
+    ).length,
+    1
+  );
+  const visibleRejectionLogs = rejectionRuntime.logs.join('\n');
+  for (const forbiddenValue of [
+    rejectionSecret,
+    rejectionCallId,
+    originalRejectionError.stack,
+    'Authorization',
+    'Bearer',
+    'token',
+    'http://',
+    'https://',
+    'URL',
+    'base URL',
+    'HTTP response',
+  ]) {
+    assert.equal(visibleRejectionLogs.includes(forbiddenValue), false);
+  }
 
   const visibleOutput = JSON.stringify({
     browserMessages: firstConnection.browserSocket.sent,
@@ -1315,9 +1878,44 @@ function verifyLifecycleBoundary() {
     serverSource,
     /context\.internalCallLifecycleCoordinator\s*=\s*nextInternalCallLifecycleCoordinator/
   );
+  const markConnectingMatches =
+    serverSource.match(/\.markConnecting\s*\(\)/g) || [];
+  assert.equal(markConnectingMatches.length, 1);
+  assert.match(
+    serverSource,
+    /if \(context\.internalCallLifecycleCoordinator !== null\) \{\s*void context\.internalCallLifecycleCoordinator\s*\.markConnecting\(\)\s*\.catch\(\(\) => \{\s*log\('\[Relay\] 内部 Call 生命周期 connecting 状态上报失败'\);\s*\}\);\s*\}/
+  );
+  assert.doesNotMatch(
+    serverSource,
+    /await\s+context\.internalCallLifecycleCoordinator[\s\S]{0,80}\.markConnecting\s*\(/
+  );
+  const coordinatorAssignmentIndex = serverSource.indexOf(
+    'context.internalCallLifecycleCoordinator =',
+    handlerIndex
+  );
+  const characterResolvedIndex = serverSource.indexOf(
+    'context.characterResolved = true;',
+    handlerIndex
+  );
+  const markConnectingIndex = serverSource.indexOf(
+    '.markConnecting()',
+    handlerIndex
+  );
+  const helloAckIndex = serverSource.indexOf(
+    "type: 'relay.hello_ack'",
+    markConnectingIndex
+  );
+  const connectUpstreamIndex = serverSource.indexOf(
+    'connectDoubaoUpstream(context);',
+    markConnectingIndex
+  );
+  assert.ok(coordinatorAssignmentIndex >= 0);
+  assert.ok(coordinatorAssignmentIndex < characterResolvedIndex);
+  assert.ok(characterResolvedIndex < markConnectingIndex);
+  assert.ok(markConnectingIndex < helloAckIndex);
+  assert.ok(helloAckIndex < connectUpstreamIndex);
   const forbiddenPatterns = [
     /internal_call_lifecycle_client/,
-    /\.markConnecting\s*\(/,
     /\.markActive\s*\(/,
     /\.markEnded\s*\(/,
     /\.markFailed\s*\(/,
@@ -1506,7 +2104,8 @@ async function main() {
     'verified=enable-switches,missing-speakers,malicious-fields,'
       + 'unknown-keys,repeated-hello,start-connection,start-session,'
       + 'business-call-id-binding,invalid-call-ids,upstream-isolation,'
-      + 'lifecycle-dependency-injection,lifecycle-zero-calls,'
+      + 'lifecycle-dependency-injection,lifecycle-connecting-fire-and-observe,'
+      + 'lifecycle-pending-nonblocking,lifecycle-dual-layer-calls,'
       + 'lifecycle-boundary\n'
   );
   process.stdout.write(
