@@ -576,6 +576,42 @@ test('invalid call requests return stable errors without creating calls', async 
   }
 });
 
+test('phone users can create calls for all roles without unlock tiers', async () => {
+  let generatedCallCount = 0;
+  const { port, server } = await startApp(createTestApp({
+    callIdGenerator: () => {
+      generatedCallCount += 1;
+      return `call-all-role-${generatedCallCount}`;
+    },
+  }));
+
+  try {
+    const loginResponse = await login(port);
+    const { cookiePair } = extractSessionCookie(loginResponse);
+
+    for (const role of PUBLIC_ROLES) {
+      const response = await createPendingCall(
+        port,
+        cookiePair,
+        { roleSlug: role.slug }
+      );
+      assert.equal(response.statusCode, 201);
+
+      const responseBody = parseJson(response.body);
+      assert.deepEqual(responseBody.call.role, {
+        slug: role.slug,
+        displayName: role.displayName,
+      });
+      assert.equal(responseBody.call.status, 'pending');
+    }
+
+    assert.equal(generatedCallCount, PUBLIC_ROLES.length);
+    assert.equal(generatedCallCount, 8);
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test('repeated calls are allowed and application stores are isolated', async () => {
   const appACallIds = ['shared-call-id', 'app-a-call-2'];
   let appACallIndex = 0;

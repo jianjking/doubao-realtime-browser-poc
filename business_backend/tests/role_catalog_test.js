@@ -13,48 +13,64 @@ const EXPECTED_ROLES = [
     slug: 'yuhuang',
     displayName: '玉皇大帝',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 10,
     sortOrder: 1,
   },
   {
     slug: 'sunwukong',
     displayName: '孙悟空',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 9,
     sortOrder: 2,
   },
   {
     slug: 'guanyin',
     displayName: '观音菩萨',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 11,
     sortOrder: 3,
   },
   {
     slug: 'caishen',
     displayName: '财神爷',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 13,
     sortOrder: 4,
   },
   {
     slug: 'rulai',
     displayName: '如来佛祖',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 15,
     sortOrder: 5,
   },
   {
     slug: 'zhubajie',
     displayName: '猪八戒',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 8,
     sortOrder: 6,
   },
   {
     slug: 'shawujing',
     displayName: '沙悟净',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 6,
     sortOrder: 7,
   },
   {
     slug: 'tangseng',
     displayName: '唐僧',
     available: true,
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 7,
     sortOrder: 8,
   },
 ];
@@ -172,6 +188,8 @@ test('public role configuration is deeply frozen and exact', () => {
       'slug',
       'displayName',
       'available',
+      'billingUnitMs',
+      'pricePerBillingUnitFen',
       'sortOrder',
     ]);
   }
@@ -237,6 +255,16 @@ test('role service rejects invalid role configurations', () => {
     createRoleService({ roles: invalidAvailabilityRoles });
   }, /available must be a boolean/);
 
+  const invalidBillingUnitRoles = copyExpectedRoles();
+  invalidBillingUnitRoles[0].billingUnitMs = 0;
+  assert.throws(() => {
+    createRoleService({ roles: invalidBillingUnitRoles });
+  }, /billingUnitMs must be a positive safe integer/);
+  const invalidPriceRoles = copyExpectedRoles();
+  invalidPriceRoles[0].pricePerBillingUnitFen = 0;
+  assert.throws(() => {
+    createRoleService({ roles: invalidPriceRoles });
+  }, /pricePerBillingUnitFen must be a positive safe integer/);
   const emptyDisplayNameRoles = copyExpectedRoles();
   emptyDisplayNameRoles[0].displayName = '';
   assert.throws(() => {
@@ -270,6 +298,18 @@ test('GET /api/roles is public and returns the strict catalog', async () => {
     assert.equal(
       responseBody.roles.every((role) => role.available === true),
       true
+    );
+    assert.equal(
+      responseBody.roles.every(
+        (role) => role.billingUnitMs === 6000
+      ),
+      true
+    );
+    assert.deepEqual(
+      responseBody.roles.map(
+        (role) => role.pricePerBillingUnitFen
+      ),
+      [10, 9, 11, 13, 15, 8, 6, 7]
     );
 
     const ignoredInputsResponse = await requestPath(

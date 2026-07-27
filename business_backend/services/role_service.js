@@ -4,6 +4,8 @@ const PUBLIC_ROLE_FIELDS = new Set([
   'slug',
   'displayName',
   'available',
+  'billingUnitMs',
+  'pricePerBillingUnitFen',
   'sortOrder',
 ]);
 
@@ -12,6 +14,8 @@ function copyPublicRole(role) {
     slug: role.slug,
     displayName: role.displayName,
     available: role.available,
+    billingUnitMs: role.billingUnitMs,
+    pricePerBillingUnitFen: role.pricePerBillingUnitFen,
     sortOrder: role.sortOrder,
   };
 }
@@ -57,6 +61,22 @@ function createRoleService({ roles } = {}) {
     if (typeof role.available !== 'boolean') {
       throw new TypeError(
         `roles[${index}].available must be a boolean`
+      );
+    }
+    if (
+      !Number.isSafeInteger(role.billingUnitMs)
+      || role.billingUnitMs <= 0
+    ) {
+      throw new TypeError(
+        `roles[${index}].billingUnitMs must be a positive safe integer`
+      );
+    }
+    if (
+      !Number.isSafeInteger(role.pricePerBillingUnitFen)
+      || role.pricePerBillingUnitFen <= 0
+    ) {
+      throw new TypeError(
+        `roles[${index}].pricePerBillingUnitFen must be a positive safe integer`
       );
     }
     if (
