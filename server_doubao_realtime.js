@@ -1479,6 +1479,23 @@ function handleDoubaoMessage(context, data, isBinary) {
     || frame.eventId === EVENT.CONNECTION_FAILED
     || frame.eventId === EVENT.SESSION_FAILED
     || frame.eventId === EVENT.DIALOG_COMMON_ERROR) {
+    if (frame.eventId === EVENT.SESSION_FAILED
+      && typeof frame.sessionId === 'string'
+      && frame.sessionId.length > 0
+      && frame.sessionId === context.sessionId) {
+      const isFirstSessionFailed = !context.sessionFailed;
+      context.sessionFailed = true;
+      if (
+        isFirstSessionFailed
+        && context.internalCallLifecycleCoordinator !== null
+      ) {
+        void context.internalCallLifecycleCoordinator
+          .markFailed()
+          .catch(() => {
+            log('[Relay] 内部 Call 生命周期 failed 状态上报失败');
+          });
+      }
+    }
     const cloudError = extractCloudError(frame);
     reportCloudError(context, cloudError.message, cloudError.code);
     void closeDoubaoSession(context, 'cloud error event');
@@ -2276,6 +2293,7 @@ function handleBrowserConnection(
     connectionStarted: false,
     sessionStarted: false,
     sessionFinished: false,
+    sessionFailed: false,
     finishSessionSent: false,
     finishConnectionSent: false,
     upstreamFinished: false,
