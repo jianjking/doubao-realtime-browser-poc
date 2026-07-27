@@ -50,13 +50,28 @@ function createCallService({
     }
   }
 
+  function getDurationMs(call) {
+    if (call.status !== 'ended' && call.status !== 'failed') {
+      return null;
+    }
+    if (call.startedAt === null) {
+      return 0;
+    }
+
+    const elapsedMs = Date.parse(call.endedAt)
+      - Date.parse(call.startedAt);
+    return Number.isFinite(elapsedMs)
+      ? Math.max(0, elapsedMs)
+      : 0;
+  }
+
   function buildPublicCall(call) {
     const role = roleService.findPublicRoleBySlug(call.roleSlug);
     if (!role) {
       throw new Error('Stored call references an unknown role');
     }
 
-    return {
+    const publicCall = {
       id: call.id,
       role: {
         slug: role.slug,
@@ -67,6 +82,14 @@ function createCallService({
       startedAt: call.startedAt,
       endedAt: call.endedAt,
     };
+    const durationMs = getDurationMs(call);
+    Object.defineProperty(publicCall, 'durationMs', {
+      configurable: true,
+      enumerable: durationMs !== null,
+      value: durationMs,
+      writable: true,
+    });
+    return publicCall;
   }
 
   function createPendingCall({ userId, roleSlug } = {}) {

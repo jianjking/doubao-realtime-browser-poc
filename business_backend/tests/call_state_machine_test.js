@@ -258,6 +258,7 @@ test('active calls transition to ended while preserving startedAt', () => {
     ...activeCall,
     status: 'ended',
     endedAt: ENDED_AT,
+    durationMs: 60000,
   });
   assert.equal(endedCall.startedAt, ACTIVE_AT);
   assert.equal(Object.hasOwn(endedCall, 'userId'), false);
@@ -406,6 +407,181 @@ test('repeated transitions to the same status are idempotent', () => {
   assert.deepEqual(failedSecond, failedFirst);
   assert.equal(failedSecond.endedAt, failedFirst.endedAt);
   assert.equal(clockCalls, failedClockCalls);
+});
+
+test('duration starts at active and is fixed on ended', () => {
+  const activeAt = '2026-07-25T05:00:00.000Z';
+  const endedAt = '2026-07-25T05:00:12.500Z';
+  const clockValues = [
+    Date.parse(CREATED_AT),
+    Date.parse(activeAt),
+    Date.parse(endedAt),
+  ];
+  const { callService } = createService({
+    clock: () => clockValues.shift(),
+    idGenerator: () => 'call-duration-ended',
+  });
+
+  const pendingCall = createPendingCall(callService);
+  assert.equal(pendingCall.durationMs, null);
+  assert.equal(Object.hasOwn(pendingCall, 'durationMs'), true);
+
+  const connectingCall = callService.markCallConnecting({
+    callId: pendingCall.id,
+  });
+  assert.equal(connectingCall.durationMs, null);
+
+  const activeCall = callService.markCallActive({
+    callId: pendingCall.id,
+  });
+  assert.equal(activeCall.startedAt, activeAt);
+  assert.equal(activeCall.durationMs, null);
+
+  const endedCall = callService.markCallEnded({
+    callId: pendingCall.id,
+  });
+  assert.equal(endedCall.endedAt, endedAt);
+  assert.equal(endedCall.durationMs, 12500);
+});
+
+test('failed duration covers active and pre-active sources', () => {
+  const activeAt = '2026-07-25T06:00:00.000Z';
+  const failedAt = '2026-07-25T06:00:03.200Z';
+  const activeClockValues = [
+    Date.parse(CREATED_AT),
+    Date.parse(activeAt),
+    Date.parse(failedAt),
+  ];
+  const activeService = createService({
+    clock: () => activeClockValues.shift(),
+    idGenerator: () => 'call-duration-active-failed',
+  }).callService;
+  const activeSource = createPendingCall(activeService);
+  activeService.markCallConnecting({ callId: activeSource.id });
+  const activeCall = activeService.markCallActive({
+    callId: activeSource.id,
+  });
+  const activeFailed = activeService.markCallFailed({
+    callId: activeSource.id,
+  });
+  assert.equal(activeFailed.startedAt, activeCall.startedAt);
+  assert.equal(activeFailed.endedAt, failedAt);
+  assert.equal(activeFailed.durationMs, 3200);
+
+  const pendingClockValues = [
+    Date.parse(CREATED_AT),
+    Date.parse('2026-07-25T06:01:00.000Z'),
+  ];
+  const pendingService = createService({
+    clock: () => pendingClockValues.shift(),
+    idGenerator: () => 'call-duration-pending-failed',
+  }).callService;
+  const pendingSource = createPendingCall(pendingService);
+  const pendingFailed = pendingService.markCallFailed({
+    callId: pendingSource.id,
+  });
+  assert.equal(pendingFailed.startedAt, null);
+  assert.equal(pendingFailed.durationMs, 0);
+});
+
+test('terminal duration is idempotent and opposite terminal is rejected', () => {
+  const invalidTransitionError = {
+    statusCode: 409,
+    code: 'INVALID_CALL_TRANSITION',
+    publicMessage: 'Call state transition is not allowed',
+  };
+  let endedClockCalls = 0;
+  const endedClockValues = [
+    Date.parse(CREATED_AT),
+    Date.parse('2026-07-25T07:00:00.000Z'),
+    Date.parse('2026-07-25T07:00:04.000Z'),
+  ];
+  const endedService = createService({
+    clock: () => {
+      endedClockCalls += 1;
+      return endedClockValues.shift();
+    },
+    idGenerator: () => 'call-duration-idempotent-ended',
+  }).callService;
+  const endedSource = createPendingCall(endedService);
+  endedService.markCallConnecting({ callId: endedSource.id });
+  endedService.markCallActive({ callId: endedSource.id });
+  const endedFirst = endedService.markCallEnded({
+    callId: endedSource.id,
+  });
+  const endedClockCallsAfterFirst = endedClockCalls;
+  const endedSecond = endedService.markCallEnded({
+    callId: endedSource.id,
+  });
+  assert.equal(endedSecond.endedAt, endedFirst.endedAt);
+  assert.equal(endedSecond.durationMs, endedFirst.durationMs);
+  assert.equal(endedClockCalls, endedClockCallsAfterFirst);
+  assertPublicError(() => {
+    endedService.markCallFailed({ callId: endedSource.id });
+  }, invalidTransitionError);
+  const endedAfterRejected = endedService.getPublicCallForUser({
+    userId: 'user-state-owner',
+    callId: endedSource.id,
+  });
+  assert.equal(endedAfterRejected.endedAt, endedFirst.endedAt);
+  assert.equal(endedAfterRejected.durationMs, endedFirst.durationMs);
+
+  let failedClockCalls = 0;
+  const failedClockValues = [
+    Date.parse(CREATED_AT),
+    Date.parse('2026-07-25T08:00:00.000Z'),
+  ];
+  const failedService = createService({
+    clock: () => {
+      failedClockCalls += 1;
+      return failedClockValues.shift();
+    },
+    idGenerator: () => 'call-duration-idempotent-failed',
+  }).callService;
+  const failedSource = createPendingCall(failedService);
+  const failedFirst = failedService.markCallFailed({
+    callId: failedSource.id,
+  });
+  const failedClockCallsAfterFirst = failedClockCalls;
+  const failedSecond = failedService.markCallFailed({
+    callId: failedSource.id,
+  });
+  assert.equal(failedSecond.endedAt, failedFirst.endedAt);
+  assert.equal(failedSecond.durationMs, failedFirst.durationMs);
+  assert.equal(failedClockCalls, failedClockCallsAfterFirst);
+  assertPublicError(() => {
+    failedService.markCallEnded({ callId: failedSource.id });
+  }, invalidTransitionError);
+  const failedAfterRejected = failedService.getPublicCallForUser({
+    userId: 'user-state-owner',
+    callId: failedSource.id,
+  });
+  assert.equal(failedAfterRejected.endedAt, failedFirst.endedAt);
+  assert.equal(failedAfterRejected.durationMs, failedFirst.durationMs);
+});
+
+test('duration never becomes negative when the clock moves backward', () => {
+  const activeAt = '2026-07-25T09:00:01.000Z';
+  const endedAt = '2026-07-25T09:00:00.000Z';
+  const clockValues = [
+    Date.parse(CREATED_AT),
+    Date.parse(activeAt),
+    Date.parse(endedAt),
+  ];
+  const { callService } = createService({
+    clock: () => clockValues.shift(),
+    idGenerator: () => 'call-duration-clock-reversal',
+  });
+  const createdCall = createPendingCall(callService);
+  callService.markCallConnecting({ callId: createdCall.id });
+  callService.markCallActive({ callId: createdCall.id });
+  const endedCall = callService.markCallEnded({
+    callId: createdCall.id,
+  });
+
+  assert.equal(endedCall.startedAt, activeAt);
+  assert.equal(endedCall.endedAt, endedAt);
+  assert.equal(endedCall.durationMs, 0);
 });
 
 test('invalid transitions and call IDs fail without changing calls', () => {
