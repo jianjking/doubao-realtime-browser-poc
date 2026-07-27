@@ -4,6 +4,8 @@ const CALL_FIELDS = new Set([
   'id',
   'userId',
   'roleSlug',
+  'billingUnitMs',
+  'pricePerBillingUnitFen',
   'status',
   'createdAt',
   'startedAt',
@@ -47,6 +49,22 @@ function validateCall(call) {
   }
   if (typeof call.roleSlug !== 'string' || call.roleSlug === '') {
     throw new TypeError('call.roleSlug must be a non-empty string');
+  }
+  if (
+    !Number.isSafeInteger(call.billingUnitMs)
+    || call.billingUnitMs <= 0
+  ) {
+    throw new TypeError(
+      'call.billingUnitMs must be a positive safe integer'
+    );
+  }
+  if (
+    !Number.isSafeInteger(call.pricePerBillingUnitFen)
+    || call.pricePerBillingUnitFen <= 0
+  ) {
+    throw new TypeError(
+      'call.pricePerBillingUnitFen must be a positive safe integer'
+    );
   }
   if (!CALL_STATUSES.has(call.status)) {
     throw new TypeError('call.status must be supported');
@@ -138,6 +156,9 @@ class MemoryCallStore {
       call.id !== existingCall.id
       || call.userId !== existingCall.userId
       || call.roleSlug !== existingCall.roleSlug
+      || call.billingUnitMs !== existingCall.billingUnitMs
+      || call.pricePerBillingUnitFen
+        !== existingCall.pricePerBillingUnitFen
       || call.createdAt !== existingCall.createdAt
     ) {
       throw new Error('Call identity fields cannot be changed');

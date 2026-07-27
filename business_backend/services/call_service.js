@@ -127,6 +127,8 @@ function createCallService({
       id: idGenerator(),
       userId,
       roleSlug,
+      billingUnitMs: role.billingUnitMs,
+      pricePerBillingUnitFen: role.pricePerBillingUnitFen,
       status: 'pending',
       createdAt,
       startedAt: null,

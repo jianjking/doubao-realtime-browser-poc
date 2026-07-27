@@ -31,6 +31,8 @@ function createCall(overrides = {}) {
     id: 'call-1',
     userId: 'user-1',
     roleSlug: 'yuhuang',
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 10,
     status: 'pending',
     createdAt: FIXED_TIME,
     startedAt: null,
@@ -280,11 +282,72 @@ test('call service creates and stores a server-owned pending call', () => {
     id: 'call-fixed-service',
     userId: 'user-real',
     roleSlug: 'yuhuang',
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 10,
     status: 'pending',
     createdAt: FIXED_TIME,
     startedAt: null,
     endedAt: null,
   });
+});
+
+test('call service snapshots role pricing for every new call', () => {
+  const callStore = new MemoryCallStore();
+
+  const originalService = createCallService({
+    callStore,
+    roleService: createRoleService({ roles: PUBLIC_ROLES }),
+    idGenerator: () => 'call-price-old',
+    clock: () => Date.parse(FIXED_TIME),
+  });
+
+  const publicCall = originalService.createPendingCall({
+    userId: 'user-pricing',
+    roleSlug: 'yuhuang',
+  });
+
+  assert.equal(
+    Object.hasOwn(publicCall, 'billingUnitMs'),
+    false
+  );
+  assert.equal(
+    Object.hasOwn(publicCall, 'pricePerBillingUnitFen'),
+    false
+  );
+
+  const oldCall = callStore.findById('call-price-old');
+  assert.equal(oldCall.billingUnitMs, 6000);
+  assert.equal(oldCall.pricePerBillingUnitFen, 10);
+
+  const repricedRoles = PUBLIC_ROLES.map((role) => ({
+    ...role,
+    billingUnitMs: role.slug === 'yuhuang'
+      ? 3000
+      : role.billingUnitMs,
+    pricePerBillingUnitFen: role.slug === 'yuhuang'
+      ? 7
+      : role.pricePerBillingUnitFen,
+  }));
+
+  const repricedService = createCallService({
+    callStore,
+    roleService: createRoleService({ roles: repricedRoles }),
+    idGenerator: () => 'call-price-new',
+    clock: () => Date.parse(FIXED_TIME),
+  });
+
+  repricedService.createPendingCall({
+    userId: 'user-pricing',
+    roleSlug: 'yuhuang',
+  });
+
+  const unchangedOldCall = callStore.findById('call-price-old');
+  const newCall = callStore.findById('call-price-new');
+
+  assert.equal(unchangedOldCall.billingUnitMs, 6000);
+  assert.equal(unchangedOldCall.pricePerBillingUnitFen, 10);
+  assert.equal(newCall.billingUnitMs, 3000);
+  assert.equal(newCall.pricePerBillingUnitFen, 7);
 });
 
 test('call service enforces exact and available role slugs', () => {
@@ -430,6 +493,8 @@ test('phone users create a strict public pending call', async () => {
       PUBLIC_TEST_PHONE,
       'balanceCents',
       'remainingSeconds',
+      'billingUnitMs',
+      'pricePerBillingUnitFen',
       rawToken,
       'tokenHash',
       'speaker',
@@ -462,6 +527,8 @@ test('client-supplied call fields cannot override server values', async () => {
       createdAt: '2000-01-01T00:00:00.000Z',
       startedAt: '2000-01-01T00:00:00.000Z',
       endedAt: '2000-01-01T00:00:00.000Z',
+      billingUnitMs: 1,
+      pricePerBillingUnitFen: 999999,
       role: {
         slug: 'unknown',
       },

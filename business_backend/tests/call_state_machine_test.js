@@ -17,6 +17,8 @@ function createCall(overrides = {}) {
     id: 'call-state-1',
     userId: 'user-state-owner',
     roleSlug: 'yuhuang',
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 10,
     status: 'pending',
     createdAt: CREATED_AT,
     startedAt: null,
@@ -108,6 +110,16 @@ test('memory call store rejects invalid state and timestamp shapes', () => {
 
   const invalidCalls = [
     [createCall({ status: 'unknown' }), /status/],
+    [createCall({ billingUnitMs: 0 }), /billingUnitMs/],
+    [createCall({ billingUnitMs: 1.5 }), /billingUnitMs/],
+    [
+      createCall({ pricePerBillingUnitFen: 0 }),
+      /pricePerBillingUnitFen/,
+    ],
+    [
+      createCall({ pricePerBillingUnitFen: 1.5 }),
+      /pricePerBillingUnitFen/,
+    ],
     [createCall({ startedAt: ACTIVE_AT }), /startedAt/],
     [
       createCall({
@@ -165,6 +177,8 @@ test('memory call store replace protects identity fields', () => {
   for (const changedIdentity of [
     { userId: 'another-user' },
     { roleSlug: 'sunwukong' },
+    { billingUnitMs: 3000 },
+    { pricePerBillingUnitFen: 99 },
     { createdAt: '2026-07-24T00:00:00.000Z' },
   ]) {
     assert.throws(() => {
@@ -204,6 +218,8 @@ test('pending calls transition to connecting', () => {
     id: createdCall.id,
     userId: 'user-state-owner',
     roleSlug: 'yuhuang',
+    billingUnitMs: 6000,
+    pricePerBillingUnitFen: 10,
     status: 'connecting',
     createdAt: CREATED_AT,
     startedAt: null,
