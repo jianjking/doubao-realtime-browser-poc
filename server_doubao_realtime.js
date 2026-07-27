@@ -1504,7 +1504,19 @@ function handleDoubaoMessage(context, data, isBinary) {
         void closeDoubaoSession(context, 'session id mismatch');
         return;
       }
+      const isFirstSessionStarted = !context.sessionStarted;
       context.sessionStarted = true;
+      if (
+        isFirstSessionStarted
+        && !context.closing
+        && context.internalCallLifecycleCoordinator !== null
+      ) {
+        void context.internalCallLifecycleCoordinator
+          .markActive()
+          .catch(() => {
+            log('[Relay] 内部 Call 生命周期 active 状态上报失败');
+          });
+      }
       log('[Relay] SessionStarted');
       sendJson(context.browserSocket, {
         type: 'relay.session_started',
