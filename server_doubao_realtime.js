@@ -1797,6 +1797,25 @@ function handleDoubaoMessage(context, data, isBinary) {
     }
 
     case EVENT.SESSION_FINISHED:
+      if (typeof frame.sessionId !== 'string'
+        || frame.sessionId.length === 0
+        || frame.sessionId !== context.sessionId) {
+        reportCloudError(context, 'SessionFinished Session ID 不匹配');
+        void closeDoubaoSession(context, 'session id mismatch');
+        return;
+      }
+      const isFirstSessionFinished = !context.sessionFinished;
+      context.sessionFinished = true;
+      if (
+        isFirstSessionFinished
+        && context.internalCallLifecycleCoordinator !== null
+      ) {
+        void context.internalCallLifecycleCoordinator
+          .markEnded()
+          .catch(() => {
+            log('[Relay] 内部 Call 生命周期 ended 状态上报失败');
+          });
+      }
       log('[Relay] SessionFinished');
       sendJson(context.browserSocket, {
         type: 'relay.session_finished',
@@ -2256,6 +2275,7 @@ function handleBrowserConnection(
     startSessionSent: false,
     connectionStarted: false,
     sessionStarted: false,
+    sessionFinished: false,
     finishSessionSent: false,
     finishConnectionSent: false,
     upstreamFinished: false,

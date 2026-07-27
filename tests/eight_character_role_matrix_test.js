@@ -98,6 +98,7 @@ const EVENT = Object.freeze({
   FINISH_SESSION: 6,
   FINISH_CONNECTION: 7,
   CONNECTION_FINISHED: 8,
+  SESSION_FINISHED: 9,
   CONNECTION_FAILED: 90,
   SESSION_FAILED: 91,
   DIALOG_COMMON_ERROR: 92,
@@ -420,6 +421,7 @@ function createBrowserConnection(
   const context = [...contexts][0];
   assert.equal(context.businessCallId, null);
   assert.equal(context.internalCallLifecycleCoordinator, null);
+  assert.equal(context.sessionFinished, false);
   if (internalCallLifecycleDependency === undefined) {
     assert.equal(
       context.internalCallLifecycleDependency.enabled,
@@ -472,10 +474,12 @@ function createDeferred() {
 function createTrackingLifecycleDependency({
   markConnecting,
   markActive,
+  markEnded,
 } = {}) {
   const lifecycleCalls = createLifecycleCalls();
   const connectingCallIds = [];
   const activeCallIds = [];
+  const endedCallIds = [];
   const order = [];
   const dependency = Object.freeze({
     enabled: true,
@@ -496,8 +500,13 @@ function createTrackingLifecycleDependency({
           return markActive(callId);
         }
       },
-      markEnded() {
+      markEnded(callId) {
         lifecycleCalls.markEnded += 1;
+        endedCallIds.push(callId);
+        order.push(`ended:${callId}`);
+        if (markEnded) {
+          return markEnded(callId);
+        }
       },
       markFailed() {
         lifecycleCalls.markFailed += 1;
@@ -508,6 +517,7 @@ function createTrackingLifecycleDependency({
     activeCallIds,
     connectingCallIds,
     dependency,
+    endedCallIds,
     lifecycleCalls,
     order,
   };
@@ -577,6 +587,58 @@ function emitSessionStarted(
   connection.context.upstreamSocket.emitFrame(frame);
 }
 
+function emitSessionFinished(
+  connection,
+  {
+    includeSessionId = true,
+    sessionId = connection.context.sessionId,
+  } = {}
+) {
+  const frame = {
+    eventId: EVENT.SESSION_FINISHED,
+    eventName: 'SessionFinished',
+    json: {},
+    messageType: 1,
+    payload: Buffer.alloc(0),
+  };
+  if (includeSessionId) {
+    frame.sessionId = sessionId;
+  }
+  connection.context.upstreamSocket.emitFrame(frame);
+}
+
+function emitConnectionFinished(connection) {
+  connection.context.upstreamSocket.emitFrame({
+    eventId: EVENT.CONNECTION_FINISHED,
+    eventName: 'ConnectionFinished',
+    json: {},
+    messageType: 1,
+    payload: Buffer.alloc(0),
+  });
+}
+
+function startLifecycleSession(runtime, dependency, {
+  callId,
+  characterKey = 'yuhuang',
+} = {}) {
+  const connection = createBrowserConnection(runtime, dependency);
+  const hello = {
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey,
+  };
+  if (callId !== undefined) {
+    hello.callId = callId;
+  }
+  connection.browserSocket.emitJson(hello);
+  const upstream = emitConnectionStarted(connection);
+  emitSessionStarted(connection);
+  return {
+    connection,
+    upstream,
+  };
+}
+
 function startBrowserAudioAndSendPcm(connection) {
   connection.browserSocket.emitJson({
     type: 'browser.audio_start',
@@ -604,14 +666,21 @@ async function finishBrowserConnectionGracefully(
 ) {
   connection.browserSocket.emitClose();
   assert.equal(connection.context.closing, true);
+  assert.equal(connection.context.finishSessionSent, true);
   assert.equal(connection.context.finishConnectionSent, true);
   assert.ok(connection.context.closePromise);
+  assert.equal(
+    countEncodedEvents(runtime, EVENT.FINISH_SESSION),
+    1
+  );
   assert.equal(
     countEncodedEvents(runtime, EVENT.FINISH_CONNECTION),
     1
   );
   assert.equal(upstream.closeCalls, 0);
   assert.equal(upstream.terminateCalls, 0);
+  emitSessionFinished(connection);
+  assert.equal(connection.context.sessionFinished, true);
   upstream.emitFrame({
     eventId: EVENT.CONNECTION_FINISHED,
     eventName: 'ConnectionFinished',
@@ -625,6 +694,10 @@ async function finishBrowserConnectionGracefully(
   assert.equal(upstream.closeCalls, 1);
   assert.equal(upstream.terminateCalls, 0);
   assert.equal(upstream.closeCalls + upstream.terminateCalls, 1);
+  assert.equal(
+    countEncodedEvents(runtime, EVENT.FINISH_SESSION),
+    1
+  );
   assert.equal(
     countEncodedEvents(runtime, EVENT.FINISH_CONNECTION),
     1
@@ -660,6 +733,7 @@ async function verifyLifecycleConnectionPair(callIds) {
   const lifecycleCalls = createLifecycleCalls();
   const activeCallIds = [];
   const connectingCallIds = [];
+  const endedCallIds = [];
   const lifecycleOrder = [];
   const dependency = Object.freeze({
     enabled: true,
@@ -674,8 +748,10 @@ async function verifyLifecycleConnectionPair(callIds) {
         activeCallIds.push(callId);
         lifecycleOrder.push(`active:${callId}`);
       },
-      markEnded() {
+      markEnded(callId) {
         lifecycleCalls.markEnded += 1;
+        endedCallIds.push(callId);
+        lifecycleOrder.push(`ended:${callId}`);
       },
       markFailed() {
         lifecycleCalls.markFailed += 1;
@@ -746,6 +822,33 @@ async function verifyLifecycleConnectionPair(callIds) {
     `connecting:${callIds[1]}`,
     `active:${callIds[0]}`,
     `active:${callIds[1]}`,
+  ]);
+  emitSessionFinished(firstConnection);
+  emitSessionFinished(secondConnection);
+  for (const coordinatorCall of runtime.coordinatorFactoryCalls) {
+    assertLifecycleCalls(coordinatorCall.coordinatorMethodCalls, 1, 1, 1);
+  }
+  assert.equal(
+    countBrowserMessages(firstConnection.browserSocket, 'relay.session_finished'),
+    1
+  );
+  assert.equal(
+    countBrowserMessages(
+      secondConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    1
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(lifecycleCalls, 2, 2, 2);
+  assert.deepEqual(endedCallIds, callIds);
+  assert.deepEqual(lifecycleOrder, [
+    `connecting:${callIds[0]}`,
+    `connecting:${callIds[1]}`,
+    `active:${callIds[0]}`,
+    `active:${callIds[1]}`,
+    `ended:${callIds[0]}`,
+    `ended:${callIds[1]}`,
   ]);
 }
 
@@ -1476,8 +1579,8 @@ async function verifyLifecycleDependencyInjection() {
     firstConnection.contexts.has(firstConnection.context),
     false
   );
-  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1, 1);
-  assertLifecycleCalls(lifecycleCalls, 4, 1);
+  assertLifecycleCalls(firstCoordinatorCall.coordinatorMethodCalls, 1, 1, 1);
+  assertLifecycleCalls(lifecycleCalls, 4, 1, 1);
   assert.equal(
     connectingCallIds.filter((callId) => callId === firstCallId).length,
     1
@@ -1758,9 +1861,15 @@ async function verifySessionStartedLifecycleActivation() {
   assertLifecycleCalls(
     fulfilledCoordinatorCall.coordinatorMethodCalls,
     1,
+    1,
     1
   );
-  assertLifecycleCalls(fulfilledTracking.lifecycleCalls, 1, 1);
+  assertLifecycleCalls(fulfilledTracking.lifecycleCalls, 1, 1, 1);
+  assert.deepEqual(fulfilledTracking.order, [
+    `connecting:${fulfilledCallId}`,
+    `active:${fulfilledCallId}`,
+    `ended:${fulfilledCallId}`,
+  ]);
 
   const timeoutCallId = 'call-active-timeout-terminate';
   const timeoutTracking = createTrackingLifecycleDependency();
@@ -1793,7 +1902,17 @@ async function verifySessionStartedLifecycleActivation() {
   assertLifecycleCalls(timeoutTracking.lifecycleCalls, 1, 1);
   timeoutConnection.browserSocket.emitClose();
   assert.equal(timeoutConnection.context.closing, true);
+  assert.equal(timeoutConnection.context.sessionFinished, false);
+  assert.equal(timeoutConnection.context.finishSessionSent, true);
   assert.equal(timeoutConnection.context.finishConnectionSent, true);
+  assert.equal(
+    countEncodedEvents(timeoutRuntime, EVENT.FINISH_SESSION),
+    1
+  );
+  assert.equal(
+    countEncodedEvents(timeoutRuntime, EVENT.FINISH_SESSION),
+    1
+  );
   assert.equal(
     countEncodedEvents(timeoutRuntime, EVENT.FINISH_CONNECTION),
     1
@@ -2462,6 +2581,554 @@ async function verifySessionStartedLifecycleActivation() {
   assertLifecycleCalls(closingTracking.lifecycleCalls, 1);
 }
 
+async function verifySessionFinishedLifecycleCompletion() {
+  const endedFailureLog =
+    '[Relay] 内部 Call 生命周期 ended 状态上报失败';
+
+  const noCallTracking = createTrackingLifecycleDependency();
+  const noCallRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: noCallConnection,
+  } = startLifecycleSession(
+    noCallRuntime,
+    noCallTracking.dependency
+  );
+  assert.equal(noCallRuntime.coordinatorFactoryCalls.length, 0);
+  assert.equal(noCallConnection.context.closing, false);
+  emitSessionFinished(noCallConnection);
+  assert.equal(noCallConnection.context.sessionFinished, true);
+  assert.equal(noCallConnection.context.closing, false);
+  assert.equal(
+    countBrowserMessages(
+      noCallConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    1
+  );
+  assertLifecycleCalls(noCallTracking.lifecycleCalls, 0);
+  assert.equal(noCallRuntime.fetchCalls.length, 0);
+
+  const disabledClientCalls = createLifecycleCalls();
+  const disabledDependency = Object.freeze({
+    enabled: false,
+    client: null,
+  });
+  const disabledRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: disabledConnection,
+  } = startLifecycleSession(
+    disabledRuntime,
+    disabledDependency,
+    { callId: 'call-disabled-ended' }
+  );
+  emitSessionFinished(disabledConnection);
+  await flushLifecycleQueue();
+  assert.equal(disabledRuntime.coordinatorFactoryCalls.length, 1);
+  assertLifecycleCalls(
+    disabledRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  assertLifecycleCalls(disabledClientCalls, 0);
+  assert.equal(
+    countBrowserMessages(
+      disabledConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    1
+  );
+  assert.equal(disabledRuntime.fetchCalls.length, 0);
+
+  const fulfilledCallId = 'call-ended-fulfilled';
+  const fulfilledTracking = createTrackingLifecycleDependency();
+  const fulfilledRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: fulfilledConnection,
+  } = startLifecycleSession(
+    fulfilledRuntime,
+    fulfilledTracking.dependency,
+    { callId: fulfilledCallId }
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(fulfilledTracking.lifecycleCalls, 1, 1);
+  assert.equal(fulfilledConnection.context.closing, false);
+  emitSessionFinished(fulfilledConnection);
+  assert.equal(fulfilledConnection.context.sessionFinished, true);
+  assert.equal(fulfilledConnection.context.closing, false);
+  assertLifecycleCalls(
+    fulfilledRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(fulfilledTracking.lifecycleCalls, 1, 1, 1);
+  assert.deepEqual(fulfilledTracking.endedCallIds, [fulfilledCallId]);
+  assert.deepEqual(fulfilledTracking.order, [
+    `connecting:${fulfilledCallId}`,
+    `active:${fulfilledCallId}`,
+    `ended:${fulfilledCallId}`,
+  ]);
+  assert.equal(
+    countBrowserMessages(
+      fulfilledConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    1
+  );
+
+  const activeDeferred = createDeferred();
+  const pendingActiveCallId = 'call-active-pending-ended';
+  const pendingActiveTracking = createTrackingLifecycleDependency({
+    markActive() {
+      return activeDeferred.promise;
+    },
+  });
+  const pendingActiveRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: pendingActiveConnection,
+  } = startLifecycleSession(
+    pendingActiveRuntime,
+    pendingActiveTracking.dependency,
+    { callId: pendingActiveCallId }
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(pendingActiveTracking.lifecycleCalls, 1, 1);
+  emitSessionFinished(pendingActiveConnection);
+  assertLifecycleCalls(
+    pendingActiveRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  assertLifecycleCalls(pendingActiveTracking.lifecycleCalls, 1, 1);
+  assert.equal(
+    countBrowserMessages(
+      pendingActiveConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    1
+  );
+  assert.equal(pendingActiveConnection.browserSocket.readyState, 1);
+  activeDeferred.resolve('active-complete-before-ended');
+  await flushLifecycleQueue();
+  assertLifecycleCalls(pendingActiveTracking.lifecycleCalls, 1, 1, 1);
+  assert.deepEqual(pendingActiveTracking.order, [
+    `connecting:${pendingActiveCallId}`,
+    `active:${pendingActiveCallId}`,
+    `ended:${pendingActiveCallId}`,
+  ]);
+
+  const activeRejectedCallId = 'call-active-rejected-ended';
+  const activeRejectedTracking = createTrackingLifecycleDependency({
+    markActive() {
+      return Promise.reject(
+        new Error('SECRET_ACTIVE_REJECTED_BEFORE_ENDED_59214')
+      );
+    },
+  });
+  const activeRejectedRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: activeRejectedConnection,
+  } = startLifecycleSession(
+    activeRejectedRuntime,
+    activeRejectedTracking.dependency,
+    { callId: activeRejectedCallId }
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(activeRejectedTracking.lifecycleCalls, 1, 1);
+  emitSessionFinished(activeRejectedConnection);
+  assertLifecycleCalls(
+    activeRejectedRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(activeRejectedTracking.lifecycleCalls, 1, 1, 1);
+  assert.deepEqual(activeRejectedTracking.order, [
+    `connecting:${activeRejectedCallId}`,
+    `active:${activeRejectedCallId}`,
+    `ended:${activeRejectedCallId}`,
+  ]);
+  assert.equal(
+    activeRejectedRuntime.logs.filter(
+      (message) => message.endsWith(
+        '[Relay] 内部 Call 生命周期 active 状态上报失败'
+      )
+    ).length,
+    1
+  );
+  assert.equal(
+    activeRejectedRuntime.logs.join('\n').includes(
+      'SECRET_ACTIVE_REJECTED_BEFORE_ENDED_59214'
+    ),
+    false
+  );
+
+  const endedDeferred = createDeferred();
+  const pendingEndedCallId = 'call-ended-pending';
+  const pendingEndedTracking = createTrackingLifecycleDependency({
+    markEnded() {
+      return endedDeferred.promise;
+    },
+  });
+  const pendingEndedRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: pendingEndedConnection,
+    upstream: pendingEndedUpstream,
+  } = startLifecycleSession(
+    pendingEndedRuntime,
+    pendingEndedTracking.dependency,
+    { callId: pendingEndedCallId }
+  );
+  await flushLifecycleQueue();
+  let pendingEndedHandlerReturned = false;
+  emitSessionFinished(pendingEndedConnection);
+  pendingEndedHandlerReturned = true;
+  assert.equal(pendingEndedHandlerReturned, true);
+  assert.equal(
+    countBrowserMessages(
+      pendingEndedConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    1
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(pendingEndedTracking.lifecycleCalls, 1, 1, 1);
+  await finishBrowserConnectionGracefully(
+    pendingEndedConnection,
+    pendingEndedUpstream,
+    pendingEndedRuntime
+  );
+  assert.equal(
+    pendingEndedConnection.contexts.has(pendingEndedConnection.context),
+    false
+  );
+  assertLifecycleCalls(
+    pendingEndedRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  assertLifecycleCalls(pendingEndedTracking.lifecycleCalls, 1, 1, 1);
+  endedDeferred.resolve('ended-complete-after-close');
+  await flushLifecycleQueue();
+  assertLifecycleCalls(pendingEndedTracking.lifecycleCalls, 1, 1, 1);
+
+  const endedRejectionSecret = 'SECRET_ENDED_FAILURE_73129';
+  const endedRejectionCallId = 'call-ended-sensitive-73129';
+  const endedRejectionToken = 'token-ended-sensitive-73129';
+  const endedRejectionAuthorization =
+    'Authorization: Bearer ended-sensitive-73129';
+  const endedRejectionUrl =
+    'https://internal.invalid/calls/ended-sensitive-73129';
+  const endedRejectionStack = 'SENSITIVE_ENDED_STACK_73129';
+  let endedRejectedConnection;
+  const endedRejectedTracking = createTrackingLifecycleDependency({
+    markEnded(callId) {
+      const rejection = new Error(
+        `${endedRejectionSecret} ${callId} `
+          + `${endedRejectedConnection.context.sessionId} `
+          + `${endedRejectionToken} ${endedRejectionAuthorization} `
+          + `${endedRejectionUrl}`
+      );
+      rejection.stack = endedRejectionStack;
+      rejection.authorization = endedRejectionAuthorization;
+      rejection.internalUrl = endedRejectionUrl;
+      rejection.sessionId = endedRejectedConnection.context.sessionId;
+      rejection.token = endedRejectionToken;
+      return Promise.reject(rejection);
+    },
+  });
+  const endedRejectedRuntime = createRuntime(createEnabledEnvironment());
+  ({
+    connection: endedRejectedConnection,
+  } = startLifecycleSession(
+    endedRejectedRuntime,
+    endedRejectedTracking.dependency,
+    { callId: endedRejectionCallId }
+  ));
+  await flushLifecycleQueue();
+  const endedRejectedSessionId =
+    endedRejectedConnection.context.sessionId;
+  emitSessionFinished(endedRejectedConnection);
+  emitSessionFinished(endedRejectedConnection);
+  assert.equal(endedRejectedConnection.context.sessionFinished, true);
+  assertLifecycleCalls(
+    endedRejectedRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  assert.equal(
+    countBrowserMessages(
+      endedRejectedConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    2
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(endedRejectedTracking.lifecycleCalls, 1, 1, 1);
+  assert.equal(
+    endedRejectedRuntime.logs.filter(
+      (message) => message.endsWith(endedFailureLog)
+    ).length,
+    1
+  );
+  assert.deepEqual(
+    endedRejectedRuntime.logs
+      .filter((message) => message.endsWith(endedFailureLog))
+      .map((message) => message.slice(message.indexOf('[Relay]'))),
+    [endedFailureLog]
+  );
+  assert.equal(
+    countBrowserMessages(
+      endedRejectedConnection.browserSocket,
+      'relay.error'
+    ),
+    0
+  );
+  assert.equal(endedRejectedConnection.browserSocket.readyState, 1);
+  assert.equal(endedRejectedConnection.browserSocket.closeCalls, 0);
+  assert.equal(
+    endedRejectedConnection.context.upstreamSocket.readyState,
+    1
+  );
+  assert.equal(
+    endedRejectedConnection.context.upstreamSocket.closeCalls,
+    0
+  );
+  assert.equal(
+    endedRejectedConnection.context.upstreamSocket.terminateCalls,
+    0
+  );
+  const endedRejectedVisibleOutput = [
+    endedRejectedRuntime.logs.join('\n'),
+    JSON.stringify(
+      getBrowserMessagesByType(
+        endedRejectedConnection.browserSocket,
+        'relay.error'
+      )
+    ),
+    JSON.stringify(endedRejectedConnection.browserSocket.closeReasons),
+    JSON.stringify(
+      endedRejectedConnection.context.upstreamSocket.closeReasons
+    ),
+  ].join('\n');
+  for (const forbiddenValue of [
+    endedRejectionSecret,
+    endedRejectionCallId,
+    endedRejectedSessionId,
+    endedRejectionToken,
+    endedRejectionAuthorization,
+    endedRejectionUrl,
+    endedRejectionStack,
+    'Authorization',
+    'Bearer',
+  ]) {
+    assert.equal(
+      endedRejectedVisibleOutput.includes(forbiddenValue),
+      false
+    );
+  }
+  await flushLifecycleQueue();
+  assertLifecycleCalls(
+    endedRejectedRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  assertLifecycleCalls(endedRejectedTracking.lifecycleCalls, 1, 1, 1);
+
+  const invalidSessionScenarios = [
+    {
+      name: 'missing',
+      callId: 'call-ended-missing-session-id',
+      options: {
+        includeSessionId: false,
+      },
+    },
+    {
+      name: 'wrong',
+      callId: 'call-ended-wrong-session-id',
+      options: {
+        sessionId: 'wrong-ended-session-id',
+      },
+    },
+  ];
+  for (const scenario of invalidSessionScenarios) {
+    const tracking = createTrackingLifecycleDependency();
+    const runtime = createRuntime(createEnabledEnvironment());
+    const {
+      connection,
+      upstream,
+    } = startLifecycleSession(
+      runtime,
+      tracking.dependency,
+      { callId: scenario.callId }
+    );
+    await flushLifecycleQueue();
+    emitSessionFinished(connection, scenario.options);
+    assert.equal(connection.context.sessionFinished, false);
+    assertLifecycleCalls(
+      runtime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+      1,
+      1
+    );
+    assertLifecycleCalls(tracking.lifecycleCalls, 1, 1);
+    assert.deepEqual(
+      getBrowserMessagesByType(
+        connection.browserSocket,
+        'relay.cloud_error'
+      ),
+      [{
+        type: 'relay.cloud_error',
+        message: 'SessionFinished Session ID 不匹配',
+      }],
+      scenario.name
+    );
+    assert.equal(
+      countBrowserMessages(
+        connection.browserSocket,
+        'relay.session_finished'
+      ),
+      0
+    );
+    assert.equal(
+      countBrowserMessages(connection.browserSocket, 'relay.error'),
+      0
+    );
+    assert.equal(connection.context.closing, true);
+    assert.equal(connection.context.finishSessionSent, true);
+    assert.equal(connection.context.finishConnectionSent, true);
+    assert.equal(countEncodedEvents(runtime, EVENT.FINISH_SESSION), 1);
+    assert.equal(countEncodedEvents(runtime, EVENT.FINISH_CONNECTION), 1);
+    assert.equal(upstream.closeCalls, 0);
+    assert.equal(upstream.terminateCalls, 0);
+    emitConnectionFinished(connection);
+    await connection.context.closePromise;
+    await Promise.resolve();
+    assert.equal(upstream.closeCalls, 1);
+    assert.equal(upstream.terminateCalls, 0);
+    assertLifecycleCalls(
+      runtime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+      1,
+      1
+    );
+    assertLifecycleCalls(tracking.lifecycleCalls, 1, 1);
+  }
+
+  const gracefulCallId = 'call-ended-graceful-close';
+  const gracefulTracking = createTrackingLifecycleDependency();
+  const gracefulRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: gracefulConnection,
+    upstream: gracefulUpstream,
+  } = startLifecycleSession(
+    gracefulRuntime,
+    gracefulTracking.dependency,
+    { callId: gracefulCallId }
+  );
+  await flushLifecycleQueue();
+  gracefulConnection.browserSocket.emitClose();
+  assert.equal(gracefulConnection.context.closing, true);
+  assert.equal(gracefulConnection.context.finishSessionSent, true);
+  assert.equal(gracefulConnection.context.finishConnectionSent, true);
+  assert.equal(
+    countEncodedEvents(gracefulRuntime, EVENT.FINISH_SESSION),
+    1
+  );
+  assert.equal(
+    countEncodedEvents(gracefulRuntime, EVENT.FINISH_CONNECTION),
+    1
+  );
+  emitSessionFinished(gracefulConnection);
+  assert.equal(gracefulConnection.context.sessionFinished, true);
+  assertLifecycleCalls(
+    gracefulRuntime.coordinatorFactoryCalls[0].coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(gracefulTracking.lifecycleCalls, 1, 1, 1);
+  assert.deepEqual(gracefulTracking.order, [
+    `connecting:${gracefulCallId}`,
+    `active:${gracefulCallId}`,
+    `ended:${gracefulCallId}`,
+  ]);
+  emitConnectionFinished(gracefulConnection);
+  await gracefulConnection.context.closePromise;
+  await Promise.resolve();
+  assert.equal(gracefulUpstream.closeCalls, 1);
+  assert.equal(gracefulUpstream.terminateCalls, 0);
+  assert.equal(
+    countEncodedEvents(gracefulRuntime, EVENT.FINISH_SESSION),
+    1
+  );
+  assert.equal(
+    countEncodedEvents(gracefulRuntime, EVENT.FINISH_CONNECTION),
+    1
+  );
+  assertLifecycleCalls(gracefulTracking.lifecycleCalls, 1, 1, 1);
+
+  const connectionFirstCallId = 'call-connection-finished-first';
+  const connectionFirstTracking = createTrackingLifecycleDependency();
+  const connectionFirstRuntime = createRuntime(createEnabledEnvironment());
+  const {
+    connection: connectionFirstConnection,
+    upstream: connectionFirstUpstream,
+  } = startLifecycleSession(
+    connectionFirstRuntime,
+    connectionFirstTracking.dependency,
+    { callId: connectionFirstCallId }
+  );
+  await flushLifecycleQueue();
+  emitConnectionFinished(connectionFirstConnection);
+  assert.equal(connectionFirstConnection.context.upstreamFinished, true);
+  assert.equal(connectionFirstUpstream.readyState, 3);
+  assert.equal(connectionFirstUpstream.closeCalls, 1);
+  assertLifecycleCalls(
+    connectionFirstRuntime.coordinatorFactoryCalls[0]
+      .coordinatorMethodCalls,
+    1,
+    1
+  );
+  assertLifecycleCalls(connectionFirstTracking.lifecycleCalls, 1, 1);
+  assert.equal(
+    countBrowserMessages(
+      connectionFirstConnection.browserSocket,
+      'relay.connection_finished'
+    ),
+    1
+  );
+  emitSessionFinished(connectionFirstConnection);
+  assert.equal(connectionFirstConnection.context.sessionFinished, true);
+  assertLifecycleCalls(
+    connectionFirstRuntime.coordinatorFactoryCalls[0]
+      .coordinatorMethodCalls,
+    1,
+    1,
+    1
+  );
+  assert.equal(
+    countBrowserMessages(
+      connectionFirstConnection.browserSocket,
+      'relay.session_finished'
+    ),
+    1
+  );
+  await flushLifecycleQueue();
+  assertLifecycleCalls(connectionFirstTracking.lifecycleCalls, 1, 1, 1);
+  assert.deepEqual(connectionFirstTracking.order, [
+    `connecting:${connectionFirstCallId}`,
+    `active:${connectionFirstCallId}`,
+    `ended:${connectionFirstCallId}`,
+  ]);
+}
+
 function connectRole(runtime, role, secondCharacterKey) {
   const {
     browserSocket,
@@ -2929,12 +3596,11 @@ function verifyLifecycleBoundary() {
   );
   assert.doesNotMatch(
     serverSource,
-    /(?:await|return)\s+context\.internalCallLifecycleCoordinator[\s\S]{0,80}\.mark(?:Connecting|Active)\s*\(/
+    /(?:await|return)\s+context\.internalCallLifecycleCoordinator[\s\S]{0,80}\.mark(?:Connecting|Active|Ended)\s*\(/
   );
-  assert.equal(
-    (serverSource.match(/\.markEnded\s*\(\)/g) || []).length,
-    0
-  );
+  const markEndedMatches =
+    serverSource.match(/\.markEnded\s*\(\)/g) || [];
+  assert.equal(markEndedMatches.length, 1);
   assert.equal(
     (serverSource.match(/\.markFailed\s*\(\)/g) || []).length,
     0
@@ -3003,9 +3669,63 @@ function verifyLifecycleBoundary() {
   assert.ok(sessionStartedAssignmentIndex < markActiveIndex);
   assert.ok(markActiveIndex < sessionStartedLogIndex);
   assert.ok(sessionStartedLogIndex < sessionStartedNotificationIndex);
+  const sessionFinishedCaseIndex = serverSource.indexOf(
+    'case EVENT.SESSION_FINISHED:',
+    doubaoHandlerIndex
+  );
+  const sessionFinishedValidationIndex = serverSource.indexOf(
+    "if (typeof frame.sessionId !== 'string'",
+    sessionFinishedCaseIndex
+  );
+  const firstSessionFinishedIndex = serverSource.indexOf(
+    'const isFirstSessionFinished = !context.sessionFinished;',
+    sessionFinishedValidationIndex
+  );
+  const sessionFinishedAssignmentIndex = serverSource.indexOf(
+    'context.sessionFinished = true;',
+    firstSessionFinishedIndex
+  );
+  const markEndedIndex = serverSource.indexOf(
+    '.markEnded()',
+    sessionFinishedAssignmentIndex
+  );
+  const sessionFinishedLogIndex = serverSource.indexOf(
+    "log('[Relay] SessionFinished');",
+    markEndedIndex
+  );
+  const sessionFinishedNotificationIndex = serverSource.indexOf(
+    "type: 'relay.session_finished'",
+    sessionFinishedLogIndex
+  );
+  assert.ok(sessionFinishedCaseIndex >= 0);
+  assert.ok(sessionFinishedCaseIndex < sessionFinishedValidationIndex);
+  assert.ok(sessionFinishedValidationIndex < firstSessionFinishedIndex);
+  assert.ok(firstSessionFinishedIndex < sessionFinishedAssignmentIndex);
+  assert.ok(sessionFinishedAssignmentIndex < markEndedIndex);
+  assert.ok(markEndedIndex < sessionFinishedLogIndex);
+  assert.ok(sessionFinishedLogIndex < sessionFinishedNotificationIndex);
+  assert.match(
+    serverSource.slice(
+      sessionFinishedCaseIndex,
+      sessionFinishedNotificationIndex
+    ),
+    /if \(typeof frame\.sessionId !== 'string'\s*\|\| frame\.sessionId\.length === 0\s*\|\| frame\.sessionId !== context\.sessionId\) \{\s*reportCloudError\(context, 'SessionFinished Session ID 不匹配'\);\s*void closeDoubaoSession\(context, 'session id mismatch'\);\s*return;\s*\}\s*const isFirstSessionFinished = !context\.sessionFinished;\s*context\.sessionFinished = true;\s*if \(\s*isFirstSessionFinished\s*&& context\.internalCallLifecycleCoordinator !== null\s*\) \{\s*void context\.internalCallLifecycleCoordinator\s*\.markEnded\(\)\s*\.catch\(\(\) => \{\s*log\('\[Relay\] 内部 Call 生命周期 ended 状态上报失败'\);\s*\}\);\s*\}/
+  );
+  assert.doesNotMatch(
+    serverSource.slice(sessionFinishedCaseIndex, sessionFinishedLogIndex),
+    /context\.closing/
+  );
+  assert.doesNotMatch(
+    serverSource.slice(sessionFinishedCaseIndex, sessionFinishedLogIndex),
+    /(?:await|return)\s+context\.internalCallLifecycleCoordinator[\s\S]{0,80}\.markEnded\s*\(/
+  );
+  assert.doesNotMatch(
+    serverSource.slice(sessionFinishedCaseIndex, sessionFinishedLogIndex),
+    /Promise\.(?:all|race|allSettled)\s*\(/
+  );
+  assert.match(serverSource, /sessionFinished:\s*false/);
   const forbiddenPatterns = [
     /internal_call_lifecycle_client/,
-    /\.markEnded\s*\(/,
     /\.markFailed\s*\(/,
     /\bBUSINESS_INTERNAL_API_TOKEN\b/,
     /\bBUSINESS_BACKEND_INTERNAL_BASE_URL\b/,
@@ -3018,6 +3738,9 @@ function verifyLifecycleBoundary() {
     /activeStarted/,
     /lifecycleActive/,
     /activeQueued/,
+    /endedReported/,
+    /endedPromise/,
+    /lifecycleEnded/,
     /connectingPromise/,
     /tailPromise/,
     /lastLifecyclePromise/,
@@ -3187,6 +3910,7 @@ async function main() {
   verifyBusinessCallIdBinding();
   await verifyLifecycleDependencyInjection();
   await verifySessionStartedLifecycleActivation();
+  await verifySessionFinishedLifecycleCompletion();
   verifyLifecycleBoundary();
 
   process.stdout.write('eight_character_role_matrix_test: PASS\n');
@@ -3204,7 +3928,7 @@ async function main() {
       + 'lifecycle-dependency-injection,lifecycle-connecting-fire-and-observe,'
       + 'lifecycle-pending-nonblocking,lifecycle-dual-layer-calls,'
       + 'lifecycle-session-started-active,lifecycle-active-fire-and-observe,'
-      + 'lifecycle-boundary\n'
+      + 'lifecycle-session-finished-ended,lifecycle-boundary\n'
   );
   process.stdout.write(
     `businessCallIdScenarios=${businessCallIdScenarioCount}\n`
