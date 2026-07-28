@@ -3,6 +3,8 @@
 (() => {
   const REALTIME_PAGE_URL = 'http://127.0.0.1:3001/';
   const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
+  const ACCOUNT_API_URL = '/api/me';
+  const CALL_API_URL = '/api/calls';
   const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
   const PENDING_ACTION_STORAGE_KEY = 'companion_pending_action_v1';
   const TOAST_DURATION_MS = 3200;
@@ -145,6 +147,20 @@
     callUrl.searchParams.set('returnUrl', returnUrl);
     return callUrl.href;
   }
+
+  function buildRegisteredRealtimeNavigationUrl({
+    realtimeUrl,
+    characterKey,
+    businessCallId,
+  }) {
+    const callUrl = new URL(
+      buildRealtimeNavigationUrl(realtimeUrl),
+      window.location.href
+    );
+    callUrl.searchParams.set('characterKey', characterKey);
+    callUrl.searchParams.set('businessCallId', businessCallId);
+    return callUrl.href;
+  }
   const characterImagePreloadPromises = new Map();
   const auxiliaryMessages = {
     guide: '点击“开始通话”后，允许使用麦克风，随后直接开口即可。',
@@ -166,8 +182,10 @@
   let selectedRechargeAmountDisplay = '10';
   let selectedPaymentMethod = 'wechat';
   let selectedPaymentName = '微信支付';
-  let prototypeCreditBalance = 12.50;
+  let accountBalanceCents = null;
+  let accountBalanceState = 'loading';
   let currentAuthState = null;
+  let isStartingCall = false;
 
   const homeTitle = document.querySelector('.top-controls h1');
   const sceneImage = document.querySelector('.scene-image');
@@ -207,6 +225,9 @@
   const callControl = document.querySelector('.call-control');
   const callButton = document.querySelector('.call-button');
   const callButtonLabel = document.querySelector('.call-button-label');
+  const callActionLabel = document.querySelector(
+    '[data-call-action-label]'
+  );
   const rechargeSelectionSummary = document.querySelector(
     '.recharge-selection-summary'
   );
@@ -513,6 +534,125 @@
     }, TOAST_DURATION_MS);
   }
 
+  function formatBalanceCents(balanceCents) {
+    if (!Number.isSafeInteger(balanceCents)) {
+      throw new TypeError('balanceCents must be a safe integer');
+    }
+    const absoluteCents = Math.abs(balanceCents);
+    const yuan = Math.floor(absoluteCents / 100);
+    const cents = String(absoluteCents % 100).padStart(2, '0');
+    return `${balanceCents < 0 ? '-' : ''}¥${yuan}.${cents}`;
+  }
+
+  function renderCreditBalance() {
+    let displayValue = '--';
+    let ariaValue = '加载中';
+    if (
+      accountBalanceState === 'ready'
+      && Number.isSafeInteger(accountBalanceCents)
+    ) {
+      displayValue = formatBalanceCents(accountBalanceCents);
+      ariaValue = displayValue;
+    } else if (accountBalanceState === 'error') {
+      displayValue = '加载失败';
+      ariaValue = '加载失败';
+    } else if (accountBalanceState === 'guest') {
+      ariaValue = '游客暂不显示话费';
+    }
+
+    document.querySelectorAll('[data-current-credit]').forEach((element) => {
+      element.textContent = displayValue;
+    });
+    if (rechargeEntry) {
+      rechargeEntry.setAttribute(
+        'aria-label',
+        `当前话费${ariaValue}，进入话费充值`
+      );
+    }
+  }
+
+  function setAccountBalanceState(state, balanceCents = null) {
+    accountBalanceState = state;
+    accountBalanceCents = state === 'ready' ? balanceCents : null;
+    renderCreditBalance();
+  }
+
+  function createGuestAuthState() {
+    return {
+      version: 1,
+      mode: 'guest',
+      authenticated: false,
+      phoneMasked: '',
+      createdAt: Date.now(),
+    };
+  }
+
+  function handleExpiredSession() {
+    currentAuthState = createGuestAuthState();
+    window.localStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify(currentAuthState)
+    );
+    renderAccountSummary(currentAuthState);
+    renderAccountProfile(currentAuthState);
+    setAccountBalanceState('guest');
+  }
+
+  async function readJsonResponse(response) {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadAccountState() {
+    const authState = currentAuthState || getValidatedAuthState();
+    currentAuthState = authState;
+    if (!isPhoneAuthenticated(authState)) {
+      setAccountBalanceState('guest');
+      return false;
+    }
+
+    setAccountBalanceState('loading');
+    if (typeof window.fetch !== 'function') {
+      setAccountBalanceState('error');
+      return false;
+    }
+
+    let response;
+    try {
+      response = await window.fetch(ACCOUNT_API_URL, {
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+    } catch {
+      setAccountBalanceState('error');
+      return false;
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      handleExpiredSession();
+      showToast('登录状态已失效，请重新登录');
+      return false;
+    }
+    const responseBody = await readJsonResponse(response);
+    const account = responseBody && responseBody.account;
+    if (
+      !response.ok
+      || !account
+      || account.currency !== 'CNY'
+      || !Number.isSafeInteger(account.balanceCents)
+    ) {
+      setAccountBalanceState('error');
+      return false;
+    }
+
+    setAccountBalanceState('ready', account.balanceCents);
+    return true;
+  }
+
   function renderCharacter(character) {
     const callLabel = character.voiceReady
       ? `开始与${character.name}通话`
@@ -613,6 +753,9 @@
   }
 
   async function selectCharacter(characterKey, source) {
+    if (isStartingCall) {
+      return false;
+    }
     const character = charactersByKey.get(characterKey);
     if (!character) {
       return false;
@@ -839,19 +982,6 @@
       : CUSTOM_AMOUNT_SUMMARY_ERROR;
   }
 
-  function renderCreditBalance() {
-    const formattedBalance = prototypeCreditBalance.toFixed(2);
-    document.querySelectorAll('[data-current-credit]').forEach((element) => {
-      element.textContent = `${formattedBalance}元`;
-    });
-    if (rechargeEntry) {
-      rechargeEntry.setAttribute(
-        'aria-label',
-        `当前话费${formattedBalance}元，进入话费充值`
-      );
-    }
-  }
-
   function handlePackageSelection(event) {
     const selectedButton = event.currentTarget;
     const packageMode = selectedButton.dataset.packageMode;
@@ -996,15 +1126,11 @@
       return false;
     }
 
-    prototypeCreditBalance += selectedRechargeAmount;
-    renderCreditBalance();
     if (rechargeResult) {
-      rechargeResult.textContent = `充值演示完成：已为本机原型增加`
-        + `${selectedRechargeAmountDisplay}元话费，当前话费`
-        + `${prototypeCreditBalance.toFixed(2)}元。不会产生真实扣款。`;
+      rechargeResult.textContent = '充值功能尚未接入，当前不会产生真实扣款或增加话费。';
       rechargeResult.hidden = false;
     }
-    showToast('充值演示完成，不会产生真实扣款。');
+    showToast('充值功能尚未接入，当前不会产生真实扣款。');
     return true;
   }
 
@@ -1015,7 +1141,48 @@
     }
   }
 
-  function handleStartConversation() {
+  function setStartingCall(starting) {
+    isStartingCall = starting;
+    if (callButton) {
+      callButton.disabled = starting;
+    }
+    const label = starting ? '正在接通…' : '开始通话';
+    if (callButtonLabel) {
+      callButtonLabel.textContent = label;
+    }
+    if (callActionLabel) {
+      callActionLabel.textContent = label;
+    }
+  }
+
+  function showCallCreationError(status, responseBody) {
+    const errorCode = responseBody
+      && responseBody.error
+      && responseBody.error.code;
+    if (status === 409 && errorCode === 'INSUFFICIENT_BALANCE') {
+      showToast('账户话费不足，无法开始通话');
+      openOverlay(rechargePanel, rechargeEntry);
+      return;
+    }
+    if (status === 401 || status === 403) {
+      handleExpiredSession();
+      showToast('登录状态已失效，请重新登录');
+      return;
+    }
+    if (
+      errorCode === 'ROLE_NOT_FOUND'
+      || errorCode === 'ROLE_UNAVAILABLE'
+    ) {
+      showToast('该角色暂时无法通话，请选择其他角色');
+      return;
+    }
+    showToast('暂时无法开始通话，请稍后重试');
+  }
+
+  async function handleStartConversation() {
+    if (isStartingCall) {
+      return false;
+    }
     const character = charactersByKey.get(currentCharacterKey);
     const realtimeUrl = character
       && Object.hasOwn(
@@ -1030,10 +1197,65 @@
           ? character.unavailableText
           : '该角色暂时无法开始语音通话。'
       );
-      return;
+      return false;
     }
 
-    window.location.assign(buildRealtimeNavigationUrl(realtimeUrl));
+    const authState = getValidatedAuthState();
+    if (!authState) {
+      window.location.assign('./index.html');
+      return false;
+    }
+    currentAuthState = authState;
+    if (!isPhoneAuthenticated(authState)) {
+      window.location.assign(buildRealtimeNavigationUrl(realtimeUrl));
+      return true;
+    }
+
+    setStartingCall(true);
+    let isNavigating = false;
+    try {
+      if (typeof window.fetch !== 'function') {
+        throw new TypeError('fetch is unavailable');
+      }
+      const response = await window.fetch(CALL_API_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roleSlug: character.key,
+        }),
+      });
+      const responseBody = await readJsonResponse(response);
+      const call = responseBody && responseBody.call;
+      if (
+        response.status !== 201
+        || !call
+        || typeof call.id !== 'string'
+        || call.id === ''
+      ) {
+        showCallCreationError(response.status, responseBody);
+        return false;
+      }
+
+      isNavigating = true;
+      window.location.assign(
+        buildRegisteredRealtimeNavigationUrl({
+          realtimeUrl,
+          characterKey: character.realtimeCharacterKey,
+          businessCallId: call.id,
+        })
+      );
+      return true;
+    } catch {
+      showToast('网络连接失败，请稍后重试');
+      return false;
+    } finally {
+      if (!isNavigating) {
+        setStartingCall(false);
+      }
+    }
   }
 
   function initializeUi() {
@@ -1047,6 +1269,12 @@
     renderAccountSummary(currentAuthState);
     renderAccountProfile(currentAuthState);
     renderCharacter(charactersByKey.get(currentCharacterKey));
+    if (isPhoneAuthenticated(currentAuthState)) {
+      setAccountBalanceState('loading');
+      void loadAccountState();
+    } else {
+      setAccountBalanceState('guest');
+    }
 
     if (accountSummaryButton && accountProfileOverlay) {
       accountSummaryButton.addEventListener('click', () => {
@@ -1162,7 +1390,6 @@
     }
 
     document.addEventListener('keydown', handleEscapeKey);
-    renderCreditBalance();
     updateRechargeSelectionSummary();
     warmAdjacentCharacterImages(currentCharacterKey);
     consumePendingAction();

@@ -300,12 +300,15 @@ function loadHomeRuntime(options = {}) {
     '  initializeUi();',
     `  globalThis.__homeTest = {
       REALTIME_URLS_BY_CHARACTER_KEY,
+      buildRegisteredRealtimeNavigationUrl,
       buildRealtimeNavigationUrl,
       characters,
       closeOverlay,
+      formatBalanceCents,
       getActiveOverlay: () => activeOverlay,
+      getAccountBalanceCents: () => accountBalanceCents,
       getCurrentCharacterKey: () => currentCharacterKey,
-      getPrototypeCreditBalance: () => prototypeCreditBalance,
+      getIsStartingCall: () => isStartingCall,
       getValidatedAuthState,
       handleCharacterPointerDown,
       handleCharacterPointerUp,
@@ -313,6 +316,7 @@ function loadHomeRuntime(options = {}) {
       handlePaymentSelection,
       handleRechargeConfirmation,
       handleStartConversation,
+      loadAccountState,
       openOverlay,
       selectCharacter,
       warmAdjacentCharacterImages,
@@ -330,10 +334,43 @@ function loadHomeRuntime(options = {}) {
   const customAmountInput = new FakeElement();
   const customAmountError = new FakeElement();
   const creditDisplay = new FakeElement();
+  const callButton = new FakeElement();
+  const callButtonLabel = new FakeElement();
+  const callActionLabel = new FakeElement();
+  const toast = new FakeElement();
   const packageButtons = [];
   const paymentButtons = [];
   const locationAssignments = [];
   const localStorage = createLocalStorage(options.storageEntries);
+  const fetchRequests = [];
+  const fetchImpl = options.fetchImpl || (async (pathname) => {
+    if (pathname === '/api/me') {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            account: {
+              currency: 'CNY',
+              balanceCents: 1250,
+              remainingSeconds: 0,
+            },
+          };
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: 201,
+      async json() {
+        return {
+          call: {
+            id: 'call-ui-matrix',
+          },
+        };
+      },
+    };
+  });
   const homePageUrl = new URL(
     options.homePageUrl || DEFAULT_HOME_URL
   );
@@ -370,6 +407,8 @@ function loadHomeRuntime(options = {}) {
     querySelector(selector) {
       const elements = {
         '.character-stage': characterStage,
+        '.call-button': callButton,
+        '.call-button-label': callButtonLabel,
         '.custom-amount-error': customAmountError,
         '.custom-amount-field': customAmountField,
         '.custom-amount-input': customAmountInput,
@@ -378,6 +417,8 @@ function loadHomeRuntime(options = {}) {
         '.recharge-result': rechargeResult,
         '.recharge-selection-summary': rechargeSelectionSummary,
         '.time-recharge-entry': rechargeEntry,
+        '.ui-toast': toast,
+        '[data-call-action-label]': callActionLabel,
       };
       return elements[selector] || null;
     },
@@ -397,6 +438,10 @@ function loadHomeRuntime(options = {}) {
   };
   const window = {
     clearTimeout,
+    fetch(pathname, requestOptions) {
+      fetchRequests.push({ pathname, requestOptions });
+      return fetchImpl(pathname, requestOptions);
+    },
     localStorage,
     location: {
       assign(url) {
@@ -428,11 +473,17 @@ function loadHomeRuntime(options = {}) {
   });
   return {
     characterStage,
+    callActionLabel,
+    callButton,
+    callButtonLabel,
+    creditDisplay,
+    fetchRequests,
     imageRequests,
     localStorage,
     locationAssignments,
     rechargeLoginOverlay,
     rechargePanel,
+    toast,
     customAmountInput,
     test: context.__homeTest,
   };
@@ -1174,12 +1225,15 @@ async function verifyReturnUrlNavigation() {
   const homeRuntime = loadHomeRuntime({
     homePageUrl:
       'http://127.0.0.1:18765/ui_prototypes/yuhuang_mobile_v1/home.html',
+    storageEntries: {
+      companion_auth_state_v1: createAuthState('guest'),
+    },
   });
   assert.equal(
     await homeRuntime.test.selectCharacter('guanyin', 'swipe-left'),
     true
   );
-  homeRuntime.test.handleStartConversation();
+  await homeRuntime.test.handleStartConversation();
   const assignedCallUrl = new URL(
     homeRuntime.locationAssignments.at(-1)
   );
@@ -1383,16 +1437,16 @@ function createAuthState(mode) {
     });
 }
 
-function verifyAuthGateAndRechargeRegression() {
+async function verifyAuthGateAndRechargeRegression() {
   const authKey = 'companion_auth_state_v1';
   const guestRuntime = loadHomeRuntime({
     storageEntries: {
       [authKey]: createAuthState('guest'),
     },
   });
-  assert.equal(guestRuntime.test.getPrototypeCreditBalance(), 12.50);
+  assert.equal(guestRuntime.test.getAccountBalanceCents(), null);
   assert.equal(guestRuntime.test.handleRechargeConfirmation(), false);
-  assert.equal(guestRuntime.test.getPrototypeCreditBalance(), 12.50);
+  assert.equal(guestRuntime.test.getAccountBalanceCents(), null);
   assert.equal(
     guestRuntime.test.getActiveOverlay(),
     guestRuntime.rechargeLoginOverlay
@@ -1404,8 +1458,10 @@ function verifyAuthGateAndRechargeRegression() {
       [authKey]: createAuthState('phone'),
     },
   });
+  await phoneRuntime.test.loadAccountState();
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
   assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getPrototypeCreditBalance(), 22.50);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
 
   const twentyYuan = new FakeElement();
   twentyYuan.dataset.packageMode = 'preset';
@@ -1414,7 +1470,7 @@ function verifyAuthGateAndRechargeRegression() {
     currentTarget: twentyYuan,
   });
   assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getPrototypeCreditBalance(), 42.50);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
 
   const customAmount = new FakeElement();
   customAmount.dataset.packageMode = 'custom';
@@ -1423,7 +1479,7 @@ function verifyAuthGateAndRechargeRegression() {
     currentTarget: customAmount,
   });
   assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getPrototypeCreditBalance(), 49.75);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
 
   const alipay = new FakeElement();
   alipay.dataset.paymentMethod = 'alipay';
@@ -1432,14 +1488,15 @@ function verifyAuthGateAndRechargeRegression() {
     currentTarget: alipay,
   });
   assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getPrototypeCreditBalance(), 57);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
 
   const refreshedRuntime = loadHomeRuntime({
     storageEntries: {
       [authKey]: createAuthState('phone'),
     },
   });
-  assert.equal(refreshedRuntime.test.getPrototypeCreditBalance(), 12.50);
+  await refreshedRuntime.test.loadAccountState();
+  assert.equal(refreshedRuntime.test.getAccountBalanceCents(), 1250);
 }
 
 function verifyStaticSafetyAndCurrentUi() {
@@ -1509,7 +1566,8 @@ function verifyStaticSafetyAndCurrentUi() {
   assert.match(homeHtml, /class="account-summary-button"/);
   assert.match(homeHtml, /class="account-profile-overlay prototype-overlay"/);
   assert.match(homeHtml, /class="recharge-login-overlay prototype-overlay"/);
-  assert.match(homeJs, /let prototypeCreditBalance = 12\.50;/);
+  assert.doesNotMatch(homeJs, /prototypeCreditBalance|12\.50;/);
+  assert.match(homeJs, /let accountBalanceCents = null;/);
   assert.match(homeHtml, /data-package-value="10"/);
   assert.match(homeHtml, /data-package-value="20"/);
   assert.match(homeHtml, /data-package-value="50"/);
@@ -1521,7 +1579,7 @@ function verifyStaticSafetyAndCurrentUi() {
 async function main() {
   verifyBrowserLifecycleBoundary();
   verifyStaticSafetyAndCurrentUi();
-  verifyAuthGateAndRechargeRegression();
+  await verifyAuthGateAndRechargeRegression();
   await verifyHomeConfigurationAndPreloading();
   await verifySwipeAndImageSafety();
   await verifyCallPagesAndRestart();

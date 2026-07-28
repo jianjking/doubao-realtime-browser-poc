@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const path = require('node:path');
 const test = require('node:test');
 
 const { createApp } = require('../app');
@@ -98,6 +99,39 @@ test('business backend exposes only the health route', async () => {
 
     const missingResponse = await requestPath(address.port, '/not-found');
     assert.equal(missingResponse.statusCode, 404);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('configured business backend serves the authoritative mobile UI', async () => {
+  const app = createApp({
+    mobileUiDirectory: path.resolve(
+      __dirname,
+      '../../ui_prototypes/yuhuang_mobile_v1'
+    ),
+  });
+  const server = http.createServer(app);
+
+  try {
+    await listenOnTemporaryPort(server);
+    const address = server.address();
+    assert.notEqual(address, null);
+    assert.equal(typeof address, 'object');
+
+    for (const requestedFile of ['index.html', 'home.html', 'ui.js']) {
+      const response = await requestPath(
+        address.port,
+        `/ui_prototypes/yuhuang_mobile_v1/${requestedFile}`
+      );
+      assert.equal(response.statusCode, 200);
+      assert.notEqual(response.body, '');
+    }
+    const homeResponse = await requestPath(
+      address.port,
+      '/ui_prototypes/yuhuang_mobile_v1/home.html'
+    );
+    assert.match(homeResponse.body, /data-current-credit>--</);
   } finally {
     await closeServer(server);
   }

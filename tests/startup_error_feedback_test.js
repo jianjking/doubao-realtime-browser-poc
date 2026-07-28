@@ -117,16 +117,23 @@ function verifyStartupScript() {
   );
   assert.match(
     source,
-    /错误：8765端口已被占用，请先停止旧的首页静态服务器。/
+    /错误：8765端口已被占用，请先停止旧的业务后端与首页服务。/
   );
   assert.ok(
     source.indexOf('check_port_in_use 3001')
       < source.indexOf('请输入 VOLCENGINE_API_KEY')
   );
-  assert.match(source, /kill -0 "\$STATIC_SERVER_PID"/);
+  assert.match(source, /kill -0 "\$BUSINESS_BACKEND_PID"/);
+  assert.match(source, /node business_backend\/server\.js/);
+  assert.match(source, /BUSINESS_BACKEND_PORT="8765"/);
+  assert.match(
+    source,
+    /BUSINESS_BACKEND_INTERNAL_BASE_URL="http:\/\/127\.0\.0\.1:8765\/internal"/
+  );
+  assert.match(source, /randomBytes\(32\)\.toString\('base64url'\)/);
   assert.doesNotMatch(
     source,
-    /python -m http\.server[^\n]*>\/dev\/null 2>&1/
+    /python -m http\.server/
   );
   assert.match(
     source,
@@ -152,7 +159,7 @@ function verifyStartupScript() {
   assert.notEqual(port8765.status, 0);
   assert.match(
     port8765.stderr,
-    /错误：8765端口已被占用，请先停止旧的首页静态服务器。/
+    /错误：8765端口已被占用，请先停止旧的业务后端与首页服务。/
   );
   assert.doesNotMatch(port8765.stdout, /VOLCENGINE_API_KEY/);
 }

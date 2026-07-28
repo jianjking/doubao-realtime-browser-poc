@@ -23,10 +23,12 @@
   const consentError = document.querySelector('.consent-error');
   const sendCodeButton = document.querySelector('.send-code-button');
   const guestEntryButton = document.querySelector('.guest-entry-button');
+  const phoneLoginButton = document.querySelector('.phone-login-button');
   const authStatus = document.querySelector('.auth-status');
 
   let countdownTimer = null;
   let countdownRemaining = 0;
+  let isAuthenticating = false;
 
   function isStrictAuthState(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -190,8 +192,47 @@
     }, 1000);
   }
 
-  function handlePhoneLogin(event) {
+  function setAuthenticating(authenticating) {
+    isAuthenticating = authenticating;
+    if (phoneLoginButton) {
+      phoneLoginButton.disabled = authenticating;
+    }
+    guestEntryButton.disabled = authenticating;
+  }
+
+  async function requestAuth(pathname, requestBody) {
+    if (typeof window.fetch !== 'function') {
+      throw new TypeError('fetch is unavailable');
+    }
+    const response = await window.fetch(pathname, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        ...(requestBody === undefined
+          ? {}
+          : { 'Content-Type': 'application/json' }),
+      },
+      ...(requestBody === undefined
+        ? {}
+        : { body: JSON.stringify(requestBody) }),
+    });
+    let responseBody = null;
+    try {
+      responseBody = await response.json();
+    } catch {
+      responseBody = null;
+    }
+    return {
+      response,
+      responseBody,
+    };
+  }
+
+  async function handlePhoneLogin(event) {
     event.preventDefault();
+    if (isAuthenticating) {
+      return;
+    }
     const phone = validateLoginForm();
     if (!phone) {
       const firstInvalid = form.querySelector('[aria-invalid="true"]');
@@ -201,37 +242,92 @@
       return;
     }
 
-    const phoneMasked = `${phone.slice(0, 3)}****${phone.slice(-4)}`;
-    saveAuthState({
-      version: 1,
-      mode: 'phone',
-      authenticated: true,
-      phoneMasked,
-      createdAt: Date.now(),
-    });
-    const trustedReturnAction = getTrustedReturnActionFromQuery()
-      || getTrustedPendingAction();
-    if (trustedReturnAction) {
-      window.localStorage.setItem(
-        PENDING_ACTION_STORAGE_KEY,
-        trustedReturnAction
+    setAuthenticating(true);
+    authStatus.textContent = '正在登录…';
+    try {
+      const { response, responseBody } = await requestAuth(
+        '/api/auth/login',
+        {
+          phone,
+          code: codeInput.value.trim(),
+        }
       );
+      const phoneMasked = responseBody
+        && responseBody.profile
+        && responseBody.profile.phoneMasked;
+      if (
+        !response.ok
+        || !responseBody
+        || responseBody.authMode !== 'development_mock_phone'
+        || !responseBody.principal
+        || responseBody.principal.type !== 'user'
+        || typeof phoneMasked !== 'string'
+      ) {
+        authStatus.textContent = response.status === 401
+          ? '手机号或验证码不正确'
+          : '暂时无法登录，请稍后重试';
+        return;
+      }
+
+      saveAuthState({
+        version: 1,
+        mode: 'phone',
+        authenticated: true,
+        phoneMasked,
+        createdAt: Date.now(),
+      });
+      const trustedReturnAction = getTrustedReturnActionFromQuery()
+        || getTrustedPendingAction();
+      if (trustedReturnAction) {
+        window.localStorage.setItem(
+          PENDING_ACTION_STORAGE_KEY,
+          trustedReturnAction
+        );
+      }
+      codeInput.value = '';
+      window.location.assign('./home.html');
+    } catch {
+      authStatus.textContent = '网络连接失败，请稍后重试';
+    } finally {
+      setAuthenticating(false);
     }
-    codeInput.value = '';
-    window.location.assign('./home.html');
   }
 
-  function handleGuestEntry() {
-    saveAuthState({
-      version: 1,
-      mode: 'guest',
-      authenticated: false,
-      phoneMasked: '',
-      createdAt: Date.now(),
-    });
-    window.localStorage.removeItem(PENDING_ACTION_STORAGE_KEY);
-    codeInput.value = '';
-    window.location.assign('./home.html');
+  async function handleGuestEntry() {
+    if (isAuthenticating) {
+      return;
+    }
+    setAuthenticating(true);
+    authStatus.textContent = '正在进入游客体验…';
+    try {
+      const { response, responseBody } = await requestAuth(
+        '/api/auth/guest'
+      );
+      if (
+        response.status !== 201
+        || !responseBody
+        || responseBody.authMode !== 'development_guest'
+        || !responseBody.principal
+        || responseBody.principal.type !== 'guest'
+      ) {
+        authStatus.textContent = '暂时无法进入游客体验，请稍后重试';
+        return;
+      }
+      saveAuthState({
+        version: 1,
+        mode: 'guest',
+        authenticated: false,
+        phoneMasked: '',
+        createdAt: Date.now(),
+      });
+      window.localStorage.removeItem(PENDING_ACTION_STORAGE_KEY);
+      codeInput.value = '';
+      window.location.assign('./home.html');
+    } catch {
+      authStatus.textContent = '网络连接失败，请稍后重试';
+    } finally {
+      setAuthenticating(false);
+    }
   }
 
   function initializeAuthPage() {
@@ -250,9 +346,8 @@
   }
 
   /*
-   * Production must issue and validate codes on the server, enforce rate
-   * limits, create a secure server session, and re-authorize payment actions.
-   * This local prototype sends no SMS and performs no real payment.
+   * The local business backend issues the secure session cookie. This demo
+   * still sends no SMS and performs no real payment.
    */
   initializeAuthPage();
 })();

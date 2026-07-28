@@ -52,12 +52,12 @@
       <button
         class="time-recharge-entry"
         type="button"
-        aria-label="当前话费12.50元，进入话费充值"
+        aria-label="当前话费加载中，进入话费充值"
         aria-controls="recharge-panel recharge-login-overlay"
         aria-expanded="false">
         <span class="time-entry-summary">
           <span>当前话费</span>
-          <span data-current-credit>12.50元</span>
+          <span data-current-credit>--</span>
         </span>
         <strong>充值</strong>
       </button>
@@ -104,7 +104,7 @@
           <span class="voice-icon" aria-hidden="true"></span>
           <span class="visually-hidden call-button-label">开始通话</span>
         </button>
-        <p>开始通话</p>
+        <p data-call-action-label>开始通话</p>
       </section>
 
       <section class="bottom-guidance" aria-label="使用提示">
@@ -133,7 +133,7 @@
           <section class="overlay-account-summary" aria-label="当前话费">
             <p>
               <span>当前话费</span>
-              <strong data-current-credit>12.50元</strong>
+              <strong data-current-credit>--</strong>
             </p>
           </section>
 

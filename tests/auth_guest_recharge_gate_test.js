@@ -21,6 +21,8 @@ const AVATAR_PATH = path.join(
 );
 const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
 const PENDING_ACTION_STORAGE_KEY = 'companion_pending_action_v1';
+const DEFAULT_HOME_URL =
+  'http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/home.html';
 
 class FakeClassList {
   constructor() {
@@ -93,13 +95,13 @@ class FakeElement {
       target: this,
       ...overrides,
     };
-    for (const handler of this.handlers.get(eventName) || []) {
-      handler(event);
-    }
+    return Promise.all(
+      (this.handlers.get(eventName) || []).map((handler) => handler(event))
+    );
   }
 
   click() {
-    this.dispatch('click');
+    return this.dispatch('click');
   }
 
   focus() {
@@ -221,6 +223,7 @@ function loadAuthRuntime(options = {}) {
   const consentError = new FakeElement();
   const sendCodeButton = new FakeElement();
   const guestEntryButton = new FakeElement();
+  const phoneLoginButton = new FakeElement();
   const authStatus = new FakeElement();
   const selectorMap = new Map([
     ['.phone-auth-form', form],
@@ -232,6 +235,7 @@ function loadAuthRuntime(options = {}) {
     ['.consent-error', consentError],
     ['.send-code-button', sendCodeButton],
     ['.guest-entry-button', guestEntryButton],
+    ['.phone-login-button', phoneLoginButton],
     ['.auth-status', authStatus],
   ]);
   form.querySelector = (selector) => {
@@ -246,8 +250,38 @@ function loadAuthRuntime(options = {}) {
   const document = new FakeDocument(selectorMap);
   const localStorage = createLocalStorage(options.storageEntries);
   const locationAssignments = [];
+  const fetchRequests = [];
+  const fetchImpl = options.fetchImpl || (async (pathname) => {
+    if (pathname === '/api/auth/login') {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            authMode: 'development_mock_phone',
+            principal: { type: 'user', id: 'user-test' },
+            profile: { phoneMasked: '138****1234' },
+          };
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: 201,
+      async json() {
+        return {
+          authMode: 'development_guest',
+          principal: { type: 'guest', id: 'guest-test' },
+        };
+      },
+    };
+  });
   const window = {
     clearInterval() {},
+    fetch(pathname, requestOptions) {
+      fetchRequests.push({ pathname, requestOptions });
+      return fetchImpl(pathname, requestOptions);
+    },
     localStorage,
     location: {
       assign(url) {
@@ -275,11 +309,13 @@ function loadAuthRuntime(options = {}) {
     consentCheckbox,
     consentError,
     form,
+    fetchRequests,
     guestEntryButton,
     localStorage,
     locationAssignments,
     phoneError,
     phoneInput,
+    phoneLoginButton,
     sendCodeButton,
   };
 }
@@ -291,13 +327,19 @@ function loadHomeRuntime(options = {}) {
     `  initializeUi();
     globalThis.__homeTest = {
       closeActiveOverlay,
+      characters,
+      formatBalanceCents,
       getActiveOverlay: () => activeOverlay,
+      getAccountBalanceCents: () => accountBalanceCents,
       getCurrentCharacterKey: () => currentCharacterKey,
-      getPrototypeCreditBalance: () => prototypeCreditBalance,
+      getIsStartingCall: () => isStartingCall,
       getValidatedAuthState,
       handleRechargeConfirmation,
+      handleStartConversation,
       isPhoneAuthenticated,
+      loadAccountState,
       openAccountProfile,
+      selectCharacter,
     };`
   );
 
@@ -323,6 +365,7 @@ function loadHomeRuntime(options = {}) {
   const callControl = make();
   const callButton = make();
   const callButtonLabel = make();
+  const callActionLabel = make();
   const homeTitle = make();
   const characterMotto = make();
   const characterReadyText = make();
@@ -377,6 +420,7 @@ function loadHomeRuntime(options = {}) {
     ['.call-control', callControl],
     ['.call-button', callButton],
     ['.call-button-label', callButtonLabel],
+    ['[data-call-action-label]', callActionLabel],
     ['.recharge-selection-summary', rechargeSelectionSummary],
     ['.recharge-confirm', make()],
     ['.recharge-result', rechargeResult],
@@ -403,6 +447,36 @@ function loadHomeRuntime(options = {}) {
   const document = new FakeDocument(selectorMap, selectorAllMap);
   const localStorage = createLocalStorage(options.storageEntries);
   const locationAssignments = [];
+  const fetchRequests = [];
+  const homePageUrl = new URL(options.homePageUrl || DEFAULT_HOME_URL);
+  const fetchImpl = options.fetchImpl || (async (pathname) => {
+    if (pathname === '/api/me') {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            account: {
+              currency: 'CNY',
+              balanceCents: 1250,
+              remainingSeconds: 0,
+            },
+          };
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: 201,
+      async json() {
+        return {
+          call: {
+            id: 'call-ui-test',
+          },
+        };
+      },
+    };
+  });
 
   class FakeImage {
     set src(value) {
@@ -417,17 +491,27 @@ function loadHomeRuntime(options = {}) {
 
   const window = {
     clearTimeout,
+    fetch(pathname, requestOptions) {
+      fetchRequests.push({ pathname, requestOptions });
+      return fetchImpl(pathname, requestOptions);
+    },
     localStorage,
     location: {
       assign(url) {
         locationAssignments.push(url);
       },
+      href: homePageUrl.href,
+      hostname: homePageUrl.hostname,
+      origin: homePageUrl.origin,
+      port: homePageUrl.port,
+      protocol: homePageUrl.protocol,
     },
     setTimeout,
   };
   const context = {
     Element: FakeElement,
     Image: FakeImage,
+    URL,
     URLSearchParams,
     clearTimeout,
     console,
@@ -447,9 +531,12 @@ function loadHomeRuntime(options = {}) {
     accountSecondary,
     accountSummaryButton,
     callButton,
+    callActionLabel,
+    callButtonLabel,
     cancelLogout,
     confirmLogout,
     document,
+    fetchRequests,
     localStorage,
     locationAssignments,
     loginForRecharge,
@@ -462,6 +549,8 @@ function loadHomeRuntime(options = {}) {
     rechargeEntry,
     rechargeLoginOverlay,
     rechargePanel,
+    toast,
+    creditDisplay,
     test: context.__homeTest,
   };
 }
@@ -470,7 +559,7 @@ function wait(milliseconds = 0) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function verifyAuthValidationAndPrivacy() {
+async function verifyAuthValidationAndPrivacy() {
   const empty = loadAuthRuntime();
   empty.form.dispatch('submit');
   assert.equal(empty.phoneError.hidden, false);
@@ -511,7 +600,7 @@ function verifyAuthValidationAndPrivacy() {
   login.phoneInput.value = '13800001234';
   login.codeInput.value = '123456';
   login.consentCheckbox.checked = true;
-  login.form.dispatch('submit');
+  await login.form.dispatch('submit');
   const storedAuth = login.localStorage.getItem(AUTH_STORAGE_KEY);
   const parsedStoredAuth = JSON.parse(storedAuth);
   assert.equal(parsedStoredAuth.version, 1);
@@ -531,9 +620,18 @@ function verifyAuthValidationAndPrivacy() {
     'recharge'
   );
   assert.deepEqual(login.locationAssignments, ['./home.html']);
+  assert.equal(login.fetchRequests.length, 1);
+  assert.equal(login.fetchRequests[0].pathname, '/api/auth/login');
+  assert.deepEqual(
+    JSON.parse(login.fetchRequests[0].requestOptions.body),
+    {
+      phone: '13800001234',
+      code: '123456',
+    }
+  );
 
   const guest = loadAuthRuntime();
-  guest.guestEntryButton.click();
+  await guest.guestEntryButton.click();
   const guestState = JSON.parse(
     guest.localStorage.getItem(AUTH_STORAGE_KEY)
   );
@@ -541,6 +639,8 @@ function verifyAuthValidationAndPrivacy() {
   assert.equal(guestState.authenticated, false);
   assert.equal(guestState.phoneMasked, '');
   assert.deepEqual(guest.locationAssignments, ['./home.html']);
+  assert.equal(guest.fetchRequests.length, 1);
+  assert.equal(guest.fetchRequests[0].pathname, '/api/auth/guest');
 
   for (const invalidState of [
     '{damaged',
@@ -623,7 +723,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   assert.equal(guest.rechargePanel.hidden, true);
   assert.equal(guest.rechargeLoginOverlay.hidden, false);
   assert.equal(guest.test.handleRechargeConfirmation(), false);
-  assert.equal(guest.test.getPrototypeCreditBalance(), 12.50);
+  assert.equal(guest.test.getAccountBalanceCents(), null);
 
   guest.test.closeActiveOverlay();
   guest.accountSummaryButton.click();
@@ -643,13 +743,22 @@ async function verifyHomeGuardRechargeAndAccount() {
     },
   });
   guestCall.callButton.click();
-  assert.equal(guestCall.locationAssignments.at(-1), 'http://127.0.0.1:3001/');
+  const guestCallUrl = new URL(guestCall.locationAssignments.at(-1));
+  assert.equal(guestCallUrl.origin, 'http://127.0.0.1:3001');
+  assert.equal(
+    guestCallUrl.searchParams.get('returnUrl'),
+    DEFAULT_HOME_URL
+  );
+  assert.equal(guestCallUrl.searchParams.has('businessCallId'), false);
 
   const phone = loadHomeRuntime({
     storageEntries: {
       [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('phone')),
     },
   });
+  await wait();
+  assert.equal(phone.creditDisplay.textContent, '¥12.50');
+  assert.equal(phone.test.getAccountBalanceCents(), 1250);
   assert.equal(phone.accountPrimary.textContent, '138****1234');
   assert.equal(phone.accountSecondary.textContent, '普通会员');
   assert.equal(
@@ -660,7 +769,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   assert.equal(phone.rechargePanel.hidden, false);
   assert.equal(phone.rechargeLoginOverlay.hidden, true);
   assert.equal(phone.test.handleRechargeConfirmation(), true);
-  assert.equal(phone.test.getPrototypeCreditBalance(), 22.50);
+  assert.equal(phone.test.getAccountBalanceCents(), 1250);
 
   phone.test.closeActiveOverlay();
   phone.accountSummaryButton.click();
@@ -699,7 +808,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   });
   await wait();
   assert.equal(refreshed.rechargePanel.hidden, true);
-  assert.equal(refreshed.test.getPrototypeCreditBalance(), 12.50);
+  assert.equal(refreshed.test.getAccountBalanceCents(), 1250);
 
   const pendingProfile = loadHomeRuntime({
     storageEntries: {
@@ -728,6 +837,249 @@ async function verifyHomeGuardRechargeAndAccount() {
   );
   assert.equal(unknownPending.rechargePanel.hidden, true);
   assert.equal(unknownPending.accountProfileOverlay.hidden, true);
+}
+
+function createJsonResponse(status, responseBody) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return responseBody;
+    },
+  };
+}
+
+function createAccountResponse(balanceCents) {
+  return createJsonResponse(200, {
+    account: {
+      currency: 'CNY',
+      balanceCents,
+      remainingSeconds: 0,
+    },
+  });
+}
+
+async function verifyRealAccountAndCallFlow() {
+  const authKey = AUTH_STORAGE_KEY;
+  const phoneStorage = {
+    [authKey]: JSON.stringify(createAuthState('phone')),
+  };
+
+  const formatRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+  });
+  assert.equal(formatRuntime.test.formatBalanceCents(1250), '¥12.50');
+  assert.equal(formatRuntime.test.formatBalanceCents(10), '¥0.10');
+  assert.equal(formatRuntime.test.formatBalanceCents(0), '¥0.00');
+  assert.equal(formatRuntime.test.formatBalanceCents(-3), '-¥0.03');
+
+  let resolveLoadingAccount;
+  const loadingRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: () => new Promise((resolve) => {
+      resolveLoadingAccount = resolve;
+    }),
+  });
+  assert.equal(loadingRuntime.creditDisplay.textContent, '--');
+  resolveLoadingAccount(createAccountResponse(10));
+  await wait();
+  assert.equal(loadingRuntime.creditDisplay.textContent, '¥0.10');
+
+  const failedAccountRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => {
+      throw new Error('network unavailable');
+    },
+  });
+  await wait();
+  assert.equal(
+    failedAccountRuntime.creditDisplay.textContent,
+    '加载失败'
+  );
+
+  for (const character of formatRuntime.test.characters) {
+    const callRequests = [];
+    const runtime = loadHomeRuntime({
+      storageEntries: phoneStorage,
+      fetchImpl: async (pathname, requestOptions) => {
+        if (pathname === '/api/me') {
+          return createAccountResponse(1250);
+        }
+        callRequests.push({ pathname, requestOptions });
+        return createJsonResponse(201, {
+          call: {
+            id: `business-${character.key}`,
+          },
+        });
+      },
+    });
+    await wait();
+    await runtime.test.selectCharacter(character.key, 'test');
+    assert.equal(await runtime.test.handleStartConversation(), true);
+    assert.equal(callRequests.length, 1);
+    assert.equal(callRequests[0].pathname, '/api/calls');
+    assert.deepEqual(
+      JSON.parse(callRequests[0].requestOptions.body),
+      { roleSlug: character.key }
+    );
+    const navigationUrl = new URL(runtime.locationAssignments.at(-1));
+    assert.equal(
+      navigationUrl.searchParams.get('characterKey'),
+      character.realtimeCharacterKey
+    );
+    assert.equal(
+      navigationUrl.searchParams.get('businessCallId'),
+      `business-${character.key}`
+    );
+    assert.equal(runtime.test.getAccountBalanceCents(), 1250);
+    assert.equal(runtime.test.getIsStartingCall(), true);
+  }
+
+  const insufficientRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => (
+      pathname === '/api/me'
+        ? createAccountResponse(9)
+        : createJsonResponse(409, {
+          error: {
+            code: 'INSUFFICIENT_BALANCE',
+            message: 'internal message is not shown',
+          },
+        })
+    ),
+  });
+  await wait();
+  const insufficientNavigationCount =
+    insufficientRuntime.locationAssignments.length;
+  assert.equal(
+    await insufficientRuntime.test.handleStartConversation(),
+    false
+  );
+  assert.equal(
+    insufficientRuntime.locationAssignments.length,
+    insufficientNavigationCount
+  );
+  assert.equal(
+    insufficientRuntime.toast.textContent,
+    '账户话费不足，无法开始通话'
+  );
+  assert.equal(insufficientRuntime.rechargePanel.hidden, false);
+  assert.equal(insufficientRuntime.test.getAccountBalanceCents(), 9);
+  assert.equal(insufficientRuntime.callButton.disabled, false);
+
+  const otherConflictRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => (
+      pathname === '/api/me'
+        ? createAccountResponse(1250)
+        : createJsonResponse(409, {
+          error: {
+            code: 'ROLE_UNAVAILABLE',
+            message: 'internal message is not shown',
+          },
+        })
+    ),
+  });
+  await wait();
+  assert.equal(
+    await otherConflictRuntime.test.handleStartConversation(),
+    false
+  );
+  assert.equal(
+    otherConflictRuntime.toast.textContent,
+    '该角色暂时无法通话，请选择其他角色'
+  );
+  assert.equal(otherConflictRuntime.rechargePanel.hidden, true);
+
+  const expiredRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => createJsonResponse(401, {
+      error: { code: 'AUTH_REQUIRED' },
+    }),
+  });
+  await wait();
+  assert.equal(expiredRuntime.creditDisplay.textContent, '--');
+  assert.equal(
+    JSON.parse(
+      expiredRuntime.localStorage.getItem(AUTH_STORAGE_KEY)
+    ).mode,
+    'guest'
+  );
+  assert.equal(
+    expiredRuntime.toast.textContent,
+    '登录状态已失效，请重新登录'
+  );
+
+  let resolveCallRequest;
+  let callRequestCount = 0;
+  const duplicateRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        return createAccountResponse(1250);
+      }
+      callRequestCount += 1;
+      if (callRequestCount > 1) {
+        return createJsonResponse(500, {
+          error: { code: 'INTERNAL_ERROR' },
+        });
+      }
+      return new Promise((resolve) => {
+        resolveCallRequest = resolve;
+      });
+    },
+  });
+  await wait();
+  const firstStart = duplicateRuntime.test.handleStartConversation();
+  const secondStart = duplicateRuntime.test.handleStartConversation();
+  assert.equal(callRequestCount, 1);
+  assert.equal(await secondStart, false);
+  assert.equal(duplicateRuntime.callButton.disabled, true);
+  assert.equal(duplicateRuntime.callActionLabel.textContent, '正在接通…');
+  resolveCallRequest(createJsonResponse(500, {
+    error: { code: 'INTERNAL_ERROR' },
+  }));
+  assert.equal(await firstStart, false);
+  assert.equal(duplicateRuntime.callButton.disabled, false);
+  assert.equal(duplicateRuntime.callActionLabel.textContent, '开始通话');
+  assert.equal(
+    await duplicateRuntime.test.handleStartConversation(),
+    false
+  );
+  assert.equal(callRequestCount, 2);
+
+  let networkCallCount = 0;
+  const networkRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        return createAccountResponse(1250);
+      }
+      networkCallCount += 1;
+      throw new Error('network unavailable');
+    },
+  });
+  await wait();
+  assert.equal(await networkRuntime.test.handleStartConversation(), false);
+  assert.equal(networkCallCount, 1);
+  assert.equal(
+    networkRuntime.toast.textContent,
+    '网络连接失败，请稍后重试'
+  );
+  assert.equal(networkRuntime.callButton.disabled, false);
+
+  const guestRuntime = loadHomeRuntime({
+    storageEntries: {
+      [authKey]: JSON.stringify(createAuthState('guest')),
+    },
+    fetchImpl: async () => {
+      throw new Error('guest must not call business APIs');
+    },
+  });
+  assert.equal(await guestRuntime.test.handleStartConversation(), true);
+  const guestUrl = new URL(guestRuntime.locationAssignments.at(-1));
+  assert.equal(guestUrl.searchParams.has('businessCallId'), false);
+  assert.equal(guestRuntime.fetchRequests.length, 0);
 }
 
 function verifyStaticUiAndPrivacyBoundaries() {
@@ -769,8 +1121,9 @@ function verifyStaticUiAndPrivacyBoundaries() {
 }
 
 async function main() {
-  verifyAuthValidationAndPrivacy();
+  await verifyAuthValidationAndPrivacy();
   await verifyHomeGuardRechargeAndAccount();
+  await verifyRealAccountAndCallFlow();
   verifyStaticUiAndPrivacyBoundaries();
 
   process.stdout.write('auth_guest_recharge_gate_test: PASS\n');
@@ -778,7 +1131,10 @@ async function main() {
     'verified=phone-errors,code-errors,consent,masked-storage,guest,'
       + 'strict-schema,home-guard,recharge-gate,direct-confirm,'
       + 'phone-recharge,pending-once,account-summary,profile,logout,'
-      + 'profile-return,privacy,avatar-svg\n'
+      + 'profile-return,real-balance,currency-format,call-create,'
+      + 'insufficient-balance,error-separation,expired-session,'
+      + 'network-error,duplicate-lock,eight-role-business-call-id,'
+      + 'guest-call,privacy,avatar-svg\n'
   );
 }
 

@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('node:path');
+
 const { createApp } = require('./app');
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -33,6 +35,10 @@ function startServer() {
   const port = parsePort(rawPort);
   const app = createApp({
     internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
+    mobileUiDirectory: path.resolve(
+      __dirname,
+      '../ui_prototypes/yuhuang_mobile_v1'
+    ),
   });
 
   const server = app.listen(port, host, () => {

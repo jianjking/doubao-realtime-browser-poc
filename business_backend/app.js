@@ -82,6 +82,21 @@ function createApp(options = {}) {
     }));
   }
   app.use(express.json({ limit: '16kb' }));
+  if (options.mobileUiDirectory !== undefined) {
+    if (
+      typeof options.mobileUiDirectory !== 'string'
+      || options.mobileUiDirectory === ''
+    ) {
+      throw new TypeError('mobileUiDirectory must be a non-empty string');
+    }
+    app.use(
+      '/ui_prototypes/yuhuang_mobile_v1',
+      express.static(options.mobileUiDirectory, {
+        dotfiles: 'deny',
+        fallthrough: false,
+      })
+    );
+  }
   app.use('/api', healthRouter);
   app.use('/api', createRoleRouter({ roleService }));
   app.use('/api', createAuthRouter({ sessionService, authService }));
