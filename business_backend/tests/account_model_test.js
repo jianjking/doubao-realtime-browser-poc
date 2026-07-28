@@ -210,6 +210,45 @@ test('memory account store validates records and returns copies', () => {
   }, /currency/);
 });
 
+test('memory account store safely replaces balances including debt', () => {
+  const accountStore = new MemoryAccountStore();
+  const account = createAccount();
+  accountStore.save(account);
+
+  const debitedAccount = {
+    ...account,
+    balanceCents: -3,
+    updatedAt: '2026-07-25T00:01:00.000Z',
+  };
+  accountStore.replace(debitedAccount);
+  assert.deepEqual(
+    accountStore.findByUserId(account.userId),
+    debitedAccount
+  );
+
+  assert.throws(() => {
+    accountStore.replace({
+      ...debitedAccount,
+      balanceCents: 1.5,
+    });
+  }, /balanceCents/);
+  assert.throws(() => {
+    accountStore.replace({
+      ...debitedAccount,
+      currency: 'USD',
+    });
+  }, /currency|identity/);
+  assert.throws(() => {
+    accountStore.replace(createAccount({
+      userId: 'missing-user',
+    }));
+  }, /Account does not exist/);
+  assert.deepEqual(
+    accountStore.findByUserId(account.userId),
+    debitedAccount
+  );
+});
+
 test('account service creates once and returns only public fields', () => {
   let now = Date.parse('2026-07-25T00:00:00.000Z');
   const accountStore = new MemoryAccountStore();
@@ -246,6 +285,75 @@ test('account service creates once and returns only public fields', () => {
       initialRemainingSeconds: 1.5,
     });
   }, /initialRemainingSeconds/);
+});
+
+test('account service debits integer cents and validates every amount', () => {
+  let now = Date.parse('2026-07-25T00:00:00.000Z');
+  const accountStore = new MemoryAccountStore();
+  let replaceCalls = 0;
+  const replaceAccount = accountStore.replace.bind(accountStore);
+  accountStore.replace = (account) => {
+    replaceCalls += 1;
+    return replaceAccount(account);
+  };
+  const accountService = createAccountService({
+    accountStore,
+    clock: () => now,
+    initialBalanceCents: 5,
+  });
+  accountService.ensureAccountForUser('user-debit');
+
+  const zeroDebit = accountService.debitBalanceCentsForUser(
+    'user-debit',
+    0
+  );
+  assert.equal(zeroDebit.balanceCents, 5);
+  assert.equal(replaceCalls, 0);
+
+  now = Date.parse('2026-07-25T00:01:00.000Z');
+  const debited = accountService.debitBalanceCentsForUser(
+    'user-debit',
+    8
+  );
+  assert.deepEqual(debited, {
+    currency: 'CNY',
+    balanceCents: -3,
+    remainingSeconds: 0,
+  });
+  assert.equal(replaceCalls, 1);
+  assert.equal(
+    accountStore.findByUserId('user-debit').updatedAt,
+    '2026-07-25T00:01:00.000Z'
+  );
+
+  for (const invalidAmount of [
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    '1',
+  ]) {
+    assert.throws(() => {
+      accountService.debitBalanceCentsForUser(
+        'user-debit',
+        invalidAmount
+      );
+    }, /amountCents/);
+  }
+  assert.equal(
+    accountService.getPublicAccountForUser('user-debit').balanceCents,
+    -3
+  );
+  assert.equal(replaceCalls, 1);
+
+  assert.throws(() => {
+    accountService.debitBalanceCentsForUser('missing-user', 1);
+  }, (error) => {
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.code, 'ACCOUNT_UNAVAILABLE');
+    assert.equal(error.publicMessage, 'User account is unavailable');
+    return true;
+  });
 });
 
 test('user /api/me returns server-configured account values', async () => {

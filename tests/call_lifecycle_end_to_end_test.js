@@ -9,6 +9,9 @@ const vm = require('node:vm');
 
 const { createApp } = require('../business_backend/app');
 const {
+  PUBLIC_ROLES,
+} = require('../business_backend/config/public_roles');
+const {
   createRelayInternalCallLifecycleDependency,
 } = require('../relay_internal_call_lifecycle_bootstrap');
 const {
@@ -142,8 +145,15 @@ function createLifecycleRequestRecorder() {
 }
 
 async function startBusinessBackend(internalToken) {
+  let now = Date.parse('2026-07-27T00:00:00.000Z');
   const app = createApp({
+    clock() {
+      const currentTime = now;
+      now += 1000;
+      return currentTime;
+    },
     developmentVerificationCode: TEST_DEVELOPMENT_CODE,
+    initialBalanceCents: 100,
     internalApiToken: internalToken,
   });
   const recorder = createLifecycleRequestRecorder();
@@ -279,6 +289,17 @@ async function getPublicCall(port, cookiePair, callId) {
   const call = parseJsonResponse(response, 200).call;
   assert.equal(Object.hasOwn(call, 'userId'), false);
   return call;
+}
+
+async function getPublicAccount(port, cookiePair) {
+  const response = await requestPath({
+    port,
+    requestPathname: '/api/me',
+    headers: {
+      Cookie: cookiePair,
+    },
+  });
+  return parseJsonResponse(response, 200).account;
 }
 
 function delay(milliseconds) {
@@ -833,6 +854,15 @@ async function main() {
   try {
     backend = await startBusinessBackend(internalToken);
     const cookiePair = await login(backend.port);
+    const initialAccount = await getPublicAccount(
+      backend.port,
+      cookiePair
+    );
+    assert.equal(initialAccount.balanceCents, 100);
+    assert.equal(
+      Number.isSafeInteger(initialAccount.balanceCents),
+      true
+    );
     const normalPendingCall = await createPendingCall(
       backend.port,
       cookiePair
@@ -862,6 +892,22 @@ async function main() {
       callId: normalPendingCall.id,
     });
     normalConnection = normalResult.connection;
+    const normalEndedAccount = await getPublicAccount(
+      backend.port,
+      cookiePair
+    );
+    const yuhuangRole = PUBLIC_ROLES.find(
+      (role) => role.slug === 'yuhuang'
+    );
+    assert.ok(yuhuangRole);
+    const normalChargeFen = Math.ceil(
+      normalResult.call.durationMs / yuhuangRole.billingUnitMs
+    ) * yuhuangRole.pricePerBillingUnitFen;
+    assert.ok(normalChargeFen > 0);
+    assert.equal(
+      normalEndedAccount.balanceCents,
+      initialAccount.balanceCents - normalChargeFen
+    );
 
     failedResult = await runFailedScenario({
       runtime,
@@ -871,6 +917,14 @@ async function main() {
       callId: failedPendingCall.id,
     });
     failedConnection = failedResult.connection;
+    const failedAccount = await getPublicAccount(
+      backend.port,
+      cookiePair
+    );
+    assert.equal(
+      failedAccount.balanceCents,
+      normalEndedAccount.balanceCents
+    );
 
     assert.deepEqual(
       backend.recorder.countsFor(normalPendingCall.id),
@@ -903,6 +957,14 @@ async function main() {
     );
     assert.equal(finalNormalCall.status, 'ended');
     assert.equal(finalFailedCall.status, 'failed');
+    assert.equal(
+      Object.hasOwn(finalNormalCall, 'chargeFen'),
+      false
+    );
+    assert.equal(
+      Object.hasOwn(finalFailedCall, 'chargeFen'),
+      false
+    );
     assert.equal(normalResult.call.status, 'ended');
     assert.equal(failedResult.call.status, 'failed');
     assert.notEqual(

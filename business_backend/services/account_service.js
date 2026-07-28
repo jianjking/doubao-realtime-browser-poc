@@ -9,6 +9,20 @@ function validateInitialValue(value, name) {
   }
 }
 
+function validateUserId(userId) {
+  if (typeof userId !== 'string' || userId === '') {
+    throw new TypeError('userId must be a non-empty string');
+  }
+}
+
+function createAccountUnavailableError() {
+  const error = new Error('User account is unavailable');
+  error.statusCode = 409;
+  error.code = 'ACCOUNT_UNAVAILABLE';
+  error.publicMessage = 'User account is unavailable';
+  return error;
+}
+
 function createAccountService({
   accountStore,
   clock = Date.now,
@@ -25,9 +39,7 @@ function createAccountService({
   );
 
   function ensureAccountForUser(userId) {
-    if (typeof userId !== 'string' || userId === '') {
-      throw new TypeError('userId must be a non-empty string');
-    }
+    validateUserId(userId);
 
     const existingAccount = accountStore.findByUserId(userId);
     if (existingAccount) {
@@ -60,7 +72,42 @@ function createAccountService({
     };
   }
 
+  function debitBalanceCentsForUser(userId, amountCents) {
+    validateUserId(userId);
+    if (
+      !Number.isSafeInteger(amountCents)
+      || amountCents < 0
+    ) {
+      throw new TypeError(
+        'amountCents must be a non-negative safe integer'
+      );
+    }
+
+    const account = accountStore.findByUserId(userId);
+    if (!account || account.status !== 'active') {
+      throw createAccountUnavailableError();
+    }
+    if (amountCents === 0) {
+      return getPublicAccountForUser(userId);
+    }
+
+    const balanceCents = account.balanceCents - amountCents;
+    if (!Number.isSafeInteger(balanceCents)) {
+      throw new RangeError(
+        'resulting balanceCents must be a safe integer'
+      );
+    }
+
+    accountStore.replace({
+      ...account,
+      balanceCents,
+      updatedAt: new Date(clock()).toISOString(),
+    });
+    return getPublicAccountForUser(userId);
+  }
+
   return {
+    debitBalanceCentsForUser,
     ensureAccountForUser,
     getPublicAccountForUser,
   };

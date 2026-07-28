@@ -60,6 +60,7 @@ function createApp(options = {}) {
   const callService = createCallService({
     callStore,
     roleService,
+    accountService,
     clock: options.clock,
     idGenerator: options.callIdGenerator,
   });

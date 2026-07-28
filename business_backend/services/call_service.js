@@ -20,11 +20,23 @@ function createPublicError(statusCode, code, publicMessage) {
 function createCallService({
   callStore,
   roleService,
+  accountService = null,
   clock = Date.now,
   idGenerator = () => crypto.randomUUID(),
 } = {}) {
   if (!callStore || !roleService) {
     throw new TypeError('callStore and roleService are required');
+  }
+  if (
+    accountService !== null
+    && (
+      typeof accountService !== 'object'
+      || typeof accountService.debitBalanceCentsForUser !== 'function'
+    )
+  ) {
+    throw new TypeError(
+      'accountService must provide debitBalanceCentsForUser'
+    );
   }
   if (typeof clock !== 'function') {
     throw new TypeError('clock must be a function');
@@ -220,6 +232,13 @@ function createCallService({
         }
 
         nextCall.chargeFen = chargeFen;
+
+        if (accountService !== null) {
+          accountService.debitBalanceCentsForUser(
+            call.userId,
+            nextCall.chargeFen
+          );
+        }
       }
     }
 

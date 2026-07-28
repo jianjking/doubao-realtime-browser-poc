@@ -203,6 +203,16 @@ function getCall(port, callId, cookiePair) {
   });
 }
 
+function getMe(port, cookiePair) {
+  return requestPath({
+    port,
+    path: '/api/me',
+    headers: {
+      Cookie: cookiePair,
+    },
+  });
+}
+
 function postLifecycle({
   port,
   callId,
@@ -610,6 +620,10 @@ test('ended endpoint preserves start time and is idempotent', async () => {
 
   try {
     const { cookiePair } = await loginAndCreateCall(port);
+    const initialAccount = parseJson(
+      (await getMe(port, cookiePair)).body
+    ).account;
+    assert.equal(initialAccount.balanceCents, 1250);
     await postLifecycle({
       port,
       callId: 'call-ended',
@@ -633,9 +647,13 @@ test('ended endpoint preserves start time and is idempotent', async () => {
       lifecycle: 'ended',
     });
     assert.equal(endedResponse.statusCode, 200);
-    assert.equal(clockCalls, beforeEndedClockCalls + 1);
+    assert.equal(clockCalls, beforeEndedClockCalls + 2);
     assert.equal(parseJson(endedResponse.body).call.startedAt, startedAt);
     assert.equal(parseJson(endedResponse.body).call.endedAt, ENDED_AT);
+    const endedAccount = parseJson(
+      (await getMe(port, cookiePair)).body
+    ).account;
+    assert.equal(endedAccount.balanceCents, 1150);
 
     const beforeRepeatClockCalls = clockCalls;
     const repeatedResponse = await postLifecycle({
@@ -649,6 +667,10 @@ test('ended endpoint preserves start time and is idempotent', async () => {
       parseJson(endedResponse.body)
     );
     assert.equal(clockCalls, beforeRepeatClockCalls);
+    const repeatedAccount = parseJson(
+      (await getMe(port, cookiePair)).body
+    ).account;
+    assert.equal(repeatedAccount.balanceCents, 1150);
 
     const publicResponse = await getCall(
       port,

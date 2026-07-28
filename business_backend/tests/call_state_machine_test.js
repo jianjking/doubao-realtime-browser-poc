@@ -4,8 +4,12 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { PUBLIC_ROLES } = require('../config/public_roles');
+const { createAccountService } = require('../services/account_service');
 const { createCallService } = require('../services/call_service');
 const { createRoleService } = require('../services/role_service');
+const {
+  MemoryAccountStore,
+} = require('../stores/memory_account_store');
 const { MemoryCallStore } = require('../stores/memory_call_store');
 
 const CREATED_AT = '2026-07-25T00:00:00.000Z';
@@ -50,6 +54,37 @@ function createPendingCall(callService, overrides = {}) {
     roleSlug: 'yuhuang',
     ...overrides,
   });
+}
+
+function createDebitingService({
+  clock,
+  idGenerator,
+  initialBalanceCents = 100,
+  createOwnerAccount = true,
+} = {}) {
+  const accountStore = new MemoryAccountStore();
+  const accountService = createAccountService({
+    accountStore,
+    clock,
+    initialBalanceCents,
+  });
+  if (createOwnerAccount) {
+    accountService.ensureAccountForUser('user-state-owner');
+  }
+  const callStore = new MemoryCallStore();
+  const callService = createCallService({
+    accountService,
+    callStore,
+    roleService: createRoleService({ roles: PUBLIC_ROLES }),
+    clock,
+    idGenerator,
+  });
+  return {
+    accountService,
+    accountStore,
+    callService,
+    callStore,
+  };
 }
 
 function readPublicError(error) {
@@ -676,6 +711,231 @@ test('duration never becomes negative when the clock moves backward', () => {
   assert.equal(endedCall.startedAt, activeAt);
   assert.equal(endedCall.endedAt, endedAt);
   assert.equal(endedCall.durationMs, 0);
+});
+
+test('first ended debits the frozen charge exactly once', () => {
+  let now = Date.parse(CREATED_AT);
+  const {
+    accountService,
+    accountStore,
+    callService,
+    callStore,
+  } = createDebitingService({
+    clock: () => now,
+    idGenerator: () => 'call-debit-ended',
+  });
+  let accountReplaceCalls = 0;
+  const replaceAccount = accountStore.replace.bind(accountStore);
+  accountStore.replace = (account) => {
+    accountReplaceCalls += 1;
+    return replaceAccount(account);
+  };
+  const pendingCall = createPendingCall(callService);
+  callService.markCallConnecting({ callId: pendingCall.id });
+  now = Date.parse(ACTIVE_AT);
+  callService.markCallActive({ callId: pendingCall.id });
+  now = Date.parse(ACTIVE_AT) + 12000;
+
+  const endedFirst = callService.markCallEnded({
+    callId: pendingCall.id,
+  });
+  const storedFirst = callStore.findById(pendingCall.id);
+  assert.equal(endedFirst.status, 'ended');
+  assert.equal(endedFirst.durationMs, 12000);
+  assert.equal(storedFirst.chargeFen, 20);
+  assert.equal(storedFirst.billingUnitMs, 6000);
+  assert.equal(storedFirst.pricePerBillingUnitFen, 10);
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    80
+  );
+  assert.equal(accountReplaceCalls, 1);
+
+  now += 60000;
+  const endedSecond = callService.markCallEnded({
+    callId: pendingCall.id,
+  });
+  assert.deepEqual(endedSecond, endedFirst);
+  assert.deepEqual(callStore.findById(pendingCall.id), storedFirst);
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    80
+  );
+  assert.equal(accountReplaceCalls, 1);
+});
+
+test('failed calls never debit balances on first or repeated terminal', () => {
+  let now = Date.parse(CREATED_AT);
+  const {
+    accountService,
+    accountStore,
+    callService,
+    callStore,
+  } = createDebitingService({
+    clock: () => now,
+    idGenerator: () => 'call-debit-failed',
+  });
+  let accountReplaceCalls = 0;
+  const replaceAccount = accountStore.replace.bind(accountStore);
+  accountStore.replace = (account) => {
+    accountReplaceCalls += 1;
+    return replaceAccount(account);
+  };
+  const pendingCall = createPendingCall(callService);
+  callService.markCallConnecting({ callId: pendingCall.id });
+  now = Date.parse(ACTIVE_AT);
+  callService.markCallActive({ callId: pendingCall.id });
+  now += 3200;
+
+  const failedFirst = callService.markCallFailed({
+    callId: pendingCall.id,
+  });
+  const failedSecond = callService.markCallFailed({
+    callId: pendingCall.id,
+  });
+  assert.deepEqual(failedSecond, failedFirst);
+  assert.equal(callStore.findById(pendingCall.id).chargeFen, 0);
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    100
+  );
+  assert.equal(accountReplaceCalls, 0);
+  assertPublicError(() => {
+    callService.markCallEnded({ callId: pendingCall.id });
+  }, {
+    statusCode: 409,
+    code: 'INVALID_CALL_TRANSITION',
+    publicMessage: 'Call state transition is not allowed',
+  });
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    100
+  );
+  assert.equal(accountReplaceCalls, 0);
+});
+
+test('zero charge, debt, and separate calls preserve debit isolation', () => {
+  let now = Date.parse(CREATED_AT);
+  const callIds = [
+    'call-debit-zero',
+    'call-debit-first',
+    'call-debit-second',
+  ];
+  const {
+    accountService,
+    accountStore,
+    callService,
+    callStore,
+  } = createDebitingService({
+    clock: () => now,
+    idGenerator: () => callIds.shift(),
+    initialBalanceCents: 5,
+  });
+  let accountReplaceCalls = 0;
+  const replaceAccount = accountStore.replace.bind(accountStore);
+  accountStore.replace = (account) => {
+    accountReplaceCalls += 1;
+    return replaceAccount(account);
+  };
+
+  function createAndEndCall(durationMs) {
+    const pendingCall = createPendingCall(callService);
+    callService.markCallConnecting({ callId: pendingCall.id });
+    callService.markCallActive({ callId: pendingCall.id });
+    now += durationMs;
+    const endedCall = callService.markCallEnded({
+      callId: pendingCall.id,
+    });
+    return {
+      endedCall,
+      storedCall: callStore.findById(pendingCall.id),
+    };
+  }
+
+  const zeroCall = createAndEndCall(0);
+  assert.equal(zeroCall.storedCall.chargeFen, 0);
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    5
+  );
+  assert.equal(accountReplaceCalls, 0);
+  callService.markCallEnded({ callId: zeroCall.endedCall.id });
+  assert.equal(accountReplaceCalls, 0);
+
+  const firstPaidCall = createAndEndCall(1);
+  assert.equal(firstPaidCall.storedCall.chargeFen, 10);
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    -5
+  );
+  assert.equal(accountReplaceCalls, 1);
+  callService.markCallEnded({ callId: firstPaidCall.endedCall.id });
+  assert.equal(accountReplaceCalls, 1);
+
+  const secondPaidCall = createAndEndCall(1);
+  assert.equal(secondPaidCall.storedCall.chargeFen, 10);
+  assert.notEqual(
+    secondPaidCall.endedCall.id,
+    firstPaidCall.endedCall.id
+  );
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    -15
+  );
+  assert.equal(accountReplaceCalls, 2);
+  callService.markCallEnded({ callId: secondPaidCall.endedCall.id });
+  assert.equal(accountReplaceCalls, 2);
+});
+
+test('ended rejects a declared owner whose account is missing', () => {
+  let now = Date.parse(CREATED_AT);
+  const {
+    accountService,
+    callService,
+    callStore,
+  } = createDebitingService({
+    clock: () => now,
+    createOwnerAccount: false,
+    idGenerator: () => 'call-debit-missing-account',
+  });
+  accountService.ensureAccountForUser('other-user');
+  const pendingCall = createPendingCall(callService);
+  callService.markCallConnecting({ callId: pendingCall.id });
+  now = Date.parse(ACTIVE_AT);
+  callService.markCallActive({ callId: pendingCall.id });
+  now += 6000;
+
+  assertPublicError(() => {
+    callService.markCallEnded({ callId: pendingCall.id });
+  }, {
+    statusCode: 409,
+    code: 'ACCOUNT_UNAVAILABLE',
+    publicMessage: 'User account is unavailable',
+  });
+  const storedCall = callStore.findById(pendingCall.id);
+  assert.equal(storedCall.status, 'active');
+  assert.equal(storedCall.endedAt, null);
+  assert.equal(storedCall.chargeFen, null);
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'other-user'
+    ).balanceCents,
+    100
+  );
 });
 
 test('invalid transitions and call IDs fail without changing calls', () => {

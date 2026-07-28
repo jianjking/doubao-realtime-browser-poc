@@ -1,6 +1,8 @@
 'use strict';
 
-function validateAccount(account) {
+function validateAccount(account, {
+  allowNegativeBalance = false,
+} = {}) {
   if (!account || typeof account !== 'object' || Array.isArray(account)) {
     throw new TypeError('account must be an object');
   }
@@ -12,10 +14,12 @@ function validateAccount(account) {
   }
   if (
     !Number.isSafeInteger(account.balanceCents)
-    || account.balanceCents < 0
+    || (!allowNegativeBalance && account.balanceCents < 0)
   ) {
     throw new TypeError(
-      'account.balanceCents must be a non-negative safe integer'
+      allowNegativeBalance
+        ? 'account.balanceCents must be a safe integer'
+        : 'account.balanceCents must be a non-negative safe integer'
     );
   }
   if (
@@ -57,6 +61,22 @@ class MemoryAccountStore {
   findByUserId(userId) {
     const account = this.#accountsByUserId.get(userId);
     return account ? { ...account } : null;
+  }
+
+  replace(account) {
+    validateAccount(account, { allowNegativeBalance: true });
+    const existingAccount = this.#accountsByUserId.get(account.userId);
+    if (!existingAccount) {
+      throw new Error('Account does not exist');
+    }
+    if (
+      account.userId !== existingAccount.userId
+      || account.currency !== existingAccount.currency
+      || account.createdAt !== existingAccount.createdAt
+    ) {
+      throw new Error('Account identity fields cannot be changed');
+    }
+    this.#accountsByUserId.set(account.userId, { ...account });
   }
 }
 
