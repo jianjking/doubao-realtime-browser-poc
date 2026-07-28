@@ -76,10 +76,18 @@
       <p data-speech-message role="status" aria-live="polite" aria-atomic="true">请慢慢说，道童会在殿前听您诉说。</p>
       <button class="speak-control-button" type="button" data-speak-control>开始诉说</button>
       <small data-speech-detail>语音只用于当前识别，不会录制为音频文件。</small>
-      <section class="transcript-preview" aria-labelledby="transcript-preview-title">
-        <h3 id="transcript-preview-title">语音识别预览</h3>
-        <p class="transcript-preview-status" data-transcript-status>等待开始</p>
-        <p class="transcript-preview-text" data-transcript-text aria-live="polite" aria-atomic="true">您的话会在这里显示。</p>
+      <section class="wish-paper" data-wish-paper aria-labelledby="wish-paper-title" aria-live="polite" aria-busy="false">
+        <h3 id="wish-paper-title">道童代您写下</h3>
+        <p class="wish-paper-status" data-transcript-status>等待诉说</p>
+        <p class="wish-paper-text" data-transcript-text>您的话会写在这里。</p>
+        <div class="wish-paper-actions" data-transcript-actions hidden>
+          <button class="wish-confirm-button" type="button" data-confirm-transcript>就是这个意思</button>
+          <button class="wish-retry-button" type="button" data-retry-transcript>重新说一遍</button>
+        </div>
+        <div class="wish-paper-next" data-wish-next-step hidden>
+          <strong>下一步：将心愿纸奉入香炉</strong>
+          <span>将在下一阶段完成</span>
+        </div>
       </section>
     </section>
 

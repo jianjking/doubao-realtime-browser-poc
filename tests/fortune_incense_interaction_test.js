@@ -51,6 +51,9 @@ class FakeElement {
     this.disabled = options.disabled === true;
     this.hidden = options.hidden === true;
     this.textContent = options.textContent || '';
+    this.attributes = new Map(
+      Object.entries(options.attributes || {})
+    );
     this.listeners = new Map();
   }
 
@@ -65,6 +68,16 @@ class FakeElement {
     for (const handler of this.listeners.get(eventName) || []) {
       handler();
     }
+  }
+
+  getAttribute(name) {
+    return this.attributes.has(name)
+      ? this.attributes.get(name)
+      : null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
   }
 }
 
@@ -125,11 +138,26 @@ function loadFortuneRuntime(options = {}) {
     textContent: '开始诉说',
   });
   const transcriptStatus = new FakeElement({
-    textContent: '等待开始',
+    textContent: '等待诉说',
   });
   const transcriptText = new FakeElement({
-    textContent: '您的话会在这里显示。',
+    textContent: '您的话会写在这里。',
   });
+  const wishPaper = new FakeElement({
+    attributes: { 'aria-busy': 'false' },
+  });
+  const transcriptActions = new FakeElement({ hidden: true });
+  const confirmTranscriptButton = new FakeElement({
+    disabled: true,
+    hidden: false,
+    textContent: '就是这个意思',
+  });
+  const retryTranscriptButton = new FakeElement({
+    disabled: true,
+    hidden: false,
+    textContent: '重新说一遍',
+  });
+  const wishNextStep = new FakeElement({ hidden: true });
   const elements = new Map([
     ['.fortune-page', page],
     ['[data-offer-incense]', offerButton],
@@ -142,6 +170,11 @@ function loadFortuneRuntime(options = {}) {
     ['[data-speak-control]', speakControlButton],
     ['[data-transcript-status]', transcriptStatus],
     ['[data-transcript-text]', transcriptText],
+    ['[data-wish-paper]', wishPaper],
+    ['[data-transcript-actions]', transcriptActions],
+    ['[data-confirm-transcript]', confirmTranscriptButton],
+    ['[data-retry-transcript]', retryTranscriptButton],
+    ['[data-wish-next-step]', wishNextStep],
   ]);
   const timers = [];
   const windowListeners = new Map();
@@ -270,11 +303,13 @@ function loadFortuneRuntime(options = {}) {
 
   return {
     acolyteGuidance,
+    confirmTranscriptButton,
     defaultStream,
     incenseState,
     microphoneRequests,
     offerButton,
     page,
+    retryTranscriptButton,
     speakControlButton,
     speechDetail,
     speechMessage,
@@ -282,6 +317,7 @@ function loadFortuneRuntime(options = {}) {
     timers,
     transcriptStatus,
     transcriptText,
+    transcriptActions,
     asrSessions,
     triggerWindow(eventName) {
       for (const handler of windowListeners.get(eventName) || []) {
@@ -289,6 +325,8 @@ function loadFortuneRuntime(options = {}) {
       }
     },
     waitingState,
+    wishNextStep,
+    wishPaper,
     windowListeners,
   };
 }
@@ -346,11 +384,23 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     html,
-    /<section class="transcript-preview"[\s\S]*?语音识别预览/
+    /<section class="wish-paper" data-wish-paper[\s\S]*?道童代您写下/
   );
   assert.match(
     html,
-    /data-transcript-text aria-live="polite" aria-atomic="true"/
+    /data-wish-paper[^>]*aria-live="polite"[^>]*aria-busy="false"/
+  );
+  assert.match(
+    html,
+    /data-transcript-text>您的话会写在这里。<\/p>/
+  );
+  assert.match(
+    html,
+    /<button class="wish-confirm-button" type="button" data-confirm-transcript>就是这个意思<\/button>/
+  );
+  assert.match(
+    html,
+    /<button class="wish-retry-button" type="button" data-retry-transcript>重新说一遍<\/button>/
   );
   assert.match(
     html,
@@ -378,12 +428,16 @@ function verifyStaticSceneAndSafety() {
   assert.match(css, /\.is-listening \.waiting-to-speak\s*\{/);
   assert.match(
     css,
-    /\.transcript-preview \.transcript-preview-text\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/
+    /\.wish-paper \.wish-paper-text\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/
+  );
+  assert.match(
+    css,
+    /\.wish-confirm-button,[\s\S]*?min-height:\s*54px;/
   );
 
   assert.doesNotMatch(
     html,
-    /<(?:input|textarea)\b|contenteditable=|签筒|签文结果|录音波形|心愿纸/
+    /<(?:input|textarea)\b|contenteditable=|签筒|签文结果|录音波形/
   );
   assert.match(
     asrJs,
@@ -414,11 +468,15 @@ function verifyStaticSceneAndSafety() {
   assert.match(workletJs, /registerProcessor\s*\(/);
   assert.doesNotMatch(
     html,
-    /<(?:input|textarea)\b|contenteditable=/
+    /<(?:input|textarea)\b|contenteditable=|语音识别预览|partial|final|ASR|转写结果|调试预览/
   );
   assert.doesNotMatch(
     `${html}\n${js}`,
-    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|已经写入心愿纸|正在为您抽签/
+    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|神明已经收到|心愿已经呈上|正在为您抽签|签文正在降下|焚纸|火焰烧纸/
+  );
+  assert.doesNotMatch(
+    js,
+    /localStorage|sessionStorage|document\.cookie|indexedDB|fetch\(/
   );
 }
 
@@ -554,11 +612,15 @@ async function verifyMicrophoneStartStopAndConcurrency() {
   assert.equal(runtime.speechMessage.textContent, '识别完成');
   assert.equal(
     runtime.speechDetail.textContent,
-    '识别文字仅保留在当前页面的预览区域。'
+    '这些话仅保留在当前页面，请确认是否准确。'
   );
   assert.equal(runtime.speakControlButton.hidden, true);
-  assert.equal(runtime.transcriptStatus.textContent, '识别完成');
+  assert.equal(
+    runtime.transcriptStatus.textContent,
+    '这些话，正是您想说的吗？'
+  );
   assert.equal(runtime.transcriptText.textContent, '测试识别结果');
+  assert.equal(runtime.transcriptActions.hidden, false);
 
   runtime.triggerWindow('pagehide');
   assert.deepEqual(
@@ -1114,7 +1176,10 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
     runtime.transcriptText.textContent,
     '我最近总担心孩子的工作。'
   );
-  assert.equal(runtime.transcriptStatus.textContent, '识别完成');
+  assert.equal(
+    runtime.transcriptStatus.textContent,
+    '这些话，正是您想说的吗？'
+  );
 
   runtime.speakControlButton.trigger('click');
   assert.equal(createdSessions[0].finishCallCount, 1);
@@ -1215,6 +1280,163 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
   assert.notEqual(createdSessions.at(-1), failedSession);
   failedSession.callbacks.onPartial('迟到的旧识别');
   assert.notEqual(retryRuntime.transcriptText.textContent, '迟到的旧识别');
+}
+
+async function verifyWishPaperConfirmationRetryAndErrors() {
+  const sessions = [];
+  const runtime = loadFortuneRuntime({
+    createSession(callbacks) {
+      const session = {
+        callbacks,
+        closeCallCount: 0,
+        finishCallCount: 0,
+        close() {
+          this.closeCallCount += 1;
+          callbacks.onClosed();
+          return this.closeCallCount === 1;
+        },
+        finish() {
+          this.finishCallCount += 1;
+          callbacks.onFinishing();
+          return this.finishCallCount === 1;
+        },
+        start() {
+          callbacks.onConnecting();
+          return Promise.resolve(true);
+        },
+      };
+      sessions.push(session);
+      return session;
+    },
+  });
+
+  assert.equal(runtime.transcriptText.textContent, '您的话会写在这里。');
+  assert.equal(runtime.transcriptActions.hidden, true);
+  assert.equal(runtime.wishNextStep.hidden, true);
+  assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'false');
+
+  completeIncenseOffering(runtime);
+  runtime.speakControlButton.trigger('click');
+  await flushPromises();
+  sessions[0].callbacks.onStarted({ inputSampleRate: 48000 });
+  assert.equal(runtime.transcriptActions.hidden, true);
+  assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'true');
+
+  sessions[0].callbacks.onPartial('我最近');
+  sessions[0].callbacks.onPartial('我最近总担心');
+  sessions[0].callbacks.onPartial('我最近总担心');
+  sessions[0].callbacks.onPartial('');
+  assert.equal(runtime.transcriptText.textContent, '我最近总担心');
+  assert.equal(
+    runtime.transcriptStatus.textContent,
+    '道童正在代您记下……'
+  );
+  assert.equal(runtime.transcriptActions.hidden, true);
+
+  runtime.speakControlButton.trigger('click');
+  sessions[0].callbacks.onFinal('', true);
+  assert.equal(runtime.transcriptActions.hidden, true);
+  assert.equal(runtime.speechMessage.textContent, '正在整理您的话……');
+
+  sessions[0].callbacks.onFinal(
+    '我最近总担心孩子的工作。晚上有些睡不安稳。',
+    true
+  );
+  assert.equal(
+    runtime.transcriptText.textContent,
+    '我最近总担心孩子的工作。晚上有些睡不安稳。'
+  );
+  assert.equal(runtime.transcriptActions.hidden, false);
+  assert.equal(runtime.confirmTranscriptButton.disabled, false);
+  assert.equal(runtime.retryTranscriptButton.disabled, false);
+  assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'false');
+
+  runtime.confirmTranscriptButton.trigger('click');
+  assert.equal(runtime.speechTitle.textContent, '心愿已确认');
+  assert.equal(
+    runtime.speechMessage.textContent,
+    '心愿已确认，下一步将敬呈殿前。'
+  );
+  assert.equal(runtime.transcriptActions.hidden, true);
+  assert.equal(runtime.wishNextStep.hidden, false);
+  assert.equal(sessions[0].closeCallCount, 1);
+  const confirmedText = runtime.transcriptText.textContent;
+  sessions[0].callbacks.onPartial('迟到的旧 partial');
+  sessions[0].callbacks.onFinal('迟到的旧 final', true);
+  runtime.confirmTranscriptButton.trigger('click');
+  runtime.retryTranscriptButton.trigger('click');
+  assert.equal(runtime.transcriptText.textContent, confirmedText);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].closeCallCount, 1);
+
+  const retrySessions = [];
+  const retryRuntime = loadFortuneRuntime({
+    createSession(callbacks) {
+      const session = {
+        callbacks,
+        closeCallCount: 0,
+        close() {
+          this.closeCallCount += 1;
+          callbacks.onClosed();
+          return this.closeCallCount === 1;
+        },
+        finish() {
+          callbacks.onFinishing();
+          return true;
+        },
+        start() {
+          callbacks.onConnecting();
+          return Promise.resolve(true);
+        },
+      };
+      retrySessions.push(session);
+      return session;
+    },
+  });
+  completeIncenseOffering(retryRuntime);
+  retryRuntime.speakControlButton.trigger('click');
+  await flushPromises();
+  retrySessions[0].callbacks.onStarted({ inputSampleRate: 48000 });
+  retrySessions[0].callbacks.onPartial('旧心愿');
+  retryRuntime.speakControlButton.trigger('click');
+  retrySessions[0].callbacks.onFinal('旧心愿完整内容', true);
+  retryRuntime.retryTranscriptButton.trigger('click');
+  retryRuntime.retryTranscriptButton.trigger('click');
+  await flushPromises();
+
+  assert.equal(retrySessions.length, 2);
+  assert.equal(retrySessions[0].closeCallCount, 1);
+  assert.equal(retryRuntime.transcriptText.textContent, '您的话会写在这里。');
+  assert.equal(retryRuntime.transcriptActions.hidden, true);
+  retrySessions[0].callbacks.onPartial('旧会话迟到内容');
+  retrySessions[0].callbacks.onFinal('旧会话迟到 final', true);
+  assert.equal(retryRuntime.transcriptText.textContent, '您的话会写在这里。');
+  retrySessions[1].callbacks.onStarted({ inputSampleRate: 44100 });
+  retrySessions[1].callbacks.onPartial('新的心愿');
+  assert.equal(retryRuntime.transcriptText.textContent, '新的心愿');
+
+  retrySessions[1].callbacks.onError({
+    kind: 'asr',
+    message: '语音识别暂时不可用，请重新诉说。',
+  });
+  assert.equal(retryRuntime.transcriptText.textContent, '您的话会写在这里。');
+  assert.equal(retryRuntime.transcriptActions.hidden, true);
+  assert.equal(retryRuntime.wishNextStep.hidden, true);
+
+  const microphoneRetryRuntime = loadFortuneRuntime();
+  completeIncenseOffering(microphoneRetryRuntime);
+  microphoneRetryRuntime.speakControlButton.trigger('click');
+  await flushPromises();
+  microphoneRetryRuntime.speakControlButton.trigger('click');
+  assert.equal(microphoneRetryRuntime.transcriptActions.hidden, false);
+  microphoneRetryRuntime.retryTranscriptButton.trigger('click');
+  await flushPromises();
+  assert.equal(microphoneRetryRuntime.microphoneRequests.length, 2);
+  assert.equal(microphoneRetryRuntime.asrSessions.length, 2);
+  assert.equal(
+    microphoneRetryRuntime.asrSessions[0].closeCallCount,
+    1
+  );
 }
 
 async function verifyAsrErrorsTimeoutAndIdempotentClose() {
@@ -1431,6 +1653,7 @@ async function main() {
   await verifyStartProtocolAndRealSampleRate();
   await verifyTailFinishFinalAndCleanup();
   await verifyPartialFinalPreviewAndStaleRetry();
+  await verifyWishPaperConfirmationRetryAndErrors();
   await verifyAsrErrorsTimeoutAndIdempotentClose();
   await verifyModulePageExitAndFailureBoundaries();
 
@@ -1442,7 +1665,8 @@ async function main() {
       + 'pagehide-beforeunload,late-stream-cleanup,no-recording-upload,'
       + 'relay-url,start-started,real-sample-rate,resample-pcm16-le,'
       + 'binary-chunks,tail-before-finish,partial-final-preview,'
-      + 'final-timeout,asr-error,abnormal-close,stale-session\n'
+      + 'wish-paper-confirm-retry,final-timeout,asr-error,'
+      + 'abnormal-close,stale-session\n'
   );
 }
 

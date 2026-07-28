@@ -2081,13 +2081,25 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
+    /<section class="wish-paper" data-wish-paper[\s\S]*?道童代您写下/
+  );
+  assert.match(
+    fortuneHtml,
+    /<button class="wish-confirm-button" type="button" data-confirm-transcript>就是这个意思<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
+    /<button class="wish-retry-button" type="button" data-retry-transcript>重新说一遍<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
   assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);
   assert.doesNotMatch(fortuneHtml, /神仙亲自解签/);
   assert.doesNotMatch(
     fortuneHtml,
-    /<(?:input|textarea)\b|contenteditable=|抽签动画|签文结果/
+    /<(?:input|textarea)\b|contenteditable=|抽签动画|签文结果|语音识别预览/
   );
 
   assert.match(entryCss, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/);

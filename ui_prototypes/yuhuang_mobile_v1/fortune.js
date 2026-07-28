@@ -11,6 +11,7 @@
     SPEAKING: 'speaking',
     FINISHING_ASR: 'finishing-asr',
     TRANSCRIPT_READY: 'transcript-ready',
+    TRANSCRIPT_CONFIRMED: 'transcript-confirmed',
     MICROPHONE_ERROR: 'microphone-error',
     ASR_ERROR: 'asr-error',
     CLOSED: 'closed',
@@ -36,6 +37,19 @@
   const transcriptText = document.querySelector(
     '[data-transcript-text]'
   );
+  const wishPaper = document.querySelector('[data-wish-paper]');
+  const transcriptActions = document.querySelector(
+    '[data-transcript-actions]'
+  );
+  const confirmTranscriptButton = document.querySelector(
+    '[data-confirm-transcript]'
+  );
+  const retryTranscriptButton = document.querySelector(
+    '[data-retry-transcript]'
+  );
+  const wishNextStep = document.querySelector(
+    '[data-wish-next-step]'
+  );
 
   if (
     !page
@@ -49,6 +63,11 @@
     || !speakControlButton
     || !transcriptStatus
     || !transcriptText
+    || !wishPaper
+    || !transcriptActions
+    || !confirmTranscriptButton
+    || !retryTranscriptButton
+    || !wishNextStep
   ) {
     return;
   }
@@ -65,13 +84,26 @@
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
+  function setWishPaperBusy(isBusy) {
+    wishPaper.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+  }
+
+  function hideTranscriptActions() {
+    transcriptActions.hidden = true;
+    confirmTranscriptButton.disabled = true;
+    retryTranscriptButton.disabled = true;
+  }
+
   function renderSpeechState() {
     page.classList.remove(
       'is-listening',
       'has-microphone-error',
-      'has-asr-error'
+      'has-asr-error',
+      'has-confirmed-wish'
     );
     speakControlButton.hidden = false;
+    hideTranscriptActions();
+    wishNextStep.hidden = true;
 
     if (interactionState === INTERACTION_STATES.WAITING_TO_SPEAK) {
       speechTitle.textContent = '等待诉说';
@@ -81,6 +113,7 @@
         '语音只用于当前识别，不会录制为音频文件。';
       speakControlButton.textContent = '开始诉说';
       speakControlButton.disabled = false;
+      setWishPaperBusy(false);
       return;
     }
 
@@ -93,6 +126,7 @@
         '授权后将连接语音识别服务。';
       speakControlButton.textContent = '正在打开麦克风……';
       speakControlButton.disabled = true;
+      setWishPaperBusy(false);
       return;
     }
 
@@ -103,6 +137,8 @@
         '连接完成后再开始诉说，以免遗漏开头。';
       speakControlButton.textContent = '正在准备……';
       speakControlButton.disabled = true;
+      transcriptStatus.textContent = '准备代您记录';
+      setWishPaperBusy(true);
       return;
     }
 
@@ -114,6 +150,10 @@
         '语音正用于实时识别，不会录制为音频文件。';
       speakControlButton.textContent = '我说完了';
       speakControlButton.disabled = false;
+      if (currentTranscript === '') {
+        transcriptStatus.textContent = '道童正在代您记下……';
+      }
+      setWishPaperBusy(true);
       return;
     }
 
@@ -123,6 +163,8 @@
       speechDetail.textContent = '请稍候，正在等待最终识别结果。';
       speakControlButton.textContent = '正在识别……';
       speakControlButton.disabled = true;
+      transcriptStatus.textContent = '正在整理您的话……';
+      setWishPaperBusy(true);
       return;
     }
 
@@ -130,30 +172,61 @@
       speechTitle.textContent = '识别完成';
       speechMessage.textContent = '识别完成';
       speechDetail.textContent =
-        '识别文字仅保留在当前页面的预览区域。';
+        '这些话仅保留在当前页面，请确认是否准确。';
       speakControlButton.textContent = '识别完成';
       speakControlButton.disabled = true;
       speakControlButton.hidden = true;
+      transcriptStatus.textContent = '这些话，正是您想说的吗？';
+      setWishPaperBusy(false);
+      transcriptActions.hidden = false;
+      confirmTranscriptButton.disabled = false;
+      retryTranscriptButton.disabled = false;
+      return;
+    }
+
+    if (
+      interactionState === INTERACTION_STATES.TRANSCRIPT_CONFIRMED
+    ) {
+      page.classList.add('has-confirmed-wish');
+      speechTitle.textContent = '心愿已确认';
+      speechMessage.textContent =
+        '心愿已确认，下一步将敬呈殿前。';
+      speechDetail.textContent = '这些话仅保留在当前页面。';
+      speakControlButton.textContent = '心愿已确认';
+      speakControlButton.disabled = true;
+      speakControlButton.hidden = true;
+      transcriptStatus.textContent = '心愿已确认';
+      setWishPaperBusy(false);
+      wishNextStep.hidden = false;
     }
   }
 
-  function resetTranscriptPreview() {
+  function resetWishPaper() {
     currentTranscript = '';
     transcriptIsFinal = false;
-    transcriptStatus.textContent = '等待开始';
-    transcriptText.textContent = '您的话会在这里显示。';
+    transcriptStatus.textContent = '等待诉说';
+    transcriptText.textContent = '您的话会写在这里。';
+    setWishPaperBusy(false);
+    hideTranscriptActions();
+    wishNextStep.hidden = true;
+    page.classList.remove('has-confirmed-wish');
   }
 
-  function updateTranscriptPreview(text, isFinal) {
+  function updateWishPaper(text, isFinal) {
     if (typeof text !== 'string' || text.trim() === '') {
-      return;
+      return false;
+    }
+    if (!isFinal && text === currentTranscript) {
+      return false;
     }
     currentTranscript = text;
     transcriptIsFinal = isFinal;
     transcriptStatus.textContent = isFinal
-      ? '识别完成'
-      : '正在识别';
+      ? '这些话，正是您想说的吗？'
+      : '道童正在代您记下……';
     transcriptText.textContent = text;
+    setWishPaperBusy(!isFinal);
+    return true;
   }
 
   function renderInteractionError(kind, message) {
@@ -179,6 +252,9 @@
     speakControlButton.textContent = '重新诉说';
     speakControlButton.disabled = false;
     speakControlButton.hidden = false;
+    setWishPaperBusy(false);
+    hideTranscriptActions();
+    wishNextStep.hidden = true;
   }
 
   function completeIncenseOffering() {
@@ -242,7 +318,7 @@
     }
 
     closeActiveAsrSession();
-    resetTranscriptPreview();
+    resetWishPaper();
     interactionState = INTERACTION_STATES.REQUESTING_MICROPHONE;
     renderSpeechState();
     const generation = ++sessionGeneration;
@@ -270,17 +346,29 @@
         renderSpeechState();
       },
       onPartial(text) {
-        if (!isCurrentSession()) {
+        if (
+          !isCurrentSession()
+          || (
+            interactionState !== INTERACTION_STATES.SPEAKING
+            && interactionState !== INTERACTION_STATES.FINISHING_ASR
+          )
+        ) {
           return;
         }
-        updateTranscriptPreview(text, false);
+        updateWishPaper(text, false);
       },
       onFinal(text, completesSession) {
-        if (!isCurrentSession()) {
+        if (
+          !isCurrentSession()
+          || (
+            interactionState !== INTERACTION_STATES.SPEAKING
+            && interactionState !== INTERACTION_STATES.FINISHING_ASR
+          )
+        ) {
           return;
         }
-        updateTranscriptPreview(text, true);
-        if (completesSession) {
+        const finalUpdated = updateWishPaper(text, true);
+        if (completesSession && finalUpdated) {
           interactionState = INTERACTION_STATES.TRANSCRIPT_READY;
           renderSpeechState();
         }
@@ -307,6 +395,7 @@
           return;
         }
         activeAsrSession = null;
+        resetWishPaper();
         const microphoneError = error.kind === 'microphone';
         const workletError = error.kind === 'worklet';
         interactionState = microphoneError
@@ -336,6 +425,7 @@
         return;
       }
       activeAsrSession = null;
+      resetWishPaper();
       interactionState = INTERACTION_STATES.ASR_ERROR;
       renderInteractionError(
         'asr',
@@ -368,6 +458,26 @@
     }
   }
 
+  function handleTranscriptConfirm() {
+    if (
+      interactionState !== INTERACTION_STATES.TRANSCRIPT_READY
+      || !transcriptIsFinal
+      || currentTranscript.trim() === ''
+    ) {
+      return;
+    }
+    interactionState = INTERACTION_STATES.TRANSCRIPT_CONFIRMED;
+    closeActiveAsrSession();
+    renderSpeechState();
+  }
+
+  function handleTranscriptRetry() {
+    if (interactionState !== INTERACTION_STATES.TRANSCRIPT_READY) {
+      return;
+    }
+    startSpeakingSession();
+  }
+
   function handlePageExit() {
     pageIsActive = false;
     sessionGeneration += 1;
@@ -378,6 +488,7 @@
       || interactionState === INTERACTION_STATES.SPEAKING
       || interactionState === INTERACTION_STATES.FINISHING_ASR
       || interactionState === INTERACTION_STATES.TRANSCRIPT_READY
+      || interactionState === INTERACTION_STATES.TRANSCRIPT_CONFIRMED
       || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
       || interactionState === INTERACTION_STATES.ASR_ERROR
     ) {
@@ -388,7 +499,7 @@
   function handlePageShow() {
     pageIsActive = true;
     if (interactionState === INTERACTION_STATES.WAITING_TO_SPEAK) {
-      resetTranscriptPreview();
+      resetWishPaper();
       renderSpeechState();
     }
   }
@@ -398,6 +509,14 @@
     handleIncenseOffering
   );
   speakControlButton.addEventListener('click', handleSpeakControl);
+  confirmTranscriptButton.addEventListener(
+    'click',
+    handleTranscriptConfirm
+  );
+  retryTranscriptButton.addEventListener(
+    'click',
+    handleTranscriptRetry
+  );
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
   window.addEventListener('pageshow', handlePageShow);
