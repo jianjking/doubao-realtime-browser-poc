@@ -9,6 +9,9 @@ const { createRequireSession } = require('./middleware/require_session');
 const { createAccountRouter } = require('./routes/account_routes');
 const { createAuthRouter } = require('./routes/auth_routes');
 const { createCallRouter } = require('./routes/call_routes');
+const {
+  createDevRechargeRouter,
+} = require('./routes/dev_recharge_routes');
 const { healthRouter } = require('./routes/health_routes');
 const {
   createInternalCallRouter,
@@ -106,6 +109,13 @@ function createApp(options = {}) {
     maskChineseMobile,
     accountService,
   }));
+  if (options.enableDevRecharge === true) {
+    app.use('/api', createDevRechargeRouter({
+      requireSession,
+      userStore,
+      accountService,
+    }));
+  }
   app.use('/api', createCallRouter({
     requireSession,
     userStore,
@@ -118,14 +128,22 @@ function createApp(options = {}) {
         request.method === 'POST'
         && request.path === '/api/calls'
       );
+      const isDevRechargeRequest = (
+        request.method === 'POST'
+        && request.path === '/api/dev/recharge'
+      );
       response.status(400).json({
         error: {
           code: isCallRequest
             ? 'INVALID_CALL_REQUEST'
-            : 'INVALID_LOGIN_REQUEST',
+            : isDevRechargeRequest
+              ? 'INVALID_RECHARGE_AMOUNT'
+              : 'INVALID_LOGIN_REQUEST',
           message: isCallRequest
             ? 'A valid roleSlug is required'
-            : 'Phone and verification code are required',
+            : isDevRechargeRequest
+              ? 'A valid recharge amount is required'
+              : 'Phone and verification code are required',
         },
       });
       return;

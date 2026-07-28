@@ -7,6 +7,14 @@ const { createApp } = require('./app');
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3002;
 
+function isDevRechargeEnabled(env = process.env) {
+  if (!env || typeof env !== 'object' || Array.isArray(env)) {
+    throw new TypeError('env must be an object');
+  }
+  return env.BUSINESS_ENABLE_DEV_RECHARGE === '1'
+    && env.NODE_ENV !== 'production';
+}
+
 function parsePort(rawPort) {
   if (typeof rawPort !== 'string' || !/^\d+$/.test(rawPort)) {
     throw new Error(
@@ -34,6 +42,7 @@ function startServer() {
     : process.env.BUSINESS_BACKEND_PORT;
   const port = parsePort(rawPort);
   const app = createApp({
+    enableDevRecharge: isDevRechargeEnabled(process.env),
     internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
     mobileUiDirectory: path.resolve(
       __dirname,
@@ -61,6 +70,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  isDevRechargeEnabled,
   parsePort,
   startServer,
 };

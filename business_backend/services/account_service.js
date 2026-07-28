@@ -2,6 +2,7 @@
 
 const DEFAULT_INITIAL_BALANCE_CENTS = 1250;
 const DEFAULT_INITIAL_REMAINING_SECONDS = 0;
+const MAX_DEV_RECHARGE_AMOUNT_CENTS = 100000;
 
 function validateInitialValue(value, name) {
   if (!Number.isSafeInteger(value) || value < 0) {
@@ -20,6 +21,14 @@ function createAccountUnavailableError() {
   error.statusCode = 409;
   error.code = 'ACCOUNT_UNAVAILABLE';
   error.publicMessage = 'User account is unavailable';
+  return error;
+}
+
+function createInvalidRechargeAmountError() {
+  const error = new Error('A valid recharge amount is required');
+  error.statusCode = 400;
+  error.code = 'INVALID_RECHARGE_AMOUNT';
+  error.publicMessage = 'A valid recharge amount is required';
   return error;
 }
 
@@ -106,7 +115,36 @@ function createAccountService({
     return getPublicAccountForUser(userId);
   }
 
+  function creditBalanceCentsForUser(userId, amountCents) {
+    validateUserId(userId);
+    if (
+      !Number.isSafeInteger(amountCents)
+      || amountCents < 1
+      || amountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS
+    ) {
+      throw createInvalidRechargeAmountError();
+    }
+
+    const account = accountStore.findByUserId(userId);
+    if (!account || account.status !== 'active') {
+      throw createAccountUnavailableError();
+    }
+
+    const balanceCents = account.balanceCents + amountCents;
+    if (!Number.isSafeInteger(balanceCents)) {
+      throw createInvalidRechargeAmountError();
+    }
+
+    accountStore.replace({
+      ...account,
+      balanceCents,
+      updatedAt: new Date(clock()).toISOString(),
+    });
+    return getPublicAccountForUser(userId);
+  }
+
   return {
+    creditBalanceCentsForUser,
     debitBalanceCentsForUser,
     ensureAccountForUser,
     getPublicAccountForUser,
@@ -114,5 +152,6 @@ function createAccountService({
 }
 
 module.exports = {
+  MAX_DEV_RECHARGE_AMOUNT_CENTS,
   createAccountService,
 };

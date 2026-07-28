@@ -5,10 +5,12 @@
   const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
   const ACCOUNT_API_URL = '/api/me';
   const CALL_API_URL = '/api/calls';
+  const DEV_RECHARGE_API_URL = '/api/dev/recharge';
+  const MAX_DEV_RECHARGE_AMOUNT_CENTS = 100000;
   const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
   const PENDING_ACTION_STORAGE_KEY = 'companion_pending_action_v1';
   const TOAST_DURATION_MS = 3200;
-  const CUSTOM_AMOUNT_RANGE_ERROR = '请输入1至999元之间的金额';
+  const CUSTOM_AMOUNT_RANGE_ERROR = '请输入0.01至1000元之间的金额';
   const CUSTOM_AMOUNT_PRECISION_ERROR = '充值金额最多保留两位小数';
   const CUSTOM_AMOUNT_SUMMARY_ERROR = '请输入有效的充值金额';
   const SWIPE_MIN_DISTANCE_PX = 40;
@@ -178,7 +180,7 @@
   let swipeStartX = 0;
   let swipeStartY = 0;
   let selectedAmountMode = 'preset';
-  let selectedRechargeAmount = 10;
+  let selectedRechargeAmountCents = 1000;
   let selectedRechargeAmountDisplay = '10';
   let selectedPaymentMethod = 'wechat';
   let selectedPaymentName = '微信支付';
@@ -189,6 +191,7 @@
   let hasSeenInitialPageShow = false;
   let currentAuthState = null;
   let isStartingCall = false;
+  let isSubmittingRecharge = false;
 
   const homeTitle = document.querySelector('.top-controls h1');
   const sceneImage = document.querySelector('.scene-image');
@@ -960,11 +963,24 @@
     rechargeResult.textContent = '';
   }
 
+  function formatRechargeAmountCents(amountCents) {
+    if (!Number.isSafeInteger(amountCents) || amountCents < 1) {
+      return '';
+    }
+    const yuan = Math.floor(amountCents / 100);
+    const cents = amountCents % 100;
+    if (cents === 0) {
+      return String(yuan);
+    }
+    return `${yuan}.${String(cents).padStart(2, '0')}`
+      .replace(/0$/, '');
+  }
+
   function parseCustomRechargeAmount(rawValue) {
     const normalizedValue = String(rawValue).trim();
     if (/^\d+\.\d{3,}$/.test(normalizedValue)) {
       return {
-        amount: null,
+        amountCents: null,
         displayAmount: '',
         errorMessage: CUSTOM_AMOUNT_PRECISION_ERROR,
       };
@@ -973,27 +989,31 @@
     const formatMatch = normalizedValue.match(/^(\d+)(?:\.(\d{1,2}))?$/);
     if (!formatMatch) {
       return {
-        amount: null,
+        amountCents: null,
         displayAmount: '',
         errorMessage: CUSTOM_AMOUNT_RANGE_ERROR,
       };
     }
 
-    const amount = Number(normalizedValue);
-    if (!Number.isFinite(amount) || amount < 1 || amount > 999) {
+    const yuan = Number(formatMatch[1]);
+    const centDigits = (formatMatch[2] || '').padEnd(2, '0');
+    const cents = centDigits === '' ? 0 : Number(centDigits);
+    const amountCents = (yuan * 100) + cents;
+    if (
+      !Number.isSafeInteger(amountCents)
+      || amountCents < 1
+      || amountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS
+    ) {
       return {
-        amount: null,
+        amountCents: null,
         displayAmount: '',
         errorMessage: CUSTOM_AMOUNT_RANGE_ERROR,
       };
     }
 
-    const decimalPlaces = formatMatch[2] ? formatMatch[2].length : 0;
     return {
-      amount,
-      displayAmount: decimalPlaces > 0
-        ? amount.toFixed(decimalPlaces)
-        : String(amount),
+      amountCents,
+      displayAmount: formatRechargeAmountCents(amountCents),
       errorMessage: '',
     };
   }
@@ -1020,13 +1040,13 @@
     if (!rechargeSelectionSummary) {
       return;
     }
-    rechargeSelectionSummary.textContent = Number.isFinite(
-      selectedRechargeAmount
-    ) && selectedRechargeAmount >= 1
-      && selectedRechargeAmount <= 999
+    rechargeSelectionSummary.textContent = Number.isSafeInteger(
+      selectedRechargeAmountCents
+    ) && selectedRechargeAmountCents >= 1
+      && selectedRechargeAmountCents <= MAX_DEV_RECHARGE_AMOUNT_CENTS
       && selectedRechargeAmountDisplay
       && selectedPaymentName
-      ? `本次充值：${selectedRechargeAmountDisplay}元 · ${selectedPaymentName}（演示）`
+      ? `本次模拟充值：${selectedRechargeAmountDisplay}元 · ${selectedPaymentName}（仅界面演示）`
       : CUSTOM_AMOUNT_SUMMARY_ERROR;
   }
 
@@ -1054,8 +1074,8 @@
         ? parseCustomRechargeAmount(customAmountInput.value)
         : parseCustomRechargeAmount('');
       const isValidAmount = !parsedAmount.errorMessage;
-      selectedRechargeAmount = isValidAmount
-        ? parsedAmount.amount
+      selectedRechargeAmountCents = isValidAmount
+        ? parsedAmount.amountCents
         : null;
       selectedRechargeAmountDisplay = isValidAmount
         ? parsedAmount.displayAmount
@@ -1069,15 +1089,20 @@
       return;
     }
 
-    const amount = Number(selectedButton.dataset.packageValue);
-    if (!Number.isFinite(amount) || amount < 1 || amount > 999) {
+    const amountCents = Number(selectedButton.dataset.packageCents);
+    if (
+      !Number.isSafeInteger(amountCents)
+      || amountCents < 1
+      || amountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS
+    ) {
       showToast('请选择有效的充值金额。');
       return;
     }
 
     selectedAmountMode = 'preset';
-    selectedRechargeAmount = amount;
-    selectedRechargeAmountDisplay = String(amount);
+    selectedRechargeAmountCents = amountCents;
+    selectedRechargeAmountDisplay =
+      formatRechargeAmountCents(amountCents);
     if (customAmountField) {
       customAmountField.hidden = true;
     }
@@ -1095,8 +1120,8 @@
       customAmountInput.value
     );
     const isValidAmount = !parsedAmount.errorMessage;
-    selectedRechargeAmount = isValidAmount
-      ? parsedAmount.amount
+    selectedRechargeAmountCents = isValidAmount
+      ? parsedAmount.amountCents
       : null;
     selectedRechargeAmountDisplay = isValidAmount
       ? parsedAmount.displayAmount
@@ -1130,7 +1155,28 @@
     updateRechargeSelectionSummary();
   }
 
-  function handleRechargeConfirmation() {
+  function setSubmittingRecharge(submitting) {
+    isSubmittingRecharge = submitting;
+    if (rechargeConfirmButton) {
+      rechargeConfirmButton.disabled = submitting;
+      rechargeConfirmButton.textContent = submitting
+        ? '正在模拟充值…'
+        : '模拟充值';
+    }
+  }
+
+  function showRechargeResult(message) {
+    if (rechargeResult) {
+      rechargeResult.textContent = message;
+      rechargeResult.hidden = false;
+    }
+    showToast(message);
+  }
+
+  async function handleRechargeConfirmation() {
+    if (isSubmittingRecharge) {
+      return false;
+    }
     const authState = getValidatedAuthState();
     if (!authState) {
       closeOverlay(rechargePanel, false);
@@ -1148,7 +1194,7 @@
         ? parseCustomRechargeAmount(customAmountInput.value)
         : parseCustomRechargeAmount('');
       if (parsedAmount.errorMessage) {
-        selectedRechargeAmount = null;
+        selectedRechargeAmountCents = null;
         selectedRechargeAmountDisplay = '';
         renderCustomAmountError(parsedAmount.errorMessage);
         updateRechargeSelectionSummary();
@@ -1158,28 +1204,84 @@
         }
         return false;
       }
-      selectedRechargeAmount = parsedAmount.amount;
+      selectedRechargeAmountCents = parsedAmount.amountCents;
       selectedRechargeAmountDisplay = parsedAmount.displayAmount;
       renderCustomAmountError();
     }
 
-    if (!Number.isFinite(selectedRechargeAmount)
-      || selectedRechargeAmount < 1
-      || selectedRechargeAmount > 999) {
+    if (!Number.isSafeInteger(selectedRechargeAmountCents)
+      || selectedRechargeAmountCents < 1
+      || selectedRechargeAmountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS) {
       showToast(CUSTOM_AMOUNT_RANGE_ERROR);
       return false;
     }
-    if (!selectedPaymentMethod || !selectedPaymentName) {
-      showToast('请先选择支付方式。');
-      return false;
-    }
 
-    if (rechargeResult) {
-      rechargeResult.textContent = '充值功能尚未接入，当前不会产生真实扣款或增加话费。';
-      rechargeResult.hidden = false;
+    clearRechargeResult();
+    setSubmittingRecharge(true);
+    try {
+      if (typeof window.fetch !== 'function') {
+        throw new TypeError('fetch is unavailable');
+      }
+      const response = await window.fetch(DEV_RECHARGE_API_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amountCents: selectedRechargeAmountCents,
+        }),
+      });
+      const responseBody = await readJsonResponse(response);
+      const errorCode = responseBody
+        && responseBody.error
+        && responseBody.error.code;
+
+      if (response.status === 401 || response.status === 403) {
+        handleExpiredSession();
+        openRechargeLoginPrompt(rechargeEntry);
+        showToast('登录状态已失效，请重新登录');
+        return false;
+      }
+      if (response.status === 404) {
+        showRechargeResult('当前未开启模拟充值');
+        return false;
+      }
+      if (
+        response.status === 400
+        && errorCode === 'INVALID_RECHARGE_AMOUNT'
+      ) {
+        showRechargeResult('请输入有效的充值金额');
+        return false;
+      }
+      if (errorCode === 'ACCOUNT_UNAVAILABLE') {
+        showRechargeResult('账户暂不可用，请稍后重试');
+        return false;
+      }
+
+      const account = responseBody && responseBody.account;
+      if (
+        !response.ok
+        || !account
+        || account.currency !== 'CNY'
+        || !Number.isSafeInteger(account.balanceCents)
+        || !Number.isSafeInteger(account.remainingSeconds)
+        || account.remainingSeconds < 0
+      ) {
+        showRechargeResult('模拟充值暂时失败，请稍后重试');
+        return false;
+      }
+
+      accountLoadRequestId += 1;
+      setAccountBalanceState('ready', account.balanceCents);
+      showRechargeResult('模拟充值成功，未发生真实支付');
+      return true;
+    } catch {
+      showRechargeResult('模拟充值暂时失败，请稍后重试');
+      return false;
+    } finally {
+      setSubmittingRecharge(false);
     }
-    showToast('充值功能尚未接入，当前不会产生真实扣款。');
-    return true;
   }
 
   function handleAuxiliaryAction(event) {

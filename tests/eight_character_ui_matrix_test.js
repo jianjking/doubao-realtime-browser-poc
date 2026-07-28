@@ -330,6 +330,7 @@ function loadHomeRuntime(options = {}) {
   const rechargeEntry = new FakeElement();
   const rechargeResult = new FakeElement();
   const rechargeSelectionSummary = new FakeElement();
+  const rechargeConfirmButton = new FakeElement();
   const customAmountField = new FakeElement();
   const customAmountInput = new FakeElement();
   const customAmountError = new FakeElement();
@@ -353,6 +354,21 @@ function loadHomeRuntime(options = {}) {
             account: {
               currency: 'CNY',
               balanceCents: 1250,
+              remainingSeconds: 0,
+            },
+          };
+        },
+      };
+    }
+    if (pathname === '/api/dev/recharge') {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            account: {
+              currency: 'CNY',
+              balanceCents: 2250,
               remainingSeconds: 0,
             },
           };
@@ -414,6 +430,7 @@ function loadHomeRuntime(options = {}) {
         '.custom-amount-input': customAmountInput,
         '.recharge-login-overlay': rechargeLoginOverlay,
         '.recharge-panel': rechargePanel,
+        '.recharge-confirm': rechargeConfirmButton,
         '.recharge-result': rechargeResult,
         '.recharge-selection-summary': rechargeSelectionSummary,
         '.time-recharge-entry': rechargeEntry,
@@ -1445,7 +1462,7 @@ async function verifyAuthGateAndRechargeRegression() {
     },
   });
   assert.equal(guestRuntime.test.getAccountBalanceCents(), null);
-  assert.equal(guestRuntime.test.handleRechargeConfirmation(), false);
+  assert.equal(await guestRuntime.test.handleRechargeConfirmation(), false);
   assert.equal(guestRuntime.test.getAccountBalanceCents(), null);
   assert.equal(
     guestRuntime.test.getActiveOverlay(),
@@ -1460,17 +1477,17 @@ async function verifyAuthGateAndRechargeRegression() {
   });
   await phoneRuntime.test.loadAccountState();
   assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
-  assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
+  assert.equal(await phoneRuntime.test.handleRechargeConfirmation(), true);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 2250);
 
   const twentyYuan = new FakeElement();
   twentyYuan.dataset.packageMode = 'preset';
-  twentyYuan.dataset.packageValue = '20';
+  twentyYuan.dataset.packageCents = '2000';
   phoneRuntime.test.handlePackageSelection({
     currentTarget: twentyYuan,
   });
-  assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
+  assert.equal(await phoneRuntime.test.handleRechargeConfirmation(), true);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 2250);
 
   const customAmount = new FakeElement();
   customAmount.dataset.packageMode = 'custom';
@@ -1478,8 +1495,8 @@ async function verifyAuthGateAndRechargeRegression() {
   phoneRuntime.test.handlePackageSelection({
     currentTarget: customAmount,
   });
-  assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
+  assert.equal(await phoneRuntime.test.handleRechargeConfirmation(), true);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 2250);
 
   const alipay = new FakeElement();
   alipay.dataset.paymentMethod = 'alipay';
@@ -1487,8 +1504,8 @@ async function verifyAuthGateAndRechargeRegression() {
   phoneRuntime.test.handlePaymentSelection({
     currentTarget: alipay,
   });
-  assert.equal(phoneRuntime.test.handleRechargeConfirmation(), true);
-  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 1250);
+  assert.equal(await phoneRuntime.test.handleRechargeConfirmation(), true);
+  assert.equal(phoneRuntime.test.getAccountBalanceCents(), 2250);
 
   const refreshedRuntime = loadHomeRuntime({
     storageEntries: {
@@ -1568,9 +1585,9 @@ function verifyStaticSafetyAndCurrentUi() {
   assert.match(homeHtml, /class="recharge-login-overlay prototype-overlay"/);
   assert.doesNotMatch(homeJs, /prototypeCreditBalance|12\.50;/);
   assert.match(homeJs, /let accountBalanceCents = null;/);
-  assert.match(homeHtml, /data-package-value="10"/);
-  assert.match(homeHtml, /data-package-value="20"/);
-  assert.match(homeHtml, /data-package-value="50"/);
+  assert.match(homeHtml, /data-package-cents="1000"/);
+  assert.match(homeHtml, /data-package-cents="2000"/);
+  assert.match(homeHtml, /data-package-cents="5000"/);
   assert.match(homeHtml, /data-package-mode="custom"/);
   assert.match(homeHtml, /data-payment-method="wechat"/);
   assert.match(homeHtml, /data-payment-method="alipay"/);

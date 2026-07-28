@@ -123,8 +123,8 @@
       <div class="overlay-card">
         <header class="overlay-header">
           <div>
-            <h2 id="recharge-panel-title">话费充值</h2>
-            <p>选择充值金额和支付方式</p>
+            <h2 id="recharge-panel-title">开发态模拟充值</h2>
+            <p>仅用于本地开发演示，不会发生真实支付</p>
           </div>
           <button class="overlay-close" type="button" aria-label="关闭话费充值" data-close-overlay>关闭</button>
         </header>
@@ -140,24 +140,24 @@
           <section class="recharge-amounts" aria-labelledby="recharge-amounts-title">
             <h3 id="recharge-amounts-title">充值金额</h3>
             <div class="package-grid" aria-label="选择充值金额">
-              <button class="package-option is-selected" type="button" data-package-mode="preset" data-package-amount="10元" data-package-value="10" aria-pressed="true">
+              <button class="package-option is-selected" type="button" data-package-mode="preset" data-package-amount="10元" data-package-cents="1000" aria-pressed="true">
                 <strong>10元</strong>
                 <span>约30分钟</span>
                 <small class="selection-status">已选</small>
               </button>
-              <button class="package-option" type="button" data-package-mode="preset" data-package-amount="20元" data-package-value="20" aria-pressed="false">
+              <button class="package-option" type="button" data-package-mode="preset" data-package-amount="20元" data-package-cents="2000" aria-pressed="false">
                 <strong>20元</strong>
                 <span>约70分钟</span>
                 <small class="selection-status">选择</small>
               </button>
-              <button class="package-option" type="button" data-package-mode="preset" data-package-amount="50元" data-package-value="50" aria-pressed="false">
+              <button class="package-option" type="button" data-package-mode="preset" data-package-amount="50元" data-package-cents="5000" aria-pressed="false">
                 <strong>50元</strong>
                 <span>约200分钟</span>
                 <small class="selection-status">选择</small>
               </button>
               <button class="package-option custom-amount-option" type="button" data-package-mode="custom" aria-pressed="false" aria-controls="custom-amount-field">
                 <strong>任意金额</strong>
-                <span>1至999元</span>
+                <span>0.01至1000元</span>
                 <small class="selection-status">选择</small>
               </button>
             </div>
@@ -169,23 +169,23 @@
                   class="custom-amount-input"
                   id="custom-amount-input"
                   type="number"
-                  min="1"
-                  max="999"
+                  min="0.01"
+                  max="1000"
                   step="0.01"
                   required
                   inputmode="decimal"
-                  placeholder="1至999元"
+                  placeholder="0.01至1000元"
                   aria-describedby="custom-amount-help custom-amount-error">
               </div>
-              <p id="custom-amount-help">最低1元，最高999元，最多两位小数</p>
-              <p class="custom-amount-error" id="custom-amount-error" role="alert" hidden>请输入1至999元之间的金额</p>
+              <p id="custom-amount-help">最低0.01元，最高1000元，最多两位小数</p>
+              <p class="custom-amount-error" id="custom-amount-error" role="alert" hidden>请输入0.01至1000元之间的金额</p>
             </div>
           </section>
 
           <p class="package-note">实际可用时长以充值页面说明为准</p>
 
           <section class="payment-methods" aria-labelledby="payment-methods-title">
-            <h3 id="payment-methods-title">支付方式</h3>
+            <h3 id="payment-methods-title">支付方式界面演示</h3>
             <div class="payment-options" role="radiogroup" aria-label="选择支付方式">
               <button class="payment-option is-selected" type="button" role="radio" aria-checked="true" data-payment-method="wechat" data-payment-name="微信支付">
                 <img class="payment-icon" src="./assets/payment/wechat-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
@@ -198,15 +198,15 @@
                 <small class="selection-status">选择</small>
               </button>
             </div>
-            <p class="payment-demo-note">当前为支付功能演示，不会产生真实扣款</p>
+            <p class="payment-demo-note">支付方式仅为界面演示，当前未接真实支付</p>
           </section>
         </div>
 
         <div class="recharge-actions">
           <p class="recharge-selection-summary" aria-live="polite">
-            本次充值：10元 · 微信支付（演示）
+            本次模拟充值：10元 · 微信支付（仅界面演示）
           </p>
-          <button class="recharge-confirm" type="button">立即充值</button>
+          <button class="recharge-confirm" type="button">模拟充值</button>
           <p class="recharge-result" role="status" aria-live="polite" aria-atomic="true" hidden></p>
         </div>
       </div>

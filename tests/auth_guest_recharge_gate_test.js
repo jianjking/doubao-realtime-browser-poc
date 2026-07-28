@@ -335,12 +335,18 @@ function loadHomeRuntime(options = {}) {
       getCurrentCharacterKey: () => currentCharacterKey,
       getIsStartingCall: () => isStartingCall,
       getValidatedAuthState,
+      handleCustomAmountInput,
+      handlePackageSelection,
+      handlePaymentSelection,
       handleRechargeConfirmation,
       handleStartConversation,
       isPhoneAuthenticated,
       loadAccountState,
       openAccountProfile,
+      parseCustomRechargeAmount,
       selectCharacter,
+      getIsSubmittingRecharge: () => isSubmittingRecharge,
+      getSelectedRechargeAmountCents: () => selectedRechargeAmountCents,
     };`
   );
 
@@ -359,6 +365,7 @@ function loadHomeRuntime(options = {}) {
   const profileMainAction = make();
   const rechargeResult = make();
   const rechargeSelectionSummary = make();
+  const rechargeConfirmButton = make();
   const customAmountField = make();
   const customAmountInput = make();
   const customAmountError = make();
@@ -380,6 +387,8 @@ function loadHomeRuntime(options = {}) {
   const confirmLogout = make();
   const cancelLogout = make();
   const creditDisplay = make();
+  const packageButtons = options.packageButtons || [];
+  const paymentButtons = options.paymentButtons || [];
 
   const overlays = [
     rechargePanel,
@@ -423,7 +432,7 @@ function loadHomeRuntime(options = {}) {
     ['.call-button-label', callButtonLabel],
     ['[data-call-action-label]', callActionLabel],
     ['.recharge-selection-summary', rechargeSelectionSummary],
-    ['.recharge-confirm', make()],
+    ['.recharge-confirm', rechargeConfirmButton],
     ['.recharge-result', rechargeResult],
     ['.custom-amount-field', customAmountField],
     ['.custom-amount-input', customAmountInput],
@@ -440,8 +449,8 @@ function loadHomeRuntime(options = {}) {
   const selectorAllMap = new Map([
     ['.prototype-overlay', overlays],
     ['[data-close-overlay]', closeButtons],
-    ['.package-option', []],
-    ['.payment-option', []],
+    ['.package-option', packageButtons],
+    ['.payment-option', paymentButtons],
     ['.side-action[data-action]', []],
     ['[data-current-credit]', [creditDisplay]],
   ]);
@@ -461,6 +470,21 @@ function loadHomeRuntime(options = {}) {
             account: {
               currency: 'CNY',
               balanceCents: 1250,
+              remainingSeconds: 0,
+            },
+          };
+        },
+      };
+    }
+    if (pathname === '/api/dev/recharge') {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            account: {
+              currency: 'CNY',
+              balanceCents: 2250,
               remainingSeconds: 0,
             },
           };
@@ -567,8 +591,14 @@ function loadHomeRuntime(options = {}) {
     profileStatus,
     profileVip,
     rechargeEntry,
+    rechargeConfirmButton,
     rechargeLoginOverlay,
     rechargePanel,
+    rechargeResult,
+    rechargeSelectionSummary,
+    customAmountField,
+    customAmountInput,
+    customAmountError,
     toast,
     creditDisplay,
     test: context.__homeTest,
@@ -743,7 +773,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   guest.rechargeEntry.click();
   assert.equal(guest.rechargePanel.hidden, true);
   assert.equal(guest.rechargeLoginOverlay.hidden, false);
-  assert.equal(guest.test.handleRechargeConfirmation(), false);
+  assert.equal(await guest.test.handleRechargeConfirmation(), false);
   assert.equal(guest.test.getAccountBalanceCents(), null);
 
   guest.test.closeActiveOverlay();
@@ -789,8 +819,8 @@ async function verifyHomeGuardRechargeAndAccount() {
   phone.rechargeEntry.click();
   assert.equal(phone.rechargePanel.hidden, false);
   assert.equal(phone.rechargeLoginOverlay.hidden, true);
-  assert.equal(phone.test.handleRechargeConfirmation(), true);
-  assert.equal(phone.test.getAccountBalanceCents(), 1250);
+  assert.equal(await phone.test.handleRechargeConfirmation(), true);
+  assert.equal(phone.test.getAccountBalanceCents(), 2250);
 
   phone.test.closeActiveOverlay();
   phone.accountSummaryButton.click();
@@ -878,6 +908,274 @@ function createAccountResponse(balanceCents) {
       remainingSeconds: 0,
     },
   });
+}
+
+async function verifyDevelopmentRechargeFlow() {
+  const phoneStorage = {
+    [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('phone')),
+  };
+  const parserRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+  });
+  await wait();
+
+  for (const [input, expectedCents, expectedDisplay] of [
+    ['0.01', 1, '0.01'],
+    ['1', 100, '1'],
+    ['1.2', 120, '1.2'],
+    ['1.20', 120, '1.2'],
+    ['10', 1000, '10'],
+    ['10.5', 1050, '10.5'],
+    ['10.50', 1050, '10.5'],
+    ['999.99', 99999, '999.99'],
+    ['1000', 100000, '1000'],
+    ['1000.00', 100000, '1000'],
+  ]) {
+    const parsed = parserRuntime.test.parseCustomRechargeAmount(input);
+    assert.equal(parsed.errorMessage, '');
+    assert.equal(parsed.amountCents, expectedCents);
+    assert.equal(parsed.displayAmount, expectedDisplay);
+  }
+
+  for (const input of [
+    '',
+    '0',
+    '0.00',
+    '0.001',
+    '1.234',
+    '1000.01',
+    '-1',
+    '+1',
+    '1e2',
+    'Infinity',
+    'NaN',
+    '.5',
+    '1.',
+    '1,00',
+    '1.2.3',
+    '十元',
+    'abc',
+  ]) {
+    const parsed = parserRuntime.test.parseCustomRechargeAmount(input);
+    assert.notEqual(parsed.errorMessage, '', input);
+    assert.equal(parsed.amountCents, null, input);
+  }
+
+  for (const amountCents of [1000, 2000, 5000]) {
+    const rechargeBodies = [];
+    const preset = new FakeElement();
+    preset.dataset.packageMode = 'preset';
+    preset.dataset.packageCents = String(amountCents);
+    const otherPreset = new FakeElement();
+    const runtime = loadHomeRuntime({
+      storageEntries: phoneStorage,
+      packageButtons: [preset, otherPreset],
+      fetchImpl: async (pathname, requestOptions) => {
+        if (pathname === '/api/me') {
+          return createAccountResponse(1250);
+        }
+        assert.equal(pathname, '/api/dev/recharge');
+        rechargeBodies.push(JSON.parse(requestOptions.body));
+        return createAccountResponse(1250 + amountCents);
+      },
+    });
+    await wait();
+    runtime.test.handlePackageSelection({ currentTarget: preset });
+    assert.equal(runtime.test.getSelectedRechargeAmountCents(), amountCents);
+    assert.equal(preset.classList.contains('is-selected'), true);
+    assert.equal(preset.attributes.get('aria-pressed'), 'true');
+    assert.equal(otherPreset.classList.contains('is-selected'), false);
+    assert.equal(otherPreset.attributes.get('aria-pressed'), 'false');
+    assert.equal(await runtime.test.handleRechargeConfirmation(), true);
+    assert.deepEqual(rechargeBodies, [{ amountCents }]);
+    assert.equal(runtime.test.getAccountBalanceCents(), 1250 + amountCents);
+  }
+
+  const customBodies = [];
+  const customRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname, requestOptions) => {
+      if (pathname === '/api/me') {
+        return createAccountResponse(1250);
+      }
+      customBodies.push(JSON.parse(requestOptions.body));
+      return createAccountResponse(1975);
+    },
+  });
+  await wait();
+  const custom = new FakeElement();
+  custom.dataset.packageMode = 'custom';
+  customRuntime.test.handlePackageSelection({ currentTarget: custom });
+  customRuntime.customAmountInput.value = '7.25';
+  customRuntime.test.handleCustomAmountInput();
+  const alipay = new FakeElement();
+  alipay.dataset.paymentMethod = 'alipay';
+  alipay.dataset.paymentName = '支付宝';
+  customRuntime.test.handlePaymentSelection({ currentTarget: alipay });
+  const storageBeforeRecharge = customRuntime.localStorage.dump();
+  assert.equal(await customRuntime.test.handleRechargeConfirmation(), true);
+  assert.deepEqual(customBodies, [{ amountCents: 725 }]);
+  assert.deepEqual(customRuntime.localStorage.dump(), storageBeforeRecharge);
+  assert.equal(customRuntime.test.getAccountBalanceCents(), 1975);
+  assert.equal(customRuntime.creditDisplay.textContent, '¥19.75');
+  assert.equal(customRuntime.rechargeResult.hidden, false);
+  assert.match(customRuntime.rechargeResult.textContent, /未发生真实支付/);
+
+  let resolveRecharge;
+  let pendingRequestCount = 0;
+  const pendingRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        return createAccountResponse(1250);
+      }
+      pendingRequestCount += 1;
+      return new Promise((resolve) => {
+        resolveRecharge = resolve;
+      });
+    },
+  });
+  await wait();
+  const firstSubmission = pendingRuntime.test.handleRechargeConfirmation();
+  const duplicateSubmission =
+    pendingRuntime.test.handleRechargeConfirmation();
+  assert.equal(pendingRuntime.test.getIsSubmittingRecharge(), true);
+  assert.equal(pendingRuntime.rechargeConfirmButton.disabled, true);
+  assert.match(pendingRuntime.rechargeConfirmButton.textContent, /正在/);
+  assert.equal(await duplicateSubmission, false);
+  assert.equal(pendingRequestCount, 1);
+  resolveRecharge(createAccountResponse(2250));
+  assert.equal(await firstSubmission, true);
+  assert.equal(pendingRuntime.test.getIsSubmittingRecharge(), false);
+  assert.equal(pendingRuntime.rechargeConfirmButton.disabled, false);
+
+  let retryCount = 0;
+  const retryRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        return createAccountResponse(1250);
+      }
+      retryCount += 1;
+      return retryCount === 1
+        ? createJsonResponse(500, {
+          error: { code: 'INTERNAL_ERROR' },
+        })
+        : createAccountResponse(2250);
+    },
+  });
+  await wait();
+  assert.equal(await retryRuntime.test.handleRechargeConfirmation(), false);
+  assert.equal(retryCount, 1);
+  assert.equal(retryRuntime.test.getAccountBalanceCents(), 1250);
+  await wait();
+  assert.equal(retryCount, 1);
+  assert.equal(await retryRuntime.test.handleRechargeConfirmation(), true);
+  assert.equal(retryCount, 2);
+
+  for (const failure of [
+    {
+      name: 'disabled route',
+      response: createJsonResponse(404, {
+        error: { code: 'NOT_FOUND' },
+      }),
+      expected: /当前未开启模拟充值/,
+    },
+    {
+      name: 'network',
+      error: new Error('network unavailable'),
+      expected: /暂时失败/,
+    },
+    {
+      name: 'server error',
+      response: createJsonResponse(503, {
+        error: { code: 'SERVICE_UNAVAILABLE' },
+      }),
+      expected: /暂时失败/,
+    },
+  ]) {
+    const runtime = loadHomeRuntime({
+      storageEntries: phoneStorage,
+      fetchImpl: async (pathname) => {
+        if (pathname === '/api/me') {
+          return createAccountResponse(1250);
+        }
+        if (failure.error) {
+          throw failure.error;
+        }
+        return failure.response;
+      },
+    });
+    await wait();
+    assert.equal(
+      await runtime.test.handleRechargeConfirmation(),
+      false,
+      failure.name
+    );
+    assert.match(runtime.rechargeResult.textContent, failure.expected);
+    assert.equal(runtime.test.getAccountBalanceCents(), 1250);
+    assert.equal(runtime.rechargeConfirmButton.disabled, false);
+  }
+
+  for (const status of [401, 403]) {
+    const runtime = loadHomeRuntime({
+      storageEntries: phoneStorage,
+      fetchImpl: async (pathname) => (
+        pathname === '/api/me'
+          ? createAccountResponse(1250)
+          : createJsonResponse(status, {
+            error: { code: 'AUTH_REQUIRED' },
+          })
+      ),
+    });
+    await wait();
+    assert.equal(await runtime.test.handleRechargeConfirmation(), false);
+    assert.equal(
+      JSON.parse(runtime.localStorage.getItem(AUTH_STORAGE_KEY)).mode,
+      'guest'
+    );
+    assert.equal(runtime.rechargeLoginOverlay.hidden, false);
+    assert.equal(runtime.test.getAccountBalanceCents(), null);
+  }
+
+  let backendBalanceCents = 1250;
+  let accountReadCount = 0;
+  const lifecycleRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        accountReadCount += 1;
+        return createAccountResponse(backendBalanceCents);
+      }
+      backendBalanceCents += 1000;
+      return createAccountResponse(backendBalanceCents);
+    },
+  });
+  await wait();
+  assert.equal(
+    await lifecycleRuntime.test.handleRechargeConfirmation(),
+    true
+  );
+  assert.equal(lifecycleRuntime.test.getAccountBalanceCents(), 2250);
+  lifecycleRuntime.window.dispatch('pageshow', { persisted: false });
+  lifecycleRuntime.window.dispatch('pageshow', { persisted: true });
+  await wait();
+  assert.equal(accountReadCount, 2);
+  assert.equal(lifecycleRuntime.test.getAccountBalanceCents(), 2250);
+
+  let guestRechargeCount = 0;
+  const guestRuntime = loadHomeRuntime({
+    storageEntries: {
+      [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('guest')),
+    },
+    fetchImpl: async () => {
+      guestRechargeCount += 1;
+      return createAccountResponse(1250);
+    },
+  });
+  assert.equal(await guestRuntime.test.handleRechargeConfirmation(), false);
+  assert.equal(guestRechargeCount, 0);
+  assert.equal(guestRuntime.rechargeLoginOverlay.hidden, false);
 }
 
 async function verifyRealAccountAndCallFlow() {
@@ -987,6 +1285,48 @@ async function verifyRealAccountAndCallFlow() {
   assert.equal(insufficientRuntime.rechargePanel.hidden, false);
   assert.equal(insufficientRuntime.test.getAccountBalanceCents(), 9);
   assert.equal(insufficientRuntime.callButton.disabled, false);
+
+  let admissionBalanceCents = 9;
+  let admissionCallCount = 0;
+  const admissionRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname, requestOptions) => {
+      if (pathname === '/api/me') {
+        return createAccountResponse(admissionBalanceCents);
+      }
+      if (pathname === '/api/dev/recharge') {
+        const { amountCents } = JSON.parse(requestOptions.body);
+        admissionBalanceCents += amountCents;
+        return createAccountResponse(admissionBalanceCents);
+      }
+      assert.equal(pathname, '/api/calls');
+      admissionCallCount += 1;
+      if (admissionBalanceCents < 10) {
+        return createJsonResponse(409, {
+          error: { code: 'INSUFFICIENT_BALANCE' },
+        });
+      }
+      return createJsonResponse(201, {
+        call: { id: 'call-after-development-recharge' },
+      });
+    },
+  });
+  await wait();
+  assert.equal(await admissionRuntime.test.handleStartConversation(), false);
+  assert.equal(admissionCallCount, 1);
+  assert.equal(admissionRuntime.rechargePanel.hidden, false);
+  assert.equal(
+    await admissionRuntime.test.handleRechargeConfirmation(),
+    true
+  );
+  assert.equal(admissionBalanceCents, 1009);
+  assert.equal(admissionRuntime.test.getAccountBalanceCents(), 1009);
+  assert.equal(await admissionRuntime.test.handleStartConversation(), true);
+  assert.equal(admissionCallCount, 2);
+  assert.match(
+    admissionRuntime.locationAssignments.at(-1),
+    /businessCallId=call-after-development-recharge/
+  );
 
   const otherConflictRuntime = loadHomeRuntime({
     storageEntries: phoneStorage,
@@ -1355,7 +1695,25 @@ function verifyStaticUiAndPrivacyBoundaries() {
   assert.match(homeHtml, /class="account-summary-button"/);
   assert.match(homeHtml, /class="account-profile-overlay prototype-overlay"/);
   assert.match(homeJs, /const TRUSTED_PENDING_ACTIONS = new Set\(\['recharge', 'profile'\]\)/);
-  assert.match(homeJs, /function handleRechargeConfirmation\(\) \{[\s\S]*?getValidatedAuthState\(\)/);
+  assert.match(homeJs, /async function handleRechargeConfirmation\(\) \{[\s\S]*?getValidatedAuthState\(\)/);
+  assert.match(homeHtml, /data-package-cents="1000"/);
+  assert.match(homeHtml, /data-package-cents="2000"/);
+  assert.match(homeHtml, /data-package-cents="5000"/);
+  assert.match(
+    homeHtml,
+    /class="package-option is-selected"[^>]*data-package-cents="1000"[^>]*aria-pressed="true"/
+  );
+  assert.match(
+    homeHtml,
+    /支付方式仅为界面演示，当前未接真实支付/
+  );
+  assert.match(homeHtml, /仅用于本地开发演示，不会发生真实支付/);
+  assert.doesNotMatch(homeHtml, /data-package-value=/);
+  assert.doesNotMatch(homeJs, /parseFloat\s*\(/);
+  assert.match(
+    homeJs,
+    /body:\s*JSON\.stringify\(\{\s*amountCents:\s*selectedRechargeAmountCents,\s*\}\)/
+  );
   assert.doesNotMatch(callJs, /phoneMasked|vipTier|authenticated/);
   assert.doesNotMatch(micJs, /phoneMasked|vipTier/);
 
@@ -1367,6 +1725,7 @@ function verifyStaticUiAndPrivacyBoundaries() {
 async function main() {
   await verifyAuthValidationAndPrivacy();
   await verifyHomeGuardRechargeAndAccount();
+  await verifyDevelopmentRechargeFlow();
   await verifyRealAccountAndCallFlow();
   await verifyAccountRefreshLifecycle();
   verifyStaticUiAndPrivacyBoundaries();
@@ -1380,6 +1739,10 @@ async function main() {
       + 'insufficient-balance,error-separation,expired-session,'
       + 'network-error,duplicate-lock,eight-role-business-call-id,'
       + 'guest-call,account-pageshow-once,normal-return-refresh,'
+      + 'dev-recharge-integer-cents,dev-recharge-validation,'
+      + 'dev-recharge-lock,dev-recharge-retry,dev-recharge-errors,'
+      + 'dev-recharge-pageshow,dev-recharge-no-payment-data,'
+      + 'insufficient-recharge-call-admission,'
       + 'bfcache-refresh,account-single-flight,refresh-retains-balance,'
       + 'initial-refresh-error,refresh-expired-session,guest-restore,'
       + 'stale-response-guard,role-state-preserved,overlay-preserved,'
