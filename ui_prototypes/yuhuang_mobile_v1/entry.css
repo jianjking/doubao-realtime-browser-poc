@@ -216,7 +216,9 @@ a {
 .offer-incense-button:focus-visible,
 .speak-control-button:focus-visible,
 .wish-confirm-button:focus-visible,
-.wish-retry-button:focus-visible {
+.wish-retry-button:focus-visible,
+.wish-offer-button:focus-visible,
+.draw-fortune-preview-button:focus-visible {
   outline: 4px solid #fff2bd;
   outline-offset: 3px;
 }
@@ -790,6 +792,20 @@ a {
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease;
+  transform-origin: 50% 0;
+}
+
+.wish-paper::after {
+  position: absolute;
+  inset: auto 8% -14px;
+  height: 42px;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse, rgba(255, 209, 111, 0.88), transparent 62%),
+    radial-gradient(ellipse, rgba(176, 67, 32, 0.68), transparent 70%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
 }
 
 .wish-paper[aria-busy="true"] {
@@ -834,12 +850,15 @@ a {
 }
 
 .wish-paper-actions[hidden],
-.wish-paper-next[hidden] {
+.wish-paper-next[hidden],
+.wish-offering-complete[hidden] {
   display: none;
 }
 
 .wish-confirm-button,
-.wish-retry-button {
+.wish-retry-button,
+.wish-offer-button,
+.draw-fortune-preview-button {
   width: 100%;
   min-height: 54px;
   padding: 10px 14px;
@@ -863,7 +882,9 @@ a {
 }
 
 .wish-confirm-button:disabled,
-.wish-retry-button:disabled {
+.wish-retry-button:disabled,
+.wish-offer-button:disabled,
+.draw-fortune-preview-button:disabled {
   cursor: not-allowed;
   opacity: 0.64;
 }
@@ -878,6 +899,13 @@ a {
   color: #5c2928;
   background: rgba(255, 248, 226, 0.72);
   text-align: center;
+}
+
+.wish-offer-button {
+  border: 2px solid #6b292d;
+  color: #fff8e9;
+  background: linear-gradient(180deg, #82373b, #5c2227);
+  box-shadow: 0 5px 13px rgba(68, 23, 27, 0.2);
 }
 
 .wish-paper-next strong {
@@ -895,6 +923,74 @@ a {
   box-shadow:
     inset 0 0 28px rgba(102, 44, 45, 0.08),
     0 8px 18px rgba(68, 34, 20, 0.16);
+}
+
+.is-wish-offering .wish-paper {
+  animation: wish-paper-offering 3s cubic-bezier(0.42, 0, 0.3, 1) forwards;
+}
+
+.is-wish-offering .wish-paper::after {
+  animation: wish-paper-edge-glow 2.2s ease-in-out forwards;
+}
+
+.is-wish-offering .incense-smoke {
+  opacity: 0.94;
+  filter: blur(2.2px);
+  animation-duration: 2.8s;
+}
+
+.is-wish-offering .incense-ember {
+  box-shadow:
+    0 0 0 3px rgba(143, 49, 30, 0.82),
+    0 0 22px 10px rgba(255, 174, 76, 0.64);
+}
+
+.wish-offering-complete {
+  margin-top: 14px;
+  padding: 18px 16px;
+  border: 1px solid rgba(184, 139, 72, 0.58);
+  border-radius: 18px 10px 18px 10px;
+  color: #592c2b;
+  background: rgba(248, 236, 207, 0.96);
+  box-shadow: 0 8px 18px rgba(68, 34, 20, 0.14);
+  text-align: center;
+}
+
+.wish-offering-complete h3,
+.wish-offering-complete p {
+  margin: 0;
+}
+
+.wish-offering-complete h3 {
+  font-size: 22px;
+}
+
+.wish-offering-complete p {
+  margin-top: 8px;
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1.6;
+}
+
+.wish-offering-complete small {
+  display: block;
+  margin-top: 6px;
+  color: #74584c;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.draw-fortune-preview-button {
+  margin-top: 14px;
+  border: 2px solid #a48b66;
+  color: #74695e;
+  background: #e8dfd0;
+  box-shadow: none;
+}
+
+.wish-offering-complete:focus {
+  outline: 4px solid #fff2bd;
+  outline-offset: 3px;
 }
 
 .return-choice-button {
@@ -942,6 +1038,58 @@ a {
     box-shadow:
       0 0 0 6px rgba(79, 115, 92, 0.17),
       0 9px 22px rgba(32, 8, 11, 0.18);
+  }
+}
+
+@keyframes wish-paper-offering {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  44% {
+    opacity: 0.92;
+    transform: translate3d(0, -58px, 0) scale(0.84);
+  }
+
+  72% {
+    opacity: 0.62;
+    transform: translate3d(0, -118px, 0) scale(0.66);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -172px, 0) scale(0.46);
+  }
+}
+
+@keyframes wish-paper-edge-glow {
+  0%,
+  20% {
+    opacity: 0;
+    transform: scaleX(0.72);
+  }
+
+  58% {
+    opacity: 0.9;
+    transform: scaleX(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scaleX(0.52);
+  }
+}
+
+@keyframes wish-paper-offering-reduced {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.98);
   }
 }
 
@@ -1005,5 +1153,14 @@ a {
 
   .incense-smoke {
     animation: none !important;
+  }
+
+  .is-wish-offering .wish-paper {
+    animation-name: wish-paper-offering-reduced;
+  }
+
+  .is-wish-offering .wish-paper::after {
+    animation: none !important;
+    opacity: 0.2;
   }
 }

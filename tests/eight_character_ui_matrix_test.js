@@ -2093,6 +2093,14 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
+    /<button class="wish-offer-button" type="button" data-offer-wish>奉入香炉<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
+    /<button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>诚心求一签<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
   assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);

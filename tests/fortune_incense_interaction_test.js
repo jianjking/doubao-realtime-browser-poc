@@ -54,6 +54,7 @@ class FakeElement {
     this.attributes = new Map(
       Object.entries(options.attributes || {})
     );
+    this.focusCallCount = 0;
     this.listeners = new Map();
   }
 
@@ -64,9 +65,17 @@ class FakeElement {
     this.listeners.get(eventName).push(handler);
   }
 
-  trigger(eventName) {
+  removeEventListener(eventName, handler) {
+    const handlers = this.listeners.get(eventName) || [];
+    this.listeners.set(
+      eventName,
+      handlers.filter((candidate) => candidate !== handler)
+    );
+  }
+
+  trigger(eventName, event = { target: this }) {
     for (const handler of this.listeners.get(eventName) || []) {
-      handler();
+      handler(event);
     }
   }
 
@@ -78,6 +87,14 @@ class FakeElement {
 
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  focus() {
+    this.focusCallCount += 1;
   }
 }
 
@@ -158,6 +175,15 @@ function loadFortuneRuntime(options = {}) {
     textContent: '重新说一遍',
   });
   const wishNextStep = new FakeElement({ hidden: true });
+  const offerWishButton = new FakeElement({
+    disabled: true,
+    textContent: '奉入香炉',
+  });
+  const wishOfferingComplete = new FakeElement({ hidden: true });
+  const drawFortuneButton = new FakeElement({
+    disabled: true,
+    textContent: '诚心求一签',
+  });
   const elements = new Map([
     ['.fortune-page', page],
     ['[data-offer-incense]', offerButton],
@@ -175,6 +201,9 @@ function loadFortuneRuntime(options = {}) {
     ['[data-confirm-transcript]', confirmTranscriptButton],
     ['[data-retry-transcript]', retryTranscriptButton],
     ['[data-wish-next-step]', wishNextStep],
+    ['[data-offer-wish]', offerWishButton],
+    ['[data-wish-offering-complete]', wishOfferingComplete],
+    ['[data-draw-fortune]', drawFortuneButton],
   ]);
   const timers = [];
   const windowListeners = new Map();
@@ -285,8 +314,14 @@ function loadFortuneRuntime(options = {}) {
         return { matches: options.reducedMotion === true };
       },
       setTimeout(callback, delay) {
-        timers.push({ callback, delay });
+        timers.push({ active: true, callback, delay });
         return timers.length;
+      },
+      clearTimeout(timerId) {
+        const timer = timers[timerId - 1];
+        if (timer) {
+          timer.active = false;
+        }
       },
     },
   };
@@ -305,9 +340,11 @@ function loadFortuneRuntime(options = {}) {
     acolyteGuidance,
     confirmTranscriptButton,
     defaultStream,
+    drawFortuneButton,
     incenseState,
     microphoneRequests,
     offerButton,
+    offerWishButton,
     page,
     retryTranscriptButton,
     speakControlButton,
@@ -326,6 +363,7 @@ function loadFortuneRuntime(options = {}) {
     },
     waitingState,
     wishNextStep,
+    wishOfferingComplete,
     wishPaper,
     windowListeners,
   };
@@ -404,6 +442,18 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     html,
+    /<button class="wish-offer-button" type="button" data-offer-wish>奉入香炉<\/button>/
+  );
+  assert.match(
+    html,
+    /data-wish-offering-complete[^>]*aria-live="polite"[^>]*hidden/
+  );
+  assert.match(
+    html,
+    /<button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>诚心求一签<\/button>/
+  );
+  assert.match(
+    html,
     /<script src="\.\/fortune_browser_asr\.js"><\/script>\s*<script src="\.\/fortune\.js"><\/script>/
   );
 
@@ -433,6 +483,12 @@ function verifyStaticSceneAndSafety() {
   assert.match(
     css,
     /\.wish-confirm-button,[\s\S]*?min-height:\s*54px;/
+  );
+  assert.match(css, /@keyframes wish-paper-offering\s*\{/);
+  assert.match(css, /@keyframes wish-paper-offering-reduced\s*\{/);
+  assert.match(
+    css,
+    /\.is-wish-offering \.incense-smoke\s*\{[\s\S]*?opacity:\s*0\.94;/
   );
 
   assert.doesNotMatch(
@@ -472,7 +528,7 @@ function verifyStaticSceneAndSafety() {
   );
   assert.doesNotMatch(
     `${html}\n${js}`,
-    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|神明已经收到|心愿已经呈上|正在为您抽签|签文正在降下|焚纸|火焰烧纸/
+    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|神明已经收到|心愿已经永久保存|正在为您抽签|签文正在降下|签号|签文结果|解签结果/
   );
   assert.doesNotMatch(
     js,
@@ -1313,6 +1369,8 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
   assert.equal(runtime.transcriptText.textContent, '您的话会写在这里。');
   assert.equal(runtime.transcriptActions.hidden, true);
   assert.equal(runtime.wishNextStep.hidden, true);
+  assert.equal(runtime.offerWishButton.disabled, true);
+  assert.equal(runtime.wishOfferingComplete.hidden, true);
   assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'false');
 
   completeIncenseOffering(runtime);
@@ -1349,6 +1407,7 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
   assert.equal(runtime.transcriptActions.hidden, false);
   assert.equal(runtime.confirmTranscriptButton.disabled, false);
   assert.equal(runtime.retryTranscriptButton.disabled, false);
+  assert.equal(runtime.wishNextStep.hidden, true);
   assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'false');
 
   runtime.confirmTranscriptButton.trigger('click');
@@ -1359,6 +1418,7 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
   );
   assert.equal(runtime.transcriptActions.hidden, true);
   assert.equal(runtime.wishNextStep.hidden, false);
+  assert.equal(runtime.offerWishButton.disabled, false);
   assert.equal(sessions[0].closeCallCount, 1);
   const confirmedText = runtime.transcriptText.textContent;
   sessions[0].callbacks.onPartial('迟到的旧 partial');
@@ -1437,6 +1497,157 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
     microphoneRetryRuntime.asrSessions[0].closeCallCount,
     1
   );
+}
+
+async function reachConfirmedWish(runtime) {
+  completeIncenseOffering(runtime);
+  runtime.speakControlButton.trigger('click');
+  await flushPromises();
+  runtime.speakControlButton.trigger('click');
+  assert.equal(runtime.transcriptActions.hidden, false);
+  assert.equal(runtime.wishNextStep.hidden, true);
+  runtime.confirmTranscriptButton.trigger('click');
+  assert.equal(runtime.wishNextStep.hidden, false);
+  assert.equal(runtime.offerWishButton.disabled, false);
+}
+
+async function verifyWishOfferingAnimationAndCleanup() {
+  const runtime = loadFortuneRuntime();
+  await reachConfirmedWish(runtime);
+  const lockedText = runtime.transcriptText.textContent;
+  const microphoneRequestCount = runtime.microphoneRequests.length;
+  const asrSessionCount = runtime.asrSessions.length;
+
+  runtime.offerWishButton.trigger('click');
+  runtime.offerWishButton.trigger('click');
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    true
+  );
+  assert.equal(runtime.offerWishButton.disabled, true);
+  assert.equal(
+    runtime.offerWishButton.textContent,
+    '正在奉入香炉……'
+  );
+  assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'true');
+  assert.equal(runtime.wishPaper.getAttribute('aria-hidden'), 'true');
+  assert.equal(runtime.wishOfferingComplete.hidden, true);
+  assert.equal(runtime.microphoneRequests.length, microphoneRequestCount);
+  assert.equal(runtime.asrSessions.length, asrSessionCount);
+  const animationTimer = runtime.timers.find(
+    (timer) => timer.delay === 3400
+  );
+  assert.ok(animationTimer);
+  assert.equal(
+    runtime.wishPaper.listeners.get('animationend').length,
+    1
+  );
+
+  runtime.asrSessions[0].callbacks.onPartial('迟到 partial');
+  runtime.asrSessions[0].callbacks.onFinal('迟到 final', true);
+  assert.equal(runtime.transcriptText.textContent, lockedText);
+
+  runtime.wishPaper.trigger('animationend', {
+    animationName: 'wish-paper-edge-glow',
+    target: runtime.wishPaper,
+  });
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    true
+  );
+
+  runtime.wishPaper.trigger('animationend', {
+    animationName: 'wish-paper-offering',
+    target: runtime.wishPaper,
+  });
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    false
+  );
+  assert.equal(
+    runtime.page.classList.contains('has-offered-wish'),
+    true
+  );
+  assert.equal(animationTimer.active, false);
+  assert.equal(runtime.wishPaper.hidden, true);
+  assert.equal(runtime.wishOfferingComplete.hidden, false);
+  assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
+  assert.equal(
+    runtime.speechMessage.textContent,
+    '心意已达殿前，请静候求签。'
+  );
+  assert.equal(runtime.drawFortuneButton.disabled, true);
+  assert.equal(
+    runtime.drawFortuneButton.textContent,
+    '诚心求一签'
+  );
+
+  animationTimer.callback();
+  runtime.wishPaper.trigger('animationend', {
+    animationName: 'wish-paper-offering',
+    target: runtime.wishPaper,
+  });
+  runtime.offerWishButton.trigger('click');
+  assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
+  assert.equal(runtime.wishPaper.hidden, true);
+
+  const fallbackRuntime = loadFortuneRuntime();
+  await reachConfirmedWish(fallbackRuntime);
+  fallbackRuntime.offerWishButton.trigger('click');
+  const fallbackTimer = fallbackRuntime.timers.find(
+    (timer) => timer.delay === 3400
+  );
+  assert.ok(fallbackTimer);
+  fallbackTimer.callback();
+  assert.equal(fallbackRuntime.wishPaper.hidden, true);
+  assert.equal(fallbackRuntime.wishOfferingComplete.hidden, false);
+  assert.equal(fallbackRuntime.wishOfferingComplete.focusCallCount, 1);
+  fallbackRuntime.wishPaper.trigger('animationend', {
+    animationName: 'wish-paper-offering',
+    target: fallbackRuntime.wishPaper,
+  });
+  assert.equal(fallbackRuntime.wishOfferingComplete.focusCallCount, 1);
+
+  const reducedRuntime = loadFortuneRuntime({
+    reducedMotion: true,
+  });
+  await reachConfirmedWish(reducedRuntime);
+  reducedRuntime.offerWishButton.trigger('click');
+  const reducedTimer = reducedRuntime.timers.find(
+    (timer) => timer.delay === 60
+  );
+  assert.ok(reducedTimer);
+  reducedTimer.callback();
+  assert.equal(reducedRuntime.wishPaper.hidden, true);
+  assert.equal(reducedRuntime.wishOfferingComplete.hidden, false);
+
+  for (const exitEvent of ['pagehide', 'beforeunload']) {
+    const exitRuntime = loadFortuneRuntime();
+    await reachConfirmedWish(exitRuntime);
+    exitRuntime.offerWishButton.trigger('click');
+    const exitTimer = exitRuntime.timers.find(
+      (timer) => timer.delay === 3400
+    );
+    assert.ok(exitTimer);
+    exitRuntime.triggerWindow(exitEvent);
+    assert.equal(exitTimer.active, false);
+    assert.equal(
+      exitRuntime.page.classList.contains('is-wish-offering'),
+      false
+    );
+    assert.equal(
+      exitRuntime.wishPaper.listeners.get('animationend').length,
+      0
+    );
+    exitTimer.callback();
+    assert.equal(exitRuntime.wishOfferingComplete.hidden, true);
+    exitRuntime.triggerWindow('pageshow');
+    assert.equal(exitRuntime.wishPaper.hidden, false);
+    assert.equal(
+      exitRuntime.transcriptText.textContent,
+      '您的话会写在这里。'
+    );
+  }
 }
 
 async function verifyAsrErrorsTimeoutAndIdempotentClose() {
@@ -1654,6 +1865,7 @@ async function main() {
   await verifyTailFinishFinalAndCleanup();
   await verifyPartialFinalPreviewAndStaleRetry();
   await verifyWishPaperConfirmationRetryAndErrors();
+  await verifyWishOfferingAnimationAndCleanup();
   await verifyAsrErrorsTimeoutAndIdempotentClose();
   await verifyModulePageExitAndFailureBoundaries();
 
@@ -1665,7 +1877,8 @@ async function main() {
       + 'pagehide-beforeunload,late-stream-cleanup,no-recording-upload,'
       + 'relay-url,start-started,real-sample-rate,resample-pcm16-le,'
       + 'binary-chunks,tail-before-finish,partial-final-preview,'
-      + 'wish-paper-confirm-retry,final-timeout,asr-error,'
+      + 'wish-paper-confirm-retry,wish-offering-animation,'
+      + 'final-timeout,asr-error,'
       + 'abnormal-close,stale-session\n'
   );
 }
