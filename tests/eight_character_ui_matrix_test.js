@@ -2077,13 +2077,17 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
+    /<button class="speak-control-button" type="button" data-speak-control>开始诉说<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
   assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);
   assert.doesNotMatch(fortuneHtml, /神仙亲自解签/);
   assert.doesNotMatch(
     fortuneHtml,
-    /<(?:input|textarea)\b|contenteditable=|麦克风|抽签动画|签文结果/
+    /<(?:input|textarea)\b|contenteditable=|抽签动画|签文结果/
   );
 
   assert.match(entryCss, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/);
@@ -2122,7 +2126,7 @@ async function main() {
       + 'role-pricing-catalog,role-pricing-eight-roles,'
       + 'role-pricing-loading-error-dedup-bfcache,role-pricing-overlay,'
       + 'fixed-custom-wechat-alipay-refresh-balance,lifecycle-boundary,'
-      + 'call-fortune-choice,fortune-incense-entry\n'
+      + 'call-fortune-choice,fortune-incense-microphone-entry\n'
   );
   process.stdout.write(
     `businessCallIdScenarios=${businessCallIdScenarioCount}\n`

@@ -69,9 +69,13 @@
     <button class="offer-incense-button" type="button" data-offer-incense>敬上一炷香</button>
 
     <section class="waiting-to-speak" data-waiting-state aria-labelledby="waiting-to-speak-title" hidden>
-      <h2 id="waiting-to-speak-title">等待诉说</h2>
-      <p>香火已起，请慢慢说说您的处境。</p>
-      <small>语音诉说将在下一阶段接入</small>
+      <div class="speech-state-heading">
+        <h2 id="waiting-to-speak-title" data-speech-title>等待诉说</h2>
+        <span class="microphone-use-indicator" aria-hidden="true">麦克风使用中</span>
+      </div>
+      <p data-speech-message role="status" aria-live="polite" aria-atomic="true">请慢慢说，道童会在殿前听您诉说。</p>
+      <button class="speak-control-button" type="button" data-speak-control>开始诉说</button>
+      <small data-speech-detail>本阶段只使用麦克风，不录制或上传音频。</small>
     </section>
 
     <a class="return-choice-button" href="./choice.html">返回功能选择</a>

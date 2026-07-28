@@ -213,7 +213,8 @@ a {
 
 .feature-card:focus-visible,
 .return-choice-button:focus-visible,
-.offer-incense-button:focus-visible {
+.offer-incense-button:focus-visible,
+.speak-control-button:focus-visible {
   outline: 4px solid #fff2bd;
   outline-offset: 3px;
 }
@@ -680,13 +681,89 @@ a {
   color: #65292e;
 }
 
+.speech-state-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.microphone-use-indicator {
+  display: none;
+  min-height: 28px;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid rgba(79, 115, 92, 0.46);
+  border-radius: 999px;
+  color: #375442;
+  background: #e3eadf;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.microphone-use-indicator::before {
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #4f735c;
+  box-shadow: 0 0 0 4px rgba(79, 115, 92, 0.14);
+  content: "";
+}
+
+.is-listening .waiting-to-speak {
+  border-color: rgba(79, 115, 92, 0.8);
+  box-shadow:
+    0 0 0 3px rgba(79, 115, 92, 0.12),
+    0 9px 22px rgba(32, 8, 11, 0.18);
+  animation: listening-panel-breathe 3.6s ease-in-out infinite;
+}
+
+.is-listening .microphone-use-indicator {
+  display: inline-flex;
+}
+
+.has-microphone-error .waiting-to-speak {
+  border-color: rgba(139, 55, 61, 0.72);
+  background: #fff3ed;
+}
+
 .waiting-to-speak p {
   margin: 7px 0 2px;
   font-size: 18px;
   font-weight: 800;
 }
 
+.speak-control-button {
+  width: 100%;
+  min-height: 58px;
+  margin: 13px 0 9px;
+  padding: 9px 16px;
+  border: 2px solid #9b7a4e;
+  border-radius: 16px;
+  color: var(--cream);
+  background: linear-gradient(180deg, #6f3035, #4d1b21);
+  box-shadow: 0 6px 15px rgba(47, 12, 16, 0.2);
+  cursor: pointer;
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.speak-control-button:active:not(:disabled) {
+  background: var(--wine-deep);
+}
+
+.speak-control-button:disabled {
+  border-color: #b4a185;
+  color: #786d67;
+  background: #e2d9ce;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 .waiting-to-speak small {
+  display: block;
   color: #78655f;
   font-size: 15px;
 }
@@ -721,6 +798,21 @@ a {
 
   100% {
     transform: translate3d(-62%, -36px, 0) scaleX(0.82);
+  }
+}
+
+@keyframes listening-panel-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(79, 115, 92, 0.1),
+      0 9px 22px rgba(32, 8, 11, 0.18);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(79, 115, 92, 0.17),
+      0 9px 22px rgba(32, 8, 11, 0.18);
   }
 }
 
