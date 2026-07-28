@@ -6,8 +6,12 @@ const test = require('node:test');
 
 const { createApp } = require('../app');
 const { PUBLIC_ROLES } = require('../config/public_roles');
+const { createAccountService } = require('../services/account_service');
 const { createCallService } = require('../services/call_service');
 const { createRoleService } = require('../services/role_service');
+const {
+  MemoryAccountStore,
+} = require('../stores/memory_account_store');
 const { MemoryCallStore } = require('../stores/memory_call_store');
 
 const TEST_DEVELOPMENT_CODE = '654321';
@@ -185,6 +189,25 @@ function createTestApp(options = {}) {
   });
 }
 
+function createAccountFixture({
+  initialBalanceCents = 1250,
+  userIds = [],
+} = {}) {
+  const accountStore = new MemoryAccountStore();
+  const accountService = createAccountService({
+    accountStore,
+    clock: () => Date.parse(FIXED_TIME),
+    initialBalanceCents,
+  });
+  for (const userId of userIds) {
+    accountService.ensureAccountForUser(userId);
+  }
+  return {
+    accountService,
+    accountStore,
+  };
+}
+
 function login(port, phone = PUBLIC_TEST_PHONE) {
   return requestJson(port, '/api/auth/login', {
     phone,
@@ -256,7 +279,12 @@ test('memory call store validates, isolates, and enforces unique IDs', () => {
 test('call service creates and stores a server-owned pending call', () => {
   const callStore = new MemoryCallStore();
   const roleService = createRoleService({ roles: PUBLIC_ROLES });
+  const { accountService, accountStore } = createAccountFixture({
+    userIds: ['user-real'],
+  });
+  const accountBefore = accountStore.findByUserId('user-real');
   const callService = createCallService({
+    accountService,
     callStore,
     roleService,
     clock: () => Date.parse(FIXED_TIME),
@@ -291,12 +319,20 @@ test('call service creates and stores a server-owned pending call', () => {
     startedAt: null,
     endedAt: null,
   });
+  assert.deepEqual(
+    accountStore.findByUserId('user-real'),
+    accountBefore
+  );
 });
 
 test('call service snapshots role pricing for every new call', () => {
   const callStore = new MemoryCallStore();
+  const { accountService } = createAccountFixture({
+    userIds: ['user-pricing'],
+  });
 
   const originalService = createCallService({
+    accountService,
     callStore,
     roleService: createRoleService({ roles: PUBLIC_ROLES }),
     idGenerator: () => 'call-price-old',
@@ -337,6 +373,7 @@ test('call service snapshots role pricing for every new call', () => {
   }));
 
   const repricedService = createCallService({
+    accountService,
     callStore,
     roleService: createRoleService({ roles: repricedRoles }),
     idGenerator: () => 'call-price-new',
@@ -360,8 +397,12 @@ test('call service snapshots role pricing for every new call', () => {
 
 test('call service enforces exact and available role slugs', () => {
   const roleService = createRoleService({ roles: PUBLIC_ROLES });
+  const { accountService } = createAccountFixture({
+    userIds: ['user-1'],
+  });
   let callNumber = 0;
   const callService = createCallService({
+    accountService,
     callStore: new MemoryCallStore(),
     roleService,
     idGenerator: () => {
@@ -410,12 +451,191 @@ test('call service enforces exact and available role slugs', () => {
     available: role.slug === 'tangseng' ? false : role.available,
   }));
   const unavailableService = createCallService({
+    accountService,
     callStore: new MemoryCallStore(),
     roleService: createRoleService({ roles: unavailableRoles }),
   });
   assertServiceError(() => {
     unavailableService.createPendingCall({
       userId: 'user-1',
+      roleSlug: 'tangseng',
+    });
+  }, {
+    statusCode: 409,
+    code: 'ROLE_UNAVAILABLE',
+    publicMessage: 'Requested role is currently unavailable',
+  });
+});
+
+test('call service enforces role-specific minimum balances before writes', () => {
+  for (const role of PUBLIC_ROLES) {
+    const { accountService, accountStore } = createAccountFixture({
+      initialBalanceCents: role.pricePerBillingUnitFen,
+      userIds: [`user-${role.slug}`],
+    });
+    const callStore = new MemoryCallStore();
+    let generatedCallCount = 0;
+    const callService = createCallService({
+      accountService,
+      callStore,
+      roleService: createRoleService({ roles: PUBLIC_ROLES }),
+      clock: () => Date.parse(FIXED_TIME),
+      idGenerator: () => {
+        generatedCallCount += 1;
+        return `call-threshold-${role.slug}`;
+      },
+    });
+    const accountBefore = accountStore.findByUserId(
+      `user-${role.slug}`
+    );
+
+    const publicCall = callService.createPendingCall({
+      userId: `user-${role.slug}`,
+      roleSlug: role.slug,
+    });
+    const storedCall = callStore.findById(publicCall.id);
+
+    assert.equal(publicCall.status, 'pending');
+    assert.equal(
+      storedCall.pricePerBillingUnitFen,
+      role.pricePerBillingUnitFen
+    );
+    assert.equal(storedCall.billingUnitMs, role.billingUnitMs);
+    assert.deepEqual(
+      accountStore.findByUserId(`user-${role.slug}`),
+      accountBefore
+    );
+    assert.equal(generatedCallCount, 1);
+  }
+});
+
+test('call service rejects low balances without consuming IDs or state', () => {
+  const { accountService, accountStore } = createAccountFixture({
+    initialBalanceCents: 9,
+    userIds: ['user-low'],
+  });
+  const callStore = new MemoryCallStore();
+  let generatedCallCount = 0;
+  const callService = createCallService({
+    accountService,
+    callStore,
+    roleService: createRoleService({ roles: PUBLIC_ROLES }),
+    clock: () => Date.parse(FIXED_TIME),
+    idGenerator: () => {
+      generatedCallCount += 1;
+      return `call-after-rejection-${generatedCallCount}`;
+    },
+  });
+  const accountBefore = accountStore.findByUserId('user-low');
+
+  assertServiceError(() => {
+    callService.createPendingCall({
+      userId: 'user-low',
+      roleSlug: 'yuhuang',
+    });
+  }, {
+    statusCode: 409,
+    code: 'INSUFFICIENT_BALANCE',
+    publicMessage: 'Account balance is insufficient to start a call',
+  });
+  assert.equal(generatedCallCount, 0);
+  assert.equal(callStore.findById('call-after-rejection-1'), null);
+  assert.deepEqual(
+    accountStore.findByUserId('user-low'),
+    accountBefore
+  );
+
+  accountStore.replace({
+    ...accountBefore,
+    balanceCents: 10,
+  });
+  const accountAfterAdjustment = accountStore.findByUserId('user-low');
+  const createdCall = callService.createPendingCall({
+    userId: 'user-low',
+    roleSlug: 'yuhuang',
+  });
+  assert.equal(createdCall.id, 'call-after-rejection-1');
+  assert.equal(
+    callStore.findById(createdCall.id).pricePerBillingUnitFen,
+    10
+  );
+  assert.deepEqual(
+    accountStore.findByUserId('user-low'),
+    accountAfterAdjustment
+  );
+
+  const zeroFixture = createAccountFixture({
+    initialBalanceCents: 0,
+    userIds: ['user-zero'],
+  });
+  const zeroBalanceService = createCallService({
+    accountService: zeroFixture.accountService,
+    callStore: new MemoryCallStore(),
+    roleService: createRoleService({ roles: PUBLIC_ROLES }),
+  });
+  assertServiceError(() => {
+    zeroBalanceService.createPendingCall({
+      userId: 'user-zero',
+      roleSlug: 'shawujing',
+    });
+  }, {
+    statusCode: 409,
+    code: 'INSUFFICIENT_BALANCE',
+    publicMessage: 'Account balance is insufficient to start a call',
+  });
+});
+
+test('account and role errors take precedence over balance admission', () => {
+  const noAccountService = createAccountFixture().accountService;
+  const noAccountCallService = createCallService({
+    accountService: noAccountService,
+    callStore: new MemoryCallStore(),
+    roleService: createRoleService({ roles: PUBLIC_ROLES }),
+  });
+  assertServiceError(() => {
+    noAccountCallService.createPendingCall({
+      userId: 'missing-user',
+      roleSlug: 'yuhuang',
+    });
+  }, {
+    statusCode: 409,
+    code: 'ACCOUNT_UNAVAILABLE',
+    publicMessage: 'User account is unavailable',
+  });
+
+  const { accountService } = createAccountFixture({
+    initialBalanceCents: 0,
+    userIds: ['user-role-errors'],
+  });
+  const roleService = createRoleService({ roles: PUBLIC_ROLES });
+  const callService = createCallService({
+    accountService,
+    callStore: new MemoryCallStore(),
+    roleService,
+  });
+  assertServiceError(() => {
+    callService.createPendingCall({
+      userId: 'user-role-errors',
+      roleSlug: 'unknown',
+    });
+  }, {
+    statusCode: 404,
+    code: 'ROLE_NOT_FOUND',
+    publicMessage: 'Requested role was not found',
+  });
+
+  const unavailableRoles = PUBLIC_ROLES.map((role) => ({
+    ...role,
+    available: role.slug === 'tangseng' ? false : role.available,
+  }));
+  const unavailableService = createCallService({
+    accountService,
+    callStore: new MemoryCallStore(),
+    roleService: createRoleService({ roles: unavailableRoles }),
+  });
+  assertServiceError(() => {
+    unavailableService.createPendingCall({
+      userId: 'user-role-errors',
       roleSlug: 'tangseng',
     });
   }, {
@@ -513,6 +733,87 @@ test('phone users create a strict public pending call', async () => {
     for (const value of forbiddenValues) {
       assert.equal(callResponse.body.includes(value), false);
     }
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('POST /api/calls returns a private 409 when balance is too low', async () => {
+  let generatedCallCount = 0;
+  const { port, server } = await startApp(createTestApp({
+    initialBalanceCents: 9,
+    callIdGenerator: () => {
+      generatedCallCount += 1;
+      return `call-http-balance-${generatedCallCount}`;
+    },
+    clock: () => Date.parse(FIXED_TIME),
+  }));
+
+  try {
+    const loginResponse = await login(port);
+    const { cookiePair } = extractSessionCookie(loginResponse);
+    const accountBeforeResponse = await requestPath({
+      port,
+      path: '/api/me',
+      headers: { Cookie: cookiePair },
+    });
+    assert.equal(accountBeforeResponse.statusCode, 200);
+    const accountBefore = parseJson(accountBeforeResponse.body);
+
+    const rejectedResponse = await createPendingCall(
+      port,
+      cookiePair,
+      { roleSlug: 'yuhuang' }
+    );
+    assert.equal(rejectedResponse.statusCode, 409);
+    assert.deepEqual(parseJson(rejectedResponse.body), {
+      error: {
+        code: 'INSUFFICIENT_BALANCE',
+        message: 'Account balance is insufficient to start a call',
+      },
+    });
+    assert.equal(generatedCallCount, 0);
+    for (const forbiddenField of [
+      'callId',
+      'billingUnitMs',
+      'pricePerBillingUnitFen',
+      'chargeFen',
+    ]) {
+      assert.equal(rejectedResponse.body.includes(forbiddenField), false);
+    }
+
+    const accountAfterRejectionResponse = await requestPath({
+      port,
+      path: '/api/me',
+      headers: { Cookie: cookiePair },
+    });
+    assert.equal(accountAfterRejectionResponse.statusCode, 200);
+    assert.deepEqual(
+      parseJson(accountAfterRejectionResponse.body),
+      accountBefore
+    );
+
+    const exactBalanceResponse = await createPendingCall(
+      port,
+      cookiePair,
+      { roleSlug: 'sunwukong' }
+    );
+    assert.equal(exactBalanceResponse.statusCode, 201);
+    assert.equal(
+      parseJson(exactBalanceResponse.body).call.id,
+      'call-http-balance-1'
+    );
+    assert.equal(generatedCallCount, 1);
+
+    const accountAfterSuccessResponse = await requestPath({
+      port,
+      path: '/api/me',
+      headers: { Cookie: cookiePair },
+    });
+    assert.deepEqual(
+      parseJson(accountAfterSuccessResponse.body),
+      accountBefore
+    );
   } finally {
     await closeServer(server);
   }

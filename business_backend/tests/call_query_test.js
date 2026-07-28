@@ -6,8 +6,12 @@ const test = require('node:test');
 
 const { createApp } = require('../app');
 const { PUBLIC_ROLES } = require('../config/public_roles');
+const { createAccountService } = require('../services/account_service');
 const { createCallService } = require('../services/call_service');
 const { createRoleService } = require('../services/role_service');
+const {
+  MemoryAccountStore,
+} = require('../stores/memory_account_store');
 const { MemoryCallStore } = require('../stores/memory_call_store');
 
 const TEST_DEVELOPMENT_CODE = '654321';
@@ -195,6 +199,17 @@ function createTestApp(options = {}) {
   });
 }
 
+function createAccountServiceForUsers(userIds) {
+  const accountService = createAccountService({
+    accountStore: new MemoryAccountStore(),
+    clock: () => Date.parse(FIXED_TIME),
+  });
+  for (const userId of userIds) {
+    accountService.ensureAccountForUser(userId);
+  }
+  return accountService;
+}
+
 function login(port, phone = OWNER_PHONE) {
   return requestJson(port, '/api/auth/login', {
     phone,
@@ -226,6 +241,7 @@ test('call service returns the owner public call without mutating storage', () =
   const callStore = new MemoryCallStore();
   const roleService = createRoleService({ roles: PUBLIC_ROLES });
   const callService = createCallService({
+    accountService: createAccountServiceForUsers(['user-owner']),
     callStore,
     roleService,
     clock: () => Date.parse(FIXED_TIME),

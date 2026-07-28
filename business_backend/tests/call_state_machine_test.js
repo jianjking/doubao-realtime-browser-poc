@@ -37,9 +37,18 @@ function createService({
   clock = () => Date.parse(CREATED_AT),
   idGenerator = () => 'call-state-1',
 } = {}) {
+  const accountStore = new MemoryAccountStore();
+  const accountService = createAccountService({
+    accountStore,
+    clock: () => Date.parse(CREATED_AT),
+  });
+  accountService.ensureAccountForUser('user-state-owner');
   return {
+    accountService,
+    accountStore,
     callStore,
     callService: createCallService({
+      accountService,
       callStore,
       roleService: createRoleService({ roles: PUBLIC_ROLES }),
       clock,
@@ -822,7 +831,7 @@ test('failed calls never debit balances on first or repeated terminal', () => {
   assert.equal(accountReplaceCalls, 0);
 });
 
-test('zero charge, debt, and separate calls preserve debit isolation', () => {
+test('existing calls can end into debt while new calls are rejected', () => {
   let now = Date.parse(CREATED_AT);
   const callIds = [
     'call-debit-zero',
@@ -837,7 +846,7 @@ test('zero charge, debt, and separate calls preserve debit isolation', () => {
   } = createDebitingService({
     clock: () => now,
     idGenerator: () => callIds.shift(),
-    initialBalanceCents: 5,
+    initialBalanceCents: 10,
   });
   let accountReplaceCalls = 0;
   const replaceAccount = accountStore.replace.bind(accountStore);
@@ -846,8 +855,13 @@ test('zero charge, debt, and separate calls preserve debit isolation', () => {
     return replaceAccount(account);
   };
 
-  function createAndEndCall(durationMs) {
-    const pendingCall = createPendingCall(callService);
+  const pendingCalls = [
+    createPendingCall(callService),
+    createPendingCall(callService),
+    createPendingCall(callService),
+  ];
+
+  function endCall(pendingCall, durationMs) {
     callService.markCallConnecting({ callId: pendingCall.id });
     callService.markCallActive({ callId: pendingCall.id });
     now += durationMs;
@@ -860,31 +874,31 @@ test('zero charge, debt, and separate calls preserve debit isolation', () => {
     };
   }
 
-  const zeroCall = createAndEndCall(0);
+  const zeroCall = endCall(pendingCalls[0], 0);
   assert.equal(zeroCall.storedCall.chargeFen, 0);
   assert.equal(
     accountService.getPublicAccountForUser(
       'user-state-owner'
     ).balanceCents,
-    5
+    10
   );
   assert.equal(accountReplaceCalls, 0);
   callService.markCallEnded({ callId: zeroCall.endedCall.id });
   assert.equal(accountReplaceCalls, 0);
 
-  const firstPaidCall = createAndEndCall(1);
+  const firstPaidCall = endCall(pendingCalls[1], 1);
   assert.equal(firstPaidCall.storedCall.chargeFen, 10);
   assert.equal(
     accountService.getPublicAccountForUser(
       'user-state-owner'
     ).balanceCents,
-    -5
+    0
   );
   assert.equal(accountReplaceCalls, 1);
   callService.markCallEnded({ callId: firstPaidCall.endedCall.id });
   assert.equal(accountReplaceCalls, 1);
 
-  const secondPaidCall = createAndEndCall(1);
+  const secondPaidCall = endCall(pendingCalls[2], 1);
   assert.equal(secondPaidCall.storedCall.chargeFen, 10);
   assert.notEqual(
     secondPaidCall.endedCall.id,
@@ -894,11 +908,26 @@ test('zero charge, debt, and separate calls preserve debit isolation', () => {
     accountService.getPublicAccountForUser(
       'user-state-owner'
     ).balanceCents,
-    -15
+    -10
   );
   assert.equal(accountReplaceCalls, 2);
   callService.markCallEnded({ callId: secondPaidCall.endedCall.id });
   assert.equal(accountReplaceCalls, 2);
+
+  assertPublicError(() => {
+    createPendingCall(callService);
+  }, {
+    statusCode: 409,
+    code: 'INSUFFICIENT_BALANCE',
+    publicMessage: 'Account balance is insufficient to start a call',
+  });
+  assert.equal(accountReplaceCalls, 2);
+  assert.equal(
+    accountService.getPublicAccountForUser(
+      'user-state-owner'
+    ).balanceCents,
+    -10
+  );
 });
 
 test('ended rejects a declared owner whose account is missing', () => {
@@ -913,7 +942,10 @@ test('ended rejects a declared owner whose account is missing', () => {
     idGenerator: () => 'call-debit-missing-account',
   });
   accountService.ensureAccountForUser('other-user');
-  const pendingCall = createPendingCall(callService);
+  const pendingCall = createCall({
+    id: 'call-debit-missing-account',
+  });
+  callStore.save(pendingCall);
   callService.markCallConnecting({ callId: pendingCall.id });
   now = Date.parse(ACTIVE_AT);
   callService.markCallActive({ callId: pendingCall.id });

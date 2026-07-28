@@ -32,6 +32,8 @@ const CALL_SERVICE_ERROR_STATUS_CODES = Object.freeze({
   CALL_NOT_FOUND: 404,
   ROLE_NOT_FOUND: 404,
   ROLE_UNAVAILABLE: 409,
+  ACCOUNT_UNAVAILABLE: 409,
+  INSUFFICIENT_BALANCE: 409,
 });
 
 function sendKnownCallServiceError(error, response) {

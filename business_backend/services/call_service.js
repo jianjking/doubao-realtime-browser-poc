@@ -31,11 +31,12 @@ function createCallService({
     accountService !== null
     && (
       typeof accountService !== 'object'
+      || typeof accountService.getPublicAccountForUser !== 'function'
       || typeof accountService.debitBalanceCentsForUser !== 'function'
     )
   ) {
     throw new TypeError(
-      'accountService must provide debitBalanceCentsForUser'
+      'accountService must provide account query and debit methods'
     );
   }
   if (typeof clock !== 'function') {
@@ -118,6 +119,17 @@ function createCallService({
       );
     }
 
+    const account = accountService === null
+      ? null
+      : accountService.getPublicAccountForUser(userId);
+    if (!account) {
+      throw createPublicError(
+        409,
+        'ACCOUNT_UNAVAILABLE',
+        'User account is unavailable'
+      );
+    }
+
     const role = roleService.findPublicRoleBySlug(roleSlug);
     if (!role) {
       throw createPublicError(
@@ -131,6 +143,13 @@ function createCallService({
         409,
         'ROLE_UNAVAILABLE',
         'Requested role is currently unavailable'
+      );
+    }
+    if (account.balanceCents < role.pricePerBillingUnitFen) {
+      throw createPublicError(
+        409,
+        'INSUFFICIENT_BALANCE',
+        'Account balance is insufficient to start a call'
       );
     }
 
