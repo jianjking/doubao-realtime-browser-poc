@@ -133,7 +133,7 @@ if ! kill -0 "$BUSINESS_BACKEND_PID" 2>/dev/null; then
   exit 1
 fi
 
-printf '身份入口：http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/index.html\n'
+printf '手机端入口：http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/choice.html\n'
 printf 'Realtime Relay：http://127.0.0.1:3001/\n'
 
 node server_doubao_realtime.js

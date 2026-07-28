@@ -22,6 +22,18 @@ const HOME_HTML_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/home.html'
 );
+const CHOICE_HTML_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/choice.html'
+);
+const FORTUNE_HTML_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/fortune.html'
+);
+const ENTRY_CSS_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/entry.css'
+);
 const HOME_CSS_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/ui.css'
@@ -2018,9 +2030,78 @@ function verifyStaticSafetyAndCurrentUi() {
   );
 }
 
+function verifyFeatureChoiceAndFortuneEntry() {
+  const choiceHtml = fs.readFileSync(CHOICE_HTML_PATH, 'utf8');
+  const fortuneHtml = fs.readFileSync(FORTUNE_HTML_PATH, 'utf8');
+  const entryCss = fs.readFileSync(ENTRY_CSS_PATH, 'utf8');
+  const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
+
+  assert.equal(
+    (choiceHtml.match(/<a class="feature-card /g) || []).length,
+    2
+  );
+  assert.match(
+    choiceHtml,
+    /<a class="feature-card feature-card-call" href="\.\/home\.html">[\s\S]*?<strong>与神仙通话<\/strong>[\s\S]*?<span>听您慢慢说<\/span>/
+  );
+  assert.match(
+    choiceHtml,
+    /<a class="feature-card feature-card-fortune" href="\.\/fortune\.html">[\s\S]*?<strong>上香求签<\/strong>[\s\S]*?<span>静心诉说，诚心求一签<\/span>/
+  );
+  assert.doesNotMatch(choiceHtml, /onclick=|href="\.\/choice\.html"/);
+  assert.match(
+    homeHtml,
+    /<a class="side-action feature-choice-link" href="\.\/choice\.html" aria-label="返回功能选择">/
+  );
+
+  assert.match(fortuneHtml, /<h1 id="fortune-title">上香求签<\/h1>/);
+  assert.match(
+    fortuneHtml,
+    /神明高坐庙堂，道童在殿前引导求签。/
+  );
+  assert.match(
+    fortuneHtml,
+    /敬香[\s\S]*?诉说处境[\s\S]*?抽取签文[\s\S]*?道童解签/
+  );
+  assert.match(
+    fortuneHtml,
+    /<strong>神仙：<\/strong>高坐庙堂，接受香火与祈愿。/
+  );
+  assert.match(
+    fortuneHtml,
+    /<strong>道童：<\/strong>负责后续引导、接签和解签。/
+  );
+  assert.doesNotMatch(fortuneHtml, /神仙亲自解签/);
+  assert.match(fortuneHtml, /求签功能正在搭建/);
+  assert.match(
+    fortuneHtml,
+    /<button type="button" disabled aria-describedby="fortune-status-title">开始求签<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
+    /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
+  );
+  assert.doesNotMatch(
+    fortuneHtml,
+    /<(?:input|textarea|script)\b|contenteditable=|麦克风|抽签动画|签文结果/
+  );
+
+  assert.match(entryCss, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/);
+  assert.match(
+    entryCss,
+    /\.feature-card\s*\{[\s\S]*?min-height:\s*158px;/
+  );
+  assert.match(
+    entryCss,
+    /\.return-choice-button\s*\{[\s\S]*?min-height:\s*60px;/
+  );
+  assert.match(entryCss, /width:\s*min\(430px,\s*100%\);/);
+}
+
 async function main() {
   verifyBrowserLifecycleBoundary();
   verifyStaticSafetyAndCurrentUi();
+  verifyFeatureChoiceAndFortuneEntry();
   await verifyRolePricingDetails();
   await verifyAuthGateAndRechargeRegression();
   await verifyHomeConfigurationAndPreloading();
@@ -2040,7 +2121,8 @@ async function main() {
       + 'business-call-id-url,unavailable-keys,'
       + 'role-pricing-catalog,role-pricing-eight-roles,'
       + 'role-pricing-loading-error-dedup-bfcache,role-pricing-overlay,'
-      + 'fixed-custom-wechat-alipay-refresh-balance,lifecycle-boundary\n'
+      + 'fixed-custom-wechat-alipay-refresh-balance,lifecycle-boundary,'
+      + 'call-fortune-choice,fortune-static-boundary\n'
   );
   process.stdout.write(
     `businessCallIdScenarios=${businessCallIdScenarioCount}\n`

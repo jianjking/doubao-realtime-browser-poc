@@ -353,6 +353,7 @@ button {
   font-weight: 700;
   line-height: 1.15;
   text-align: center;
+  text-decoration: none;
 }
 
 .side-action > span:last-child {
@@ -392,6 +393,28 @@ button {
 .side-action:active:not(:disabled) .side-icon {
   border-color: rgba(255, 224, 159, 0.82);
   background: rgba(91, 35, 40, 0.68);
+}
+
+.icon-choice::before,
+.icon-choice::after {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  content: "";
+}
+
+.icon-choice::before {
+  top: 10px;
+  left: 10px;
+  box-shadow: 17px 17px 0 -2px currentColor;
+}
+
+.icon-choice::after {
+  top: 10px;
+  right: 9px;
+  box-shadow: -17px 17px 0 -2px currentColor;
 }
 
 .icon-guide::before {

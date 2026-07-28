@@ -119,7 +119,14 @@ test('configured business backend serves the authoritative mobile UI', async () 
     assert.notEqual(address, null);
     assert.equal(typeof address, 'object');
 
-    for (const requestedFile of ['index.html', 'home.html', 'ui.js']) {
+    for (const requestedFile of [
+      'choice.html',
+      'fortune.html',
+      'entry.css',
+      'index.html',
+      'home.html',
+      'ui.js',
+    ]) {
       const response = await requestPath(
         address.port,
         `/ui_prototypes/yuhuang_mobile_v1/${requestedFile}`
