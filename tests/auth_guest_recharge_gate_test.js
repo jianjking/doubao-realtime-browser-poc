@@ -331,6 +331,7 @@ function loadHomeRuntime(options = {}) {
       formatBalanceCents,
       getActiveOverlay: () => activeOverlay,
       getAccountBalanceCents: () => accountBalanceCents,
+      getAccountLoadPromise: () => accountLoadPromise,
       getCurrentCharacterKey: () => currentCharacterKey,
       getIsStartingCall: () => isStartingCall,
       getValidatedAuthState,
@@ -448,6 +449,7 @@ function loadHomeRuntime(options = {}) {
   const localStorage = createLocalStorage(options.storageEntries);
   const locationAssignments = [];
   const fetchRequests = [];
+  const windowHandlers = new Map();
   const homePageUrl = new URL(options.homePageUrl || DEFAULT_HOME_URL);
   const fetchImpl = options.fetchImpl || (async (pathname) => {
     if (pathname === '/api/me') {
@@ -490,10 +492,28 @@ function loadHomeRuntime(options = {}) {
   }
 
   const window = {
+    addEventListener(eventName, handler) {
+      if (!windowHandlers.has(eventName)) {
+        windowHandlers.set(eventName, []);
+      }
+      windowHandlers.get(eventName).push(handler);
+    },
     clearTimeout,
+    dispatch(eventName, overrides = {}) {
+      const event = {
+        persisted: false,
+        ...overrides,
+      };
+      for (const handler of windowHandlers.get(eventName) || []) {
+        handler(event);
+      }
+    },
     fetch(pathname, requestOptions) {
       fetchRequests.push({ pathname, requestOptions });
       return fetchImpl(pathname, requestOptions);
+    },
+    getListenerCount(eventName) {
+      return (windowHandlers.get(eventName) || []).length;
     },
     localStorage,
     location: {
@@ -552,6 +572,7 @@ function loadHomeRuntime(options = {}) {
     toast,
     creditDisplay,
     test: context.__homeTest,
+    window,
   };
 }
 
@@ -1082,6 +1103,229 @@ async function verifyRealAccountAndCallFlow() {
   assert.equal(guestRuntime.fetchRequests.length, 0);
 }
 
+async function verifyAccountRefreshLifecycle() {
+  const phoneStorage = {
+    [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('phone')),
+  };
+
+  let currentBalanceCents = 1250;
+  const normalReturnRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => createAccountResponse(currentBalanceCents),
+  });
+  await wait();
+  assert.equal(normalReturnRuntime.window.getListenerCount('pageshow'), 1);
+  assert.equal(normalReturnRuntime.fetchRequests.length, 1);
+  assert.equal(normalReturnRuntime.creditDisplay.textContent, '¥12.50');
+  const accountClickHandlerCount =
+    normalReturnRuntime.accountSummaryButton.handlers.get('click').length;
+
+  normalReturnRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  await wait();
+  assert.equal(normalReturnRuntime.fetchRequests.length, 1);
+
+  currentBalanceCents = 1190;
+  normalReturnRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  await wait();
+  assert.equal(normalReturnRuntime.fetchRequests.length, 2);
+  assert.equal(normalReturnRuntime.creditDisplay.textContent, '¥11.90');
+  assert.equal(
+    normalReturnRuntime.accountSummaryButton.handlers.get('click').length,
+    accountClickHandlerCount
+  );
+
+  let bfcacheBalanceCents = 1250;
+  const bfcacheRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => createAccountResponse(bfcacheBalanceCents),
+  });
+  await wait();
+  bfcacheRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  await bfcacheRuntime.test.selectCharacter('sunwukong', 'test');
+  bfcacheRuntime.rechargeEntry.click();
+  bfcacheBalanceCents = 1180;
+  bfcacheRuntime.window.dispatch('pageshow', {
+    persisted: true,
+  });
+  await wait();
+  assert.equal(bfcacheRuntime.fetchRequests.length, 2);
+  assert.equal(bfcacheRuntime.creditDisplay.textContent, '¥11.80');
+  assert.equal(
+    bfcacheRuntime.test.getCurrentCharacterKey(),
+    'sunwukong'
+  );
+  assert.equal(bfcacheRuntime.rechargePanel.hidden, false);
+
+  let resolveConcurrentRefresh;
+  let concurrentRequestCount = 0;
+  const concurrentRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: () => {
+      concurrentRequestCount += 1;
+      if (concurrentRequestCount === 1) {
+        return Promise.resolve(createAccountResponse(1250));
+      }
+      return new Promise((resolve) => {
+        resolveConcurrentRefresh = resolve;
+      });
+    },
+  });
+  await wait();
+  concurrentRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  concurrentRuntime.window.dispatch('pageshow', {
+    persisted: true,
+  });
+  const activeRefreshPromise =
+    concurrentRuntime.test.getAccountLoadPromise();
+  concurrentRuntime.window.dispatch('pageshow', {
+    persisted: true,
+  });
+  concurrentRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  assert.equal(concurrentRequestCount, 2);
+  assert.equal(
+    concurrentRuntime.test.loadAccountState(),
+    activeRefreshPromise
+  );
+  resolveConcurrentRefresh(createAccountResponse(1170));
+  await activeRefreshPromise;
+  assert.equal(concurrentRuntime.creditDisplay.textContent, '¥11.70');
+  assert.equal(concurrentRuntime.test.getAccountLoadPromise(), null);
+
+  let shouldFailRefresh = false;
+  const retainedBalanceRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => {
+      if (shouldFailRefresh) {
+        throw new Error('network unavailable');
+      }
+      return createAccountResponse(1250);
+    },
+  });
+  await wait();
+  retainedBalanceRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  shouldFailRefresh = true;
+  retainedBalanceRuntime.window.dispatch('pageshow', {
+    persisted: true,
+  });
+  await wait();
+  assert.equal(retainedBalanceRuntime.creditDisplay.textContent, '¥12.50');
+  assert.equal(
+    retainedBalanceRuntime.toast.textContent,
+    '话费刷新失败，请稍后重试'
+  );
+
+  const initialFailureRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => {
+      throw new Error('initial account request failed');
+    },
+  });
+  await wait();
+  assert.equal(initialFailureRuntime.creditDisplay.textContent, '加载失败');
+
+  for (const expiredStatus of [401, 403]) {
+    let expireOnRefresh = false;
+    const expiredRuntime = loadHomeRuntime({
+      storageEntries: phoneStorage,
+      fetchImpl: async () => (
+        expireOnRefresh
+          ? createJsonResponse(expiredStatus, {
+            error: { code: 'AUTH_REQUIRED' },
+          })
+          : createAccountResponse(1250)
+      ),
+    });
+    await wait();
+    expiredRuntime.window.dispatch('pageshow', {
+      persisted: false,
+    });
+    expireOnRefresh = true;
+    expiredRuntime.window.dispatch('pageshow', {
+      persisted: true,
+    });
+    await wait();
+    assert.equal(expiredRuntime.creditDisplay.textContent, '--');
+    assert.equal(expiredRuntime.accountPrimary.textContent, '游客用户');
+    assert.equal(
+      JSON.parse(
+        expiredRuntime.localStorage.getItem(AUTH_STORAGE_KEY)
+      ).mode,
+      'guest'
+    );
+  }
+
+  const guestRuntime = loadHomeRuntime({
+    storageEntries: {
+      [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('guest')),
+    },
+    fetchImpl: async () => {
+      throw new Error('guest account request must not run');
+    },
+  });
+  guestRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  guestRuntime.window.dispatch('pageshow', {
+    persisted: true,
+  });
+  await wait();
+  assert.equal(guestRuntime.fetchRequests.length, 0);
+  assert.equal(guestRuntime.creditDisplay.textContent, '--');
+
+  let resolveStaleAccount;
+  const staleRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: () => new Promise((resolve) => {
+      resolveStaleAccount = resolve;
+    }),
+  });
+  staleRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  staleRuntime.localStorage.setItem(
+    AUTH_STORAGE_KEY,
+    JSON.stringify(createAuthState('guest'))
+  );
+  staleRuntime.window.dispatch('pageshow', {
+    persisted: true,
+  });
+  resolveStaleAccount(createAccountResponse(9999));
+  await wait();
+  assert.equal(staleRuntime.creditDisplay.textContent, '--');
+  assert.equal(staleRuntime.test.getAccountBalanceCents(), null);
+
+  let failedReturnRequestCount = 0;
+  const failedReturnRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => {
+      failedReturnRequestCount += 1;
+      return createAccountResponse(1250);
+    },
+  });
+  await wait();
+  failedReturnRuntime.window.dispatch('pageshow', {
+    persisted: false,
+  });
+  failedReturnRuntime.window.dispatch('pageshow', {
+    persisted: true,
+  });
+  await wait();
+  assert.equal(failedReturnRequestCount, 2);
+  assert.equal(failedReturnRuntime.creditDisplay.textContent, '¥12.50');
+}
+
 function verifyStaticUiAndPrivacyBoundaries() {
   const authHtml = fs.readFileSync(AUTH_HTML_PATH, 'utf8');
   const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
@@ -1124,6 +1368,7 @@ async function main() {
   await verifyAuthValidationAndPrivacy();
   await verifyHomeGuardRechargeAndAccount();
   await verifyRealAccountAndCallFlow();
+  await verifyAccountRefreshLifecycle();
   verifyStaticUiAndPrivacyBoundaries();
 
   process.stdout.write('auth_guest_recharge_gate_test: PASS\n');
@@ -1134,7 +1379,11 @@ async function main() {
       + 'profile-return,real-balance,currency-format,call-create,'
       + 'insufficient-balance,error-separation,expired-session,'
       + 'network-error,duplicate-lock,eight-role-business-call-id,'
-      + 'guest-call,privacy,avatar-svg\n'
+      + 'guest-call,account-pageshow-once,normal-return-refresh,'
+      + 'bfcache-refresh,account-single-flight,refresh-retains-balance,'
+      + 'initial-refresh-error,refresh-expired-session,guest-restore,'
+      + 'stale-response-guard,role-state-preserved,overlay-preserved,'
+      + 'failed-return-balance,privacy,avatar-svg\n'
   );
 }
 

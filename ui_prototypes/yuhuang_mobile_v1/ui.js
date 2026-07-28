@@ -184,6 +184,9 @@
   let selectedPaymentName = '微信支付';
   let accountBalanceCents = null;
   let accountBalanceState = 'loading';
+  let accountLoadPromise = null;
+  let accountLoadRequestId = 0;
+  let hasSeenInitialPageShow = false;
   let currentAuthState = null;
   let isStartingCall = false;
 
@@ -588,6 +591,7 @@
   }
 
   function handleExpiredSession() {
+    accountLoadRequestId += 1;
     currentAuthState = createGuestAuthState();
     window.localStorage.setItem(
       AUTH_STORAGE_KEY,
@@ -606,51 +610,95 @@
     }
   }
 
-  async function loadAccountState() {
-    const authState = currentAuthState || getValidatedAuthState();
+  function handleAccountLoadFailure(hadConfirmedBalance) {
+    if (hadConfirmedBalance) {
+      showToast('话费刷新失败，请稍后重试');
+      return;
+    }
+    setAccountBalanceState('error');
+  }
+
+  function loadAccountState() {
+    const authState = getValidatedAuthState();
     currentAuthState = authState;
     if (!isPhoneAuthenticated(authState)) {
+      accountLoadRequestId += 1;
       setAccountBalanceState('guest');
-      return false;
+      return Promise.resolve(false);
+    }
+    if (accountLoadPromise) {
+      return accountLoadPromise;
     }
 
-    setAccountBalanceState('loading');
-    if (typeof window.fetch !== 'function') {
-      setAccountBalanceState('error');
-      return false;
+    const requestId = accountLoadRequestId + 1;
+    accountLoadRequestId = requestId;
+    const hadConfirmedBalance = accountBalanceState === 'ready'
+      && Number.isSafeInteger(accountBalanceCents);
+    if (!hadConfirmedBalance) {
+      setAccountBalanceState('loading');
     }
 
-    let response;
-    try {
-      response = await window.fetch(ACCOUNT_API_URL, {
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-    } catch {
-      setAccountBalanceState('error');
-      return false;
-    }
+    const requestPromise = (async () => {
+      if (typeof window.fetch !== 'function') {
+        handleAccountLoadFailure(hadConfirmedBalance);
+        return false;
+      }
 
-    if (response.status === 401 || response.status === 403) {
-      handleExpiredSession();
-      showToast('登录状态已失效，请重新登录');
-      return false;
-    }
-    const responseBody = await readJsonResponse(response);
-    const account = responseBody && responseBody.account;
-    if (
-      !response.ok
-      || !account
-      || account.currency !== 'CNY'
-      || !Number.isSafeInteger(account.balanceCents)
-    ) {
-      setAccountBalanceState('error');
-      return false;
-    }
+      let response;
+      try {
+        response = await window.fetch(ACCOUNT_API_URL, {
+          headers: {
+            Accept: 'application/json',
+          },
+        });
+      } catch {
+        if (requestId === accountLoadRequestId) {
+          handleAccountLoadFailure(hadConfirmedBalance);
+        }
+        return false;
+      }
 
-    setAccountBalanceState('ready', account.balanceCents);
-    return true;
+      if (requestId !== accountLoadRequestId) {
+        return false;
+      }
+      if (response.status === 401 || response.status === 403) {
+        handleExpiredSession();
+        showToast('登录状态已失效，请重新登录');
+        return false;
+      }
+      const responseBody = await readJsonResponse(response);
+      if (requestId !== accountLoadRequestId) {
+        return false;
+      }
+      const account = responseBody && responseBody.account;
+      if (
+        !response.ok
+        || !account
+        || account.currency !== 'CNY'
+        || !Number.isSafeInteger(account.balanceCents)
+      ) {
+        handleAccountLoadFailure(hadConfirmedBalance);
+        return false;
+      }
+
+      setAccountBalanceState('ready', account.balanceCents);
+      return true;
+    })();
+    const trackedPromise = requestPromise.finally(() => {
+      if (accountLoadPromise === trackedPromise) {
+        accountLoadPromise = null;
+      }
+    });
+    accountLoadPromise = trackedPromise;
+    return trackedPromise;
+  }
+
+  function handleHomePageShow() {
+    if (!hasSeenInitialPageShow) {
+      hasSeenInitialPageShow = true;
+      return;
+    }
+    void loadAccountState();
   }
 
   function renderCharacter(character) {
@@ -1270,7 +1318,6 @@
     renderAccountProfile(currentAuthState);
     renderCharacter(charactersByKey.get(currentCharacterKey));
     if (isPhoneAuthenticated(currentAuthState)) {
-      setAccountBalanceState('loading');
       void loadAccountState();
     } else {
       setAccountBalanceState('guest');
@@ -1390,6 +1437,7 @@
     }
 
     document.addEventListener('keydown', handleEscapeKey);
+    window.addEventListener('pageshow', handleHomePageShow);
     updateRechargeSelectionSummary();
     warmAdjacentCharacterImages(currentCharacterKey);
     consumePendingAction();
