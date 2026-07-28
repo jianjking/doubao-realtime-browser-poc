@@ -3,6 +3,9 @@
 const path = require('node:path');
 
 const { createApp } = require('./app');
+const {
+  createFortuneInterpretationClientFromEnv,
+} = require('./clients/fortune_interpretation_client');
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3002;
@@ -41,6 +44,10 @@ function startServer() {
     ? String(DEFAULT_PORT)
     : process.env.BUSINESS_BACKEND_PORT;
   const port = parsePort(rawPort);
+  const fortuneInterpretationClient =
+    createFortuneInterpretationClientFromEnv({
+      env: process.env,
+    });
   const app = createApp({
     enableDevRecharge: isDevRechargeEnabled(process.env),
     internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
@@ -52,6 +59,7 @@ function startServer() {
       __dirname,
       '../public/pcm_capture_processor.js'
     ),
+    fortuneInterpretationClient,
   });
 
   const server = app.listen(port, host, () => {

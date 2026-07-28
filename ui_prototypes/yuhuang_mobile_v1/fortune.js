@@ -21,6 +21,9 @@
     DRAWING_LOT: 'drawing-lot',
     LOT_DRAWN: 'lot-drawn',
     LOT_ERROR: 'lot-error',
+    INTERPRETING_LOT: 'interpreting-lot',
+    LOT_INTERPRETED: 'lot-interpreted',
+    INTERPRETATION_ERROR: 'interpretation-error',
     MICROPHONE_ERROR: 'microphone-error',
     ASR_ERROR: 'asr-error',
     CLOSED: 'closed',
@@ -77,6 +80,30 @@
   const lotLevel = document.querySelector('[data-lot-level]');
   const lotTitle = document.querySelector('[data-lot-title]');
   const lotVerses = document.querySelector('[data-lot-verses]');
+  const interpretFortuneButton = document.querySelector(
+    '[data-interpret-fortune]'
+  );
+  const interpretationError = document.querySelector(
+    '[data-interpretation-error]'
+  );
+  const retryInterpretationButton = document.querySelector(
+    '[data-retry-interpretation]'
+  );
+  const interpretationResult = document.querySelector(
+    '[data-interpretation-result]'
+  );
+  const interpretationSummary = document.querySelector(
+    '[data-interpretation-summary]'
+  );
+  const interpretationReflection = document.querySelector(
+    '[data-interpretation-reflection]'
+  );
+  const interpretationAction = document.querySelector(
+    '[data-interpretation-action]'
+  );
+  const interpretationSafety = document.querySelector(
+    '[data-interpretation-safety]'
+  );
 
   if (
     !page
@@ -105,6 +132,14 @@
     || !lotLevel
     || !lotTitle
     || !lotVerses
+    || !interpretFortuneButton
+    || !interpretationError
+    || !retryInterpretationButton
+    || !interpretationResult
+    || !interpretationSummary
+    || !interpretationReflection
+    || !interpretationAction
+    || !interpretationSafety
   ) {
     return;
   }
@@ -119,6 +154,9 @@
   let fortuneRequestController = null;
   let fortuneRequestGeneration = 0;
   let publicFortuneSession = null;
+  let interpretationRequestController = null;
+  let interpretationRequestGeneration = 0;
+  let publicInterpretation = null;
 
   function prefersReducedMotion() {
     return typeof window.matchMedia === 'function'
@@ -166,6 +204,12 @@
     drawFortuneButton.disabled = true;
     drawFortuneButton.textContent = '诚心求一签';
     retryFortuneButton.disabled = true;
+    interpretFortuneButton.hidden = true;
+    interpretFortuneButton.disabled = true;
+    interpretFortuneButton.textContent = '请道童解签';
+    interpretationError.hidden = true;
+    retryInterpretationButton.disabled = true;
+    interpretationResult.hidden = true;
     wishPaper.hidden = false;
     wishPaper.removeAttribute('aria-hidden');
 
@@ -322,7 +366,12 @@
     }
 
     if (
-      interactionState === INTERACTION_STATES.LOT_DRAWN
+      (
+        interactionState === INTERACTION_STATES.LOT_DRAWN
+        || interactionState === INTERACTION_STATES.INTERPRETING_LOT
+        || interactionState === INTERACTION_STATES.LOT_INTERPRETED
+        || interactionState === INTERACTION_STATES.INTERPRETATION_ERROR
+      )
       && publicFortuneSession
     ) {
       page.classList.add('has-offered-wish');
@@ -334,6 +383,40 @@
       lotTitle.textContent = publicFortuneSession.lot.title;
       lotVerses.textContent =
         publicFortuneSession.lot.verseLines.join('\n');
+      if (interactionState === INTERACTION_STATES.LOT_DRAWN) {
+        interpretFortuneButton.hidden = false;
+        interpretFortuneButton.disabled = false;
+        return;
+      }
+      if (
+        interactionState === INTERACTION_STATES.INTERPRETING_LOT
+      ) {
+        interpretFortuneButton.hidden = false;
+        interpretFortuneButton.disabled = true;
+        interpretFortuneButton.textContent = '道童正在解签……';
+        return;
+      }
+      if (
+        interactionState === INTERACTION_STATES.INTERPRETATION_ERROR
+      ) {
+        interpretationError.hidden = false;
+        retryInterpretationButton.disabled = false;
+        return;
+      }
+      if (
+        interactionState === INTERACTION_STATES.LOT_INTERPRETED
+        && publicInterpretation
+      ) {
+        interpretationResult.hidden = false;
+        interpretationSummary.textContent =
+          publicInterpretation.summary;
+        interpretationReflection.textContent =
+          publicInterpretation.situationReflection;
+        interpretationAction.textContent =
+          publicInterpretation.smallAction;
+        interpretationSafety.textContent =
+          publicInterpretation.safetyNote;
+      }
     }
   }
 
@@ -341,6 +424,7 @@
     currentTranscript = '';
     transcriptIsFinal = false;
     publicFortuneSession = null;
+    publicInterpretation = null;
     transcriptStatus.textContent = '等待诉说';
     transcriptText.textContent = '您的话会写在这里。';
     setWishPaperBusy(false);
@@ -381,6 +465,33 @@
       && typeof value.createdAt === 'string'
       && typeof value.drawnAt === 'string'
     );
+  }
+
+  function isPublicInterpretationResponse(value, sessionId) {
+    if (
+      !value
+      || typeof value !== 'object'
+      || Array.isArray(value)
+      || value.sessionId !== sessionId
+      || !value.interpretation
+      || typeof value.interpretation !== 'object'
+      || Array.isArray(value.interpretation)
+    ) {
+      return false;
+    }
+    const fields = [
+      'summary',
+      'situationReflection',
+      'smallAction',
+      'safetyNote',
+    ];
+    return Object.keys(value.interpretation).length === fields.length
+      && fields.every(
+        (field) => (
+          typeof value.interpretation[field] === 'string'
+          && value.interpretation[field].trim() !== ''
+        )
+      );
   }
 
   function updateWishPaper(text, isFinal) {
@@ -774,6 +885,87 @@
     }
   }
 
+  async function handleFortuneInterpretation() {
+    if (
+      (
+        interactionState !== INTERACTION_STATES.LOT_DRAWN
+        && interactionState !== INTERACTION_STATES.INTERPRETATION_ERROR
+      )
+      || !publicFortuneSession
+      || typeof publicFortuneSession.id !== 'string'
+      || publicFortuneSession.id === ''
+      || interpretationRequestController !== null
+    ) {
+      return;
+    }
+
+    const sessionId = publicFortuneSession.id;
+    interactionState = INTERACTION_STATES.INTERPRETING_LOT;
+    publicInterpretation = null;
+    renderSpeechState();
+    interpretationRequestGeneration += 1;
+    const requestGeneration = interpretationRequestGeneration;
+    interpretationRequestController =
+      typeof window.AbortController === 'function'
+        ? new window.AbortController()
+        : { signal: undefined, abort() {} };
+
+    try {
+      const response = await window.fetch(
+        `${FORTUNE_SESSION_API_URL}/${encodeURIComponent(sessionId)}`
+          + '/interpretation',
+        {
+          method: 'POST',
+          signal: interpretationRequestController.signal,
+        }
+      );
+      const responseBody = await response.json();
+      if (
+        !response.ok
+        || !isPublicInterpretationResponse(responseBody, sessionId)
+      ) {
+        throw new Error('Fortune interpretation request failed');
+      }
+      if (
+        !pageIsActive
+        || requestGeneration !== interpretationRequestGeneration
+        || interactionState !== INTERACTION_STATES.INTERPRETING_LOT
+      ) {
+        return;
+      }
+
+      publicInterpretation = {
+        summary: responseBody.interpretation.summary,
+        situationReflection:
+          responseBody.interpretation.situationReflection,
+        smallAction: responseBody.interpretation.smallAction,
+        safetyNote: responseBody.interpretation.safetyNote,
+      };
+      interactionState = INTERACTION_STATES.LOT_INTERPRETED;
+      renderSpeechState();
+      if (typeof interpretationResult.focus === 'function') {
+        interpretationResult.focus();
+      }
+    } catch (error) {
+      if (
+        !pageIsActive
+        || requestGeneration !== interpretationRequestGeneration
+        || interactionState !== INTERACTION_STATES.INTERPRETING_LOT
+      ) {
+        return;
+      }
+      interactionState = INTERACTION_STATES.INTERPRETATION_ERROR;
+      renderSpeechState();
+      if (typeof interpretationError.focus === 'function') {
+        interpretationError.focus();
+      }
+    } finally {
+      if (requestGeneration === interpretationRequestGeneration) {
+        interpretationRequestController = null;
+      }
+    }
+  }
+
   function handlePageExit() {
     pageIsActive = false;
     sessionGeneration += 1;
@@ -781,6 +973,11 @@
     if (fortuneRequestController !== null) {
       fortuneRequestController.abort();
       fortuneRequestController = null;
+    }
+    interpretationRequestGeneration += 1;
+    if (interpretationRequestController !== null) {
+      interpretationRequestController.abort();
+      interpretationRequestController = null;
     }
     closeActiveAsrSession();
     clearWishOfferingResources();
@@ -796,6 +993,9 @@
       || interactionState === INTERACTION_STATES.DRAWING_LOT
       || interactionState === INTERACTION_STATES.LOT_DRAWN
       || interactionState === INTERACTION_STATES.LOT_ERROR
+      || interactionState === INTERACTION_STATES.INTERPRETING_LOT
+      || interactionState === INTERACTION_STATES.LOT_INTERPRETED
+      || interactionState === INTERACTION_STATES.INTERPRETATION_ERROR
       || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
       || interactionState === INTERACTION_STATES.ASR_ERROR
     ) {
@@ -827,6 +1027,14 @@
   offerWishButton.addEventListener('click', handleWishOffering);
   drawFortuneButton.addEventListener('click', handleFortuneDraw);
   retryFortuneButton.addEventListener('click', handleFortuneDraw);
+  interpretFortuneButton.addEventListener(
+    'click',
+    handleFortuneInterpretation
+  );
+  retryInterpretationButton.addEventListener(
+    'click',
+    handleFortuneInterpretation
+  );
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
   window.addEventListener('pageshow', handlePageShow);

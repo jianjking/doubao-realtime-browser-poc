@@ -2109,6 +2109,14 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
+    /data-interpret-fortune>请道童解签<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
+    /data-interpretation-result[\s\S]*?签意概括[\s\S]*?道童解读[\s\S]*?眼下可做的小事[\s\S]*?温馨提示/
+  );
+  assert.match(
+    fortuneHtml,
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
   assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);

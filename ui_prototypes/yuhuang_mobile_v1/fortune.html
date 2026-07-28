@@ -109,8 +109,23 @@
         <div class="fortune-lot-verses" data-lot-verses></div>
         <p class="fortune-prototype-notice">当前为项目原型签文，正式签谱后续校订。</p>
         <p class="fortune-cultural-notice">签文仅作传统文化体验与情绪陪伴参考。</p>
-        <p class="fortune-next-stage">签文已出，下一步由道童为您解签。</p>
-        <small>解签将在下一阶段接入。</small>
+        <button class="fortune-interpret-button" type="button" data-interpret-fortune>请道童解签</button>
+        <section class="fortune-interpretation-error" data-interpretation-error tabindex="-1" role="alert" hidden>
+          <h4>暂未解成</h4>
+          <p>道童暂时未能完成解签，请稍后再试。</p>
+          <button class="fortune-interpretation-retry-button" type="button" data-retry-interpretation>重新请道童解签</button>
+        </section>
+        <section class="fortune-interpretation-result" data-interpretation-result tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
+          <h4>签意概括</h4>
+          <p data-interpretation-summary></p>
+          <h4>道童解读</h4>
+          <p data-interpretation-reflection></p>
+          <h4>眼下可做的小事</h4>
+          <p data-interpretation-action></p>
+          <h4>温馨提示</h4>
+          <p data-interpretation-safety></p>
+          <strong>解签仅供传统文化体验与情绪陪伴参考。</strong>
+        </section>
       </section>
     </section>
 

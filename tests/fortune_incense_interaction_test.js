@@ -194,6 +194,21 @@ function loadFortuneRuntime(options = {}) {
   const lotLevel = new FakeElement();
   const lotTitle = new FakeElement();
   const lotVerses = new FakeElement();
+  const interpretFortuneButton = new FakeElement({
+    disabled: true,
+    hidden: true,
+    textContent: '请道童解签',
+  });
+  const interpretationError = new FakeElement({ hidden: true });
+  const retryInterpretationButton = new FakeElement({
+    disabled: true,
+    textContent: '重新请道童解签',
+  });
+  const interpretationResult = new FakeElement({ hidden: true });
+  const interpretationSummary = new FakeElement();
+  const interpretationReflection = new FakeElement();
+  const interpretationAction = new FakeElement();
+  const interpretationSafety = new FakeElement();
   const elements = new Map([
     ['.fortune-page', page],
     ['[data-offer-incense]', offerButton],
@@ -221,6 +236,14 @@ function loadFortuneRuntime(options = {}) {
     ['[data-lot-level]', lotLevel],
     ['[data-lot-title]', lotTitle],
     ['[data-lot-verses]', lotVerses],
+    ['[data-interpret-fortune]', interpretFortuneButton],
+    ['[data-interpretation-error]', interpretationError],
+    ['[data-retry-interpretation]', retryInterpretationButton],
+    ['[data-interpretation-result]', interpretationResult],
+    ['[data-interpretation-summary]', interpretationSummary],
+    ['[data-interpretation-reflection]', interpretationReflection],
+    ['[data-interpretation-action]', interpretationAction],
+    ['[data-interpretation-safety]', interpretationSafety],
   ]);
   const timers = [];
   const windowListeners = new Map();
@@ -347,6 +370,9 @@ function loadFortuneRuntime(options = {}) {
         if (typeof options.fetchImpl === 'function') {
           return options.fetchImpl(pathname, requestOptions);
         }
+        if (pathname.endsWith('/interpretation')) {
+          return Promise.resolve(createInterpretationResponse());
+        }
         return Promise.resolve(createFortuneResponse());
       },
       AbortController: class FakeAbortController {
@@ -382,6 +408,13 @@ function loadFortuneRuntime(options = {}) {
     fetchRequests,
     fortuneError,
     fortuneResult,
+    interpretFortuneButton,
+    interpretationAction,
+    interpretationError,
+    interpretationReflection,
+    interpretationResult,
+    interpretationSafety,
+    interpretationSummary,
     incenseState,
     microphoneRequests,
     lotLevel,
@@ -393,6 +426,7 @@ function loadFortuneRuntime(options = {}) {
     page,
     retryTranscriptButton,
     retryFortuneButton,
+    retryInterpretationButton,
     speakControlButton,
     speechDetail,
     speechMessage,
@@ -413,6 +447,27 @@ function loadFortuneRuntime(options = {}) {
     wishPaper,
     windowListeners,
     abortControllers,
+  };
+}
+
+function createInterpretationResponse(overrides = {}) {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        sessionId: 'fortune-ui-test',
+        interpretation: {
+          summary: '签意提醒先稳住心绪，再辨明方向。',
+          situationReflection:
+            '眼下的担忧值得被看见，可先把可控之事理清。',
+          smallAction: '今天先写下一件最需要核实的小事。',
+          safetyNote:
+            '内容仅作文化体验参考，重要决定请咨询专业人士。',
+          ...overrides,
+        },
+      };
+    },
   };
 }
 
@@ -544,7 +599,18 @@ function verifyStaticSceneAndSafety() {
     html,
     /签文仅作传统文化体验与情绪陪伴参考。/
   );
-  assert.match(html, /解签将在下一阶段接入。/);
+  assert.match(
+    html,
+    /data-interpret-fortune>请道童解签<\/button>/
+  );
+  assert.match(
+    html,
+    /data-interpretation-result[\s\S]*?签意概括[\s\S]*?道童解读[\s\S]*?眼下可做的小事[\s\S]*?温馨提示/
+  );
+  assert.match(
+    html,
+    /解签仅供传统文化体验与情绪陪伴参考。/
+  );
   assert.match(
     html,
     /<script src="\.\/fortune_browser_asr\.js"><\/script>\s*<script src="\.\/fortune\.js"><\/script>/
@@ -605,6 +671,10 @@ function verifyStaticSceneAndSafety() {
   assert.match(
     js,
     /const FORTUNE_SESSION_API_URL = '\/api\/fortune-sessions';/
+  );
+  assert.match(
+    js,
+    /`\$\{FORTUNE_SESSION_API_URL\}\/\$\{encodeURIComponent\(sessionId\)\}`[\s\S]*?\+ '\/interpretation'/
   );
   assert.match(
     js,
@@ -1889,6 +1959,141 @@ async function verifyFortuneDrawFlowAndRetry() {
   assert.equal(exitRuntime.drawFortuneButton.disabled, true);
 }
 
+async function reachDrawnLot(runtime) {
+  await reachOfferedWish(runtime);
+  runtime.drawFortuneButton.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  assert.equal(runtime.fortuneResult.hidden, false);
+  assert.equal(runtime.interpretFortuneButton.hidden, false);
+  assert.equal(runtime.interpretFortuneButton.disabled, false);
+}
+
+async function verifyFortuneInterpretationFlowAndSafety() {
+  const pendingInterpretation = createDeferred();
+  const runtime = loadFortuneRuntime({
+    fetchImpl(pathname) {
+      if (pathname.endsWith('/interpretation')) {
+        return pendingInterpretation.promise;
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
+  });
+  runtime.interpretFortuneButton.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 0);
+  await reachDrawnLot(runtime);
+  assert.equal(
+    runtime.interpretFortuneButton.textContent,
+    '请道童解签'
+  );
+
+  runtime.interpretFortuneButton.trigger('click');
+  runtime.interpretFortuneButton.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 2);
+  const interpretationRequest = runtime.fetchRequests[1];
+  assert.equal(
+    interpretationRequest.pathname,
+    '/api/fortune-sessions/fortune-ui-test/interpretation'
+  );
+  assert.equal(interpretationRequest.method, 'POST');
+  assert.equal('body' in interpretationRequest, false);
+  assert.equal(
+    JSON.stringify(interpretationRequest).includes(
+      runtime.transcriptText.textContent
+    ),
+    false
+  );
+  assert.equal(
+    runtime.interpretFortuneButton.textContent,
+    '道童正在解签……'
+  );
+  assert.equal(runtime.interpretFortuneButton.disabled, true);
+
+  const htmlText = '<img src=x onerror=alert(1)>';
+  pendingInterpretation.resolve(createInterpretationResponse({
+    summary: htmlText,
+  }));
+  await flushPromises();
+  await flushPromises();
+  assert.equal(runtime.interpretationResult.hidden, false);
+  assert.equal(runtime.interpretationResult.focusCallCount, 1);
+  assert.equal(runtime.interpretationSummary.textContent, htmlText);
+  assert.equal(
+    runtime.interpretationReflection.textContent,
+    '眼下的担忧值得被看见，可先把可控之事理清。'
+  );
+  assert.equal(
+    runtime.interpretationAction.textContent,
+    '今天先写下一件最需要核实的小事。'
+  );
+  assert.equal(
+    runtime.interpretationSafety.textContent,
+    '内容仅作文化体验参考，重要决定请咨询专业人士。'
+  );
+  assert.equal(runtime.interpretFortuneButton.hidden, true);
+  assert.equal(runtime.retryInterpretationButton.disabled, true);
+  runtime.interpretFortuneButton.trigger('click');
+  runtime.retryInterpretationButton.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 2);
+
+  let interpretationCallCount = 0;
+  const retryRuntime = loadFortuneRuntime({
+    fetchImpl(pathname) {
+      if (!pathname.endsWith('/interpretation')) {
+        return Promise.resolve(createFortuneResponse());
+      }
+      interpretationCallCount += 1;
+      if (interpretationCallCount === 1) {
+        return Promise.reject(new Error('model unavailable'));
+      }
+      return Promise.resolve(createInterpretationResponse());
+    },
+  });
+  await reachDrawnLot(retryRuntime);
+  retryRuntime.interpretFortuneButton.trigger('click');
+  await flushPromises();
+  assert.equal(retryRuntime.interpretationResult.hidden, true);
+  assert.equal(retryRuntime.interpretationError.hidden, false);
+  assert.equal(retryRuntime.interpretationError.focusCallCount, 1);
+  assert.equal(
+    retryRuntime.retryInterpretationButton.disabled,
+    false
+  );
+  retryRuntime.retryInterpretationButton.trigger('click');
+  retryRuntime.retryInterpretationButton.trigger('click');
+  assert.equal(interpretationCallCount, 2);
+  const retryRequest = retryRuntime.fetchRequests.at(-1);
+  assert.equal(
+    retryRequest.pathname,
+    '/api/fortune-sessions/fortune-ui-test/interpretation'
+  );
+  assert.equal('body' in retryRequest, false);
+  await flushPromises();
+  await flushPromises();
+  assert.equal(retryRuntime.interpretationResult.hidden, false);
+  assert.equal(retryRuntime.interpretationError.hidden, true);
+
+  const exitDeferred = createDeferred();
+  const exitRuntime = loadFortuneRuntime({
+    fetchImpl(pathname) {
+      if (pathname.endsWith('/interpretation')) {
+        return exitDeferred.promise;
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
+  });
+  await reachDrawnLot(exitRuntime);
+  exitRuntime.interpretFortuneButton.trigger('click');
+  const interpretationController =
+    exitRuntime.abortControllers.at(-1);
+  exitRuntime.triggerWindow('beforeunload');
+  assert.equal(interpretationController.abortCallCount, 1);
+  exitDeferred.resolve(createInterpretationResponse());
+  await flushPromises();
+  await flushPromises();
+  assert.equal(exitRuntime.interpretationResult.hidden, true);
+}
+
 async function verifyAsrErrorsTimeoutAndIdempotentClose() {
   const errorEvents = [];
   const runtime = loadFortuneAsrRuntime();
@@ -2106,6 +2311,7 @@ async function main() {
   await verifyWishPaperConfirmationRetryAndErrors();
   await verifyWishOfferingAnimationAndCleanup();
   await verifyFortuneDrawFlowAndRetry();
+  await verifyFortuneInterpretationFlowAndSafety();
   await verifyAsrErrorsTimeoutAndIdempotentClose();
   await verifyModulePageExitAndFailureBoundaries();
 
@@ -2119,6 +2325,7 @@ async function main() {
       + 'binary-chunks,tail-before-finish,partial-final-preview,'
       + 'wish-paper-confirm-retry,wish-offering-animation,'
       + 'fixed-fortune-draw,manual-fortune-retry,'
+      + 'fortune-interpretation,interpretation-safe-render,'
       + 'final-timeout,asr-error,'
       + 'abnormal-close,stale-session\n'
   );

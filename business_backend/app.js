@@ -88,6 +88,7 @@ function createApp(options = {}) {
     clock: options.clock,
     idGenerator: options.fortuneSessionIdGenerator,
     randomInt: options.fortuneRandomInt,
+    interpretationClient: options.fortuneInterpretationClient,
   });
   const requireSession = createRequireSession({ sessionService });
   const app = express();
@@ -178,6 +179,11 @@ function createApp(options = {}) {
         request.method === 'POST'
         && request.path === '/api/fortune-sessions'
       );
+      const isFortuneInterpretationRequest = (
+        request.method === 'POST'
+        && /^\/api\/fortune-sessions\/[^/]+\/interpretation$/
+          .test(request.path)
+      );
       const isCallRequest = (
         request.method === 'POST'
         && request.path === '/api/calls'
@@ -190,6 +196,8 @@ function createApp(options = {}) {
         error: {
           code: isCallRequest
             ? 'INVALID_CALL_REQUEST'
+            : isFortuneInterpretationRequest
+              ? 'INVALID_FORTUNE_INTERPRETATION_REQUEST'
             : isFortuneRequest
               ? 'INVALID_FORTUNE_REQUEST'
             : isDevRechargeRequest
@@ -197,6 +205,8 @@ function createApp(options = {}) {
               : 'INVALID_LOGIN_REQUEST',
           message: isCallRequest
             ? 'A valid roleSlug is required'
+            : isFortuneInterpretationRequest
+              ? 'Interpretation request body must be empty'
             : isFortuneRequest
               ? 'A valid fortune request is required'
             : isDevRechargeRequest
