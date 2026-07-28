@@ -122,6 +122,7 @@ test('configured business backend serves the authoritative mobile UI', async () 
     for (const requestedFile of [
       'choice.html',
       'fortune.html',
+      'fortune.js',
       'entry.css',
       'index.html',
       'home.html',

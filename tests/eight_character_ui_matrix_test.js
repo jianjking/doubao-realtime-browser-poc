@@ -2061,29 +2061,29 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
-    /敬香[\s\S]*?诉说处境[\s\S]*?抽取签文[\s\S]*?道童解签/
+    /<section class="temple-scene"[\s\S]*?神明高坐庙堂/
   );
   assert.match(
     fortuneHtml,
-    /<strong>神仙：<\/strong>高坐庙堂，接受香火与祈愿。/
+    /<section class="offering-stage"[\s\S]*?香炉与一炷未点燃的香/
   );
   assert.match(
     fortuneHtml,
-    /<strong>道童：<\/strong>负责后续引导、接签和解签。/
+    /<section class="acolyte-guide"[\s\S]*?道童引导/
   );
-  assert.doesNotMatch(fortuneHtml, /神仙亲自解签/);
-  assert.match(fortuneHtml, /求签功能正在搭建/);
   assert.match(
     fortuneHtml,
-    /<button type="button" disabled aria-describedby="fortune-status-title">开始求签<\/button>/
+    /<button class="offer-incense-button" type="button" data-offer-incense>敬上一炷香<\/button>/
   );
   assert.match(
     fortuneHtml,
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
+  assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);
+  assert.doesNotMatch(fortuneHtml, /神仙亲自解签/);
   assert.doesNotMatch(
     fortuneHtml,
-    /<(?:input|textarea|script)\b|contenteditable=|麦克风|抽签动画|签文结果/
+    /<(?:input|textarea)\b|contenteditable=|麦克风|抽签动画|签文结果/
   );
 
   assert.match(entryCss, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/);
@@ -2122,7 +2122,7 @@ async function main() {
       + 'role-pricing-catalog,role-pricing-eight-roles,'
       + 'role-pricing-loading-error-dedup-bfcache,role-pricing-overlay,'
       + 'fixed-custom-wechat-alipay-refresh-balance,lifecycle-boundary,'
-      + 'call-fortune-choice,fortune-static-boundary\n'
+      + 'call-fortune-choice,fortune-incense-entry\n'
   );
   process.stdout.write(
     `businessCallIdScenarios=${businessCallIdScenarioCount}\n`

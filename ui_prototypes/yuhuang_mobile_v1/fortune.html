@@ -17,29 +17,65 @@
     </div>
 
     <header class="entry-heading fortune-heading">
-      <p class="entry-kicker">庙堂求签</p>
+      <p class="entry-kicker">静心入殿</p>
       <h1 id="fortune-title">上香求签</h1>
       <p class="fortune-introduction">神明高坐庙堂，道童在殿前引导求签。</p>
     </header>
 
-    <section class="fortune-section" aria-labelledby="fortune-flow-title">
-      <h2 id="fortune-flow-title">求签流程预告</h2>
-      <p class="fortune-flow">敬香 <span>→</span> 诉说处境 <span>→</span> 抽取签文 <span>→</span> 道童解签</p>
+    <section class="temple-scene" aria-labelledby="temple-scene-title">
+      <h2 id="temple-scene-title">神明高坐庙堂</h2>
+      <div class="sanctuary" role="img" aria-label="神明高坐神龛，殿内供灯散发柔和金光">
+        <span class="sanctuary-canopy" aria-hidden="true"></span>
+        <span class="offering-lamp offering-lamp-left" aria-hidden="true"></span>
+        <span class="offering-lamp offering-lamp-right" aria-hidden="true"></span>
+        <div class="deity-seat" aria-hidden="true">
+          <span class="deity-halo"></span>
+          <span class="deity-silhouette"></span>
+          <span class="deity-tablet">神明</span>
+        </div>
+      </div>
+      <p>神明居于庙堂高处，安然接受香火与祈愿。</p>
     </section>
 
-    <section class="fortune-section role-boundary" aria-labelledby="role-boundary-title">
-      <h2 id="role-boundary-title">神仙与道童各司其职</h2>
-      <p><strong>神仙：</strong>高坐庙堂，接受香火与祈愿。</p>
-      <p><strong>道童：</strong>负责后续引导、接签和解签。</p>
+    <section class="offering-stage" aria-labelledby="offering-stage-title">
+      <h2 id="offering-stage-title">殿前香案</h2>
+      <div class="incense-table" aria-label="香炉与一炷未点燃的香">
+        <div class="incense-stick" aria-hidden="true">
+          <span class="incense-ember"></span>
+          <span class="incense-smoke incense-smoke-one"></span>
+          <span class="incense-smoke incense-smoke-two"></span>
+        </div>
+        <div class="incense-burner" aria-hidden="true">
+          <span class="burner-rim"></span>
+          <span class="burner-body">福</span>
+          <span class="burner-foot burner-foot-left"></span>
+          <span class="burner-foot burner-foot-right"></span>
+        </div>
+      </div>
+      <p class="incense-state" data-incense-state aria-live="polite">香尚未点燃</p>
     </section>
 
-    <section class="fortune-status" aria-labelledby="fortune-status-title">
-      <h2 id="fortune-status-title">求签功能正在搭建</h2>
-      <p>本阶段先展示入口与流程定位，暂时不能开始求签。</p>
-      <button type="button" disabled aria-describedby="fortune-status-title">开始求签</button>
+    <section class="acolyte-guide" aria-labelledby="acolyte-guide-title">
+      <div class="acolyte-silhouette" aria-hidden="true">
+        <span class="acolyte-head"></span>
+        <span class="acolyte-body"></span>
+      </div>
+      <div class="acolyte-copy">
+        <h2 id="acolyte-guide-title">道童引导</h2>
+        <p data-acolyte-guidance aria-live="polite" aria-atomic="true">善信请静心，先敬上一炷香。</p>
+      </div>
+    </section>
+
+    <button class="offer-incense-button" type="button" data-offer-incense>敬上一炷香</button>
+
+    <section class="waiting-to-speak" data-waiting-state aria-labelledby="waiting-to-speak-title" hidden>
+      <h2 id="waiting-to-speak-title">等待诉说</h2>
+      <p>香火已起，请慢慢说说您的处境。</p>
+      <small>语音诉说将在下一阶段接入</small>
     </section>
 
     <a class="return-choice-button" href="./choice.html">返回功能选择</a>
   </main>
+  <script src="./fortune.js"></script>
 </body>
 </html>

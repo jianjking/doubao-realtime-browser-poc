@@ -213,7 +213,7 @@ a {
 
 .feature-card:focus-visible,
 .return-choice-button:focus-visible,
-.fortune-status button:focus-visible {
+.offer-incense-button:focus-visible {
   outline: 4px solid #fff2bd;
   outline-offset: 3px;
 }
@@ -229,12 +229,15 @@ a {
 .fortune-page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   overflow-y: auto;
+  background:
+    linear-gradient(180deg, rgba(31, 8, 12, 0.12), rgba(62, 25, 26, 0.28) 64%, rgba(243, 234, 217, 0.96)),
+    linear-gradient(155deg, #281014 0%, #511f24 50%, #8d5549 76%, #f3ead9 100%);
 }
 
 .fortune-heading h1 {
-  font-size: clamp(36px, 10vw, 44px);
+  font-size: clamp(34px, 9vw, 42px);
 }
 
 .fortune-introduction {
@@ -242,70 +245,450 @@ a {
   margin-inline: auto !important;
 }
 
-.fortune-section,
-.fortune-status {
-  padding: 18px;
-  border: 1px solid rgba(155, 122, 78, 0.5);
-  border-radius: 20px 12px 20px 12px;
-  background: rgba(255, 248, 233, 0.94);
-  box-shadow: 0 9px 22px rgba(51, 15, 19, 0.16);
+.temple-scene,
+.offering-stage,
+.acolyte-guide,
+.waiting-to-speak {
+  border: 1px solid rgba(225, 189, 112, 0.58);
+  box-shadow: 0 9px 22px rgba(32, 8, 11, 0.22);
 }
 
-.fortune-section h2,
-.fortune-status h2 {
-  margin: 0 0 10px;
-  color: #65292e;
-  font-size: 22px;
+.temple-scene {
+  position: relative;
+  overflow: hidden;
+  padding: 16px 16px 14px;
+  border-radius: 22px 12px 22px 12px;
+  color: var(--cream);
+  background:
+    radial-gradient(circle at 50% 38%, rgba(229, 184, 92, 0.23), transparent 38%),
+    linear-gradient(180deg, rgba(36, 10, 14, 0.98), rgba(91, 35, 40, 0.96));
+  text-align: center;
+}
+
+.temple-scene::before,
+.temple-scene::after {
+  position: absolute;
+  top: 48px;
+  bottom: 13px;
+  width: 14px;
+  border: 1px solid rgba(225, 189, 112, 0.38);
+  background: linear-gradient(90deg, #351217, #7b3438, #351217);
+  content: "";
+}
+
+.temple-scene::before {
+  left: 12px;
+}
+
+.temple-scene::after {
+  right: 12px;
+}
+
+.temple-scene h2,
+.offering-stage h2,
+.acolyte-guide h2,
+.waiting-to-speak h2 {
+  margin: 0;
+  font-size: 21px;
   line-height: 1.35;
 }
 
-.fortune-flow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 4px 8px;
-  margin: 0;
-  color: #553b35;
-  font-size: 18px;
+.temple-scene h2 {
+  position: relative;
+  z-index: 2;
+  color: #f4dcae;
+  letter-spacing: 0.08em;
+}
+
+.sanctuary {
+  position: relative;
+  width: min(270px, 88%);
+  height: 208px;
+  margin: 10px auto 4px;
+  border-right: 2px solid rgba(225, 189, 112, 0.48);
+  border-bottom: 2px solid rgba(225, 189, 112, 0.48);
+  border-left: 2px solid rgba(225, 189, 112, 0.48);
+  border-radius: 92px 92px 14px 14px;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 228, 168, 0.06), transparent),
+    rgba(29, 8, 12, 0.56);
+}
+
+.sanctuary-canopy {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -12px;
+  left: -12px;
+  height: 30px;
+  border: 2px solid rgba(225, 189, 112, 0.7);
+  border-radius: 50% 50% 9px 9px;
+  background: linear-gradient(180deg, #9b5b46, #562229);
+  box-shadow: 0 7px 0 -3px rgba(225, 189, 112, 0.58);
+}
+
+.deity-seat {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  width: 150px;
+  height: 145px;
+  transform: translateX(-50%);
+}
+
+.deity-halo {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 126px;
+  height: 126px;
+  border: 1px solid rgba(255, 221, 151, 0.42);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 221, 151, 0.3), rgba(225, 189, 112, 0.08) 54%, transparent 70%);
+  transform: translateX(-50%);
+}
+
+.deity-silhouette {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  width: 82px;
+  height: 94px;
+  border-radius: 42px 42px 16px 16px;
+  background:
+    radial-gradient(circle at 50% 20%, #341216 0 17px, transparent 18px),
+    linear-gradient(100deg, transparent 19%, #341216 20% 80%, transparent 81%);
+  filter: drop-shadow(0 0 11px rgba(229, 184, 92, 0.34));
+  transform: translateX(-50%);
+}
+
+.deity-tablet {
+  position: absolute;
+  right: 19px;
+  bottom: 0;
+  left: 19px;
+  height: 48px;
+  padding-top: 8px;
+  border: 2px solid rgba(225, 189, 112, 0.72);
+  border-radius: 22px 22px 5px 5px;
+  color: #f6dfae;
+  background: linear-gradient(180deg, #7d3438, #44181e);
+  font-family: "STKaiti", "KaiTi", serif;
+  font-size: 21px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.offering-lamp {
+  position: absolute;
+  bottom: 27px;
+  width: 21px;
+  height: 39px;
+  border: 2px solid rgba(225, 189, 112, 0.7);
+  border-radius: 10px 10px 5px 5px;
+  background: radial-gradient(circle at 50% 38%, #ffe09c, #b86d3d 42%, #4f1d21 70%);
+  box-shadow: 0 0 19px rgba(247, 194, 101, 0.28);
+}
+
+.offering-lamp::after {
+  position: absolute;
+  right: 5px;
+  bottom: -8px;
+  left: 5px;
+  height: 8px;
+  border-radius: 0 0 4px 4px;
+  background: #9b7a4e;
+  content: "";
+}
+
+.offering-lamp-left {
+  left: 26px;
+}
+
+.offering-lamp-right {
+  right: 26px;
+}
+
+.temple-scene > p {
+  position: relative;
+  z-index: 2;
+  margin: 5px 18px 0;
+  color: rgba(255, 248, 233, 0.82);
+  font-size: 15px;
+}
+
+.offering-stage {
+  padding: 14px 18px 16px;
+  border-radius: 18px 10px 18px 10px;
+  color: var(--cream);
+  background:
+    linear-gradient(180deg, rgba(255, 248, 233, 0.08), transparent),
+    rgba(74, 26, 30, 0.92);
+  text-align: center;
+}
+
+.offering-stage h2 {
+  color: #f1d49b;
+}
+
+.incense-table {
+  position: relative;
+  height: 174px;
+  margin: 4px auto 0;
+  border-bottom: 13px solid #4b1a1f;
+  border-radius: 0 0 42% 42%;
+  box-shadow: 0 8px 0 #2d0d12, 0 13px 18px rgba(25, 5, 8, 0.34);
+}
+
+.incense-stick {
+  position: absolute;
+  z-index: 2;
+  bottom: 50px;
+  left: 50%;
+  width: 5px;
+  height: 93px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(90deg, #7f3a31, #d28a5e, #7f3a31);
+  transform: translateX(-50%);
+}
+
+.incense-ember {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  opacity: 0;
+  background: #ffca70;
+  box-shadow: 0 0 0 3px rgba(143, 49, 30, 0.8), 0 0 17px 7px rgba(255, 162, 65, 0.56);
+  transform: translateX(-50%) scale(0.7);
+  transition: opacity 650ms ease, transform 900ms ease;
+}
+
+.incense-smoke {
+  position: absolute;
+  top: -67px;
+  left: 50%;
+  width: 28px;
+  height: 72px;
+  border-left: 3px solid rgba(243, 234, 217, 0.58);
+  border-radius: 50%;
+  opacity: 0;
+  filter: blur(1.5px);
+  transform: translateX(-50%);
+  animation: incense-smoke-rise 5.2s ease-in-out infinite;
+  animation-play-state: paused;
+  transition: opacity 900ms ease 350ms;
+}
+
+.incense-smoke-two {
+  top: -83px;
+  width: 38px;
+  height: 88px;
+  border-left-color: rgba(243, 234, 217, 0.36);
+  animation-delay: -2.6s;
+}
+
+.is-offering-incense .incense-ember,
+.has-offered-incense .incense-ember {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+.is-offering-incense .incense-smoke,
+.has-offered-incense .incense-smoke {
+  opacity: 0.68;
+  animation-play-state: running;
+}
+
+.incense-burner {
+  position: absolute;
+  z-index: 3;
+  bottom: 10px;
+  left: 50%;
+  width: 112px;
+  height: 70px;
+  transform: translateX(-50%);
+}
+
+.burner-rim {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 23px;
+  border: 3px solid #d0a961;
+  border-radius: 50%;
+  background: #361216;
+  box-shadow: inset 0 5px 7px rgba(8, 2, 3, 0.68);
+}
+
+.burner-body {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  left: 10px;
+  height: 52px;
+  padding-top: 16px;
+  border: 2px solid #d0a961;
+  border-radius: 8px 8px 37px 37px;
+  color: #edcf91;
+  background: linear-gradient(90deg, #5b2227, #8c443c 50%, #5b2227);
+  font-family: "STKaiti", "KaiTi", serif;
+  font-size: 21px;
+  font-weight: 800;
+}
+
+.burner-foot {
+  position: absolute;
+  bottom: 0;
+  width: 13px;
+  height: 10px;
+  border-radius: 0 0 5px 5px;
+  background: #d0a961;
+}
+
+.burner-foot-left {
+  left: 24px;
+}
+
+.burner-foot-right {
+  right: 24px;
+}
+
+.incense-state {
+  margin: 10px 0 0;
+  color: rgba(255, 248, 233, 0.78);
+  font-size: 16px;
   font-weight: 800;
   text-align: center;
 }
 
-.fortune-flow span {
-  color: var(--gold-deep);
-  font-size: 21px;
+.acolyte-guide {
+  display: grid;
+  min-height: 112px;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 18px 10px 18px 10px;
+  background: rgba(255, 248, 233, 0.96);
 }
 
-.role-boundary p {
-  margin: 8px 0 0;
+.acolyte-silhouette {
+  position: relative;
+  width: 68px;
+  height: 82px;
+  border: 2px solid rgba(155, 122, 78, 0.46);
+  border-radius: 34px 34px 16px 16px;
+  background: radial-gradient(circle at 50% 28%, #f1d9b6, #d8b482 55%, #9b5f57 56%);
 }
 
-.role-boundary strong {
+.acolyte-head {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 29px;
+  height: 29px;
+  border-radius: 50%;
+  background: #4a1b20;
+  transform: translateX(-50%);
+}
+
+.acolyte-head::before,
+.acolyte-head::after {
+  position: absolute;
+  top: -5px;
+  width: 10px;
+  height: 14px;
+  border-radius: 50%;
+  background: #4a1b20;
+  content: "";
+}
+
+.acolyte-head::before {
+  left: -3px;
+}
+
+.acolyte-head::after {
+  right: -3px;
+}
+
+.acolyte-body {
+  position: absolute;
+  bottom: 7px;
+  left: 50%;
+  width: 46px;
+  height: 37px;
+  border-radius: 22px 22px 8px 8px;
+  background: #6d2b30;
+  transform: translateX(-50%);
+}
+
+.acolyte-copy {
+  min-width: 0;
+}
+
+.acolyte-copy h2 {
   color: #65292e;
 }
 
-.fortune-status {
+.acolyte-copy p {
+  margin: 5px 0 0;
+  color: #553b35;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.offer-incense-button {
+  width: 100%;
+  min-height: 62px;
+  padding: 10px 18px;
+  border: 2px solid var(--gold);
+  border-radius: 18px;
+  color: var(--cream);
+  background: linear-gradient(180deg, #83363b, #5a2026);
+  box-shadow: 0 8px 18px rgba(35, 7, 11, 0.28);
+  cursor: pointer;
+  font-size: 21px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.offer-incense-button:active:not(:disabled) {
+  background: var(--wine-deep);
+}
+
+.offer-incense-button:disabled {
+  border-color: #b99b64;
+  color: rgba(255, 248, 233, 0.78);
+  background: #684044;
+  cursor: not-allowed;
+}
+
+.waiting-to-speak {
+  padding: 16px 18px;
+  border-radius: 18px 10px 18px 10px;
+  color: #52342f;
+  background: rgba(255, 248, 233, 0.96);
   text-align: center;
 }
 
-.fortune-status p {
-  margin: 0 0 14px;
-  color: #6c5a54;
-  font-size: 16px;
+.waiting-to-speak h2 {
+  color: #65292e;
 }
 
-.fortune-status button {
-  width: 100%;
-  min-height: 56px;
-  padding: 10px 18px;
-  border: 2px solid #b6a28a;
-  border-radius: 16px;
-  color: #756b65;
-  background: #e7dfd5;
-  font-size: 19px;
+.waiting-to-speak p {
+  margin: 7px 0 2px;
+  font-size: 18px;
   font-weight: 800;
-  cursor: not-allowed;
+}
+
+.waiting-to-speak small {
+  color: #78655f;
+  font-size: 15px;
 }
 
 .return-choice-button {
@@ -325,6 +708,20 @@ a {
 
 .return-choice-button:active {
   background: var(--wine-deep);
+}
+
+@keyframes incense-smoke-rise {
+  0% {
+    transform: translate3d(-50%, 9px, 0) scaleX(0.78);
+  }
+
+  48% {
+    transform: translate3d(-37%, -17px, 0) scaleX(1.08);
+  }
+
+  100% {
+    transform: translate3d(-62%, -36px, 0) scaleX(0.82);
+  }
 }
 
 @media (max-width: 359px) {
@@ -372,5 +769,20 @@ a {
     border: 1px solid rgba(255, 244, 210, 0.22);
     border-radius: 30px;
     box-shadow: 0 24px 70px rgba(5, 14, 21, 0.46);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .incense-smoke {
+    animation: none !important;
   }
 }
