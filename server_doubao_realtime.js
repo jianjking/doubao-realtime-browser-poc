@@ -23,6 +23,8 @@ const {
 const HOST = '127.0.0.1';
 const PORT = 3001;
 const WEBSOCKET_PATH = '/realtime';
+const FORTUNE_ASR_WEBSOCKET_PATH = '/fortune-asr';
+const FORTUNE_ASR_ENABLE_ENV_NAME = 'DOUBAO_ENABLE_FORTUNE_ASR';
 const RELAY_VERSION = 'browser-relay-smoke-v1';
 const DOUBAO_URL = 'wss://openspeech.bytedance.com/api/v3/realtime/dialogue';
 const DOUBAO_RESOURCE_ID = 'volc.speech.dialog';
@@ -152,6 +154,10 @@ function isValidBusinessCallId(value) {
 
 function isProtocolDebugEnabled() {
   return process.env.DOUBAO_PROTOCOL_DEBUG === '1';
+}
+
+function isFortuneAsrEnabled(env = process.env) {
+  return env[FORTUNE_ASR_ENABLE_ENV_NAME] === '1';
 }
 
 function isSunwukongEnabled() {
@@ -2400,6 +2406,25 @@ function startServer({
   const app = express();
   const server = http.createServer(app);
   const websocketServer = new WebSocketServer({ noServer: true });
+  const fortuneAsrEnabled = isFortuneAsrEnabled();
+  let fortuneAsrWebSocketServer = null;
+  let handleFortuneAsrConnection = null;
+
+  if (fortuneAsrEnabled) {
+    const {
+      createFortuneAsrClientFactoryFromEnv,
+      createFortuneAsrRelayConnectionHandler,
+    } = require('./fortune_asr_relay');
+    fortuneAsrWebSocketServer = new WebSocketServer({ noServer: true });
+    handleFortuneAsrConnection = createFortuneAsrRelayConnectionHandler({
+      asrClientFactory: createFortuneAsrClientFactoryFromEnv(),
+      logger: log,
+    });
+  }
+
+  const websocketServers = fortuneAsrWebSocketServer
+    ? [websocketServer, fortuneAsrWebSocketServer]
+    : [websocketServer];
   const contexts = new Set();
   let shuttingDown = false;
 
@@ -2429,15 +2454,24 @@ function startServer({
       return;
     }
 
-    if (pathname !== WEBSOCKET_PATH) {
+    if (
+      pathname !== WEBSOCKET_PATH
+      && (
+        pathname !== FORTUNE_ASR_WEBSOCKET_PATH
+        || !fortuneAsrWebSocketServer
+      )
+    ) {
       log(`[Relay] 拒绝 WebSocket 路径：${pathname}`);
       socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
     }
 
-    websocketServer.handleUpgrade(request, socket, head, (websocket) => {
-      websocketServer.emit('connection', websocket, request);
+    const targetWebSocketServer = pathname === WEBSOCKET_PATH
+      ? websocketServer
+      : fortuneAsrWebSocketServer;
+    targetWebSocketServer.handleUpgrade(request, socket, head, (websocket) => {
+      targetWebSocketServer.emit('connection', websocket, request);
     });
   });
 
@@ -2450,6 +2484,12 @@ function startServer({
     );
   });
 
+  if (fortuneAsrWebSocketServer) {
+    fortuneAsrWebSocketServer.on('connection', (socket) => {
+      handleFortuneAsrConnection(socket);
+    });
+  }
+
   server.on('error', (error) => {
     log(`[Relay] HTTP Server 错误：${error.message}`);
   });
@@ -2457,6 +2497,12 @@ function startServer({
   server.listen(PORT, HOST, () => {
     log(`[Relay] HTTP: http://${HOST}:${PORT}`);
     log(`[Relay] WebSocket: ws://${HOST}:${PORT}${WEBSOCKET_PATH}`);
+    if (fortuneAsrWebSocketServer) {
+      log(
+        `[Relay] Fortune ASR WebSocket: `
+        + `ws://${HOST}:${PORT}${FORTUNE_ASR_WEBSOCKET_PATH}`
+      );
+    }
   });
 
   process.once('SIGINT', () => {
@@ -2481,31 +2527,35 @@ function startServer({
         ))
       );
 
-      for (const client of websocketServer.clients) {
-        if (client.readyState === WebSocket.OPEN
-          || client.readyState === WebSocket.CONNECTING) {
-          client.close(1001, 'relay shutting down');
+      for (const currentWebSocketServer of websocketServers) {
+        for (const client of currentWebSocketServer.clients) {
+          if (client.readyState === WebSocket.OPEN
+            || client.readyState === WebSocket.CONNECTING) {
+            client.close(1001, 'relay shutting down');
+          }
         }
       }
 
-      await new Promise((resolve) => {
-        const forceCloseTimer = setTimeout(() => {
-          for (const client of websocketServer.clients) {
-            client.terminate();
-          }
-        }, 2000);
+      await Promise.all(websocketServers.map(
+        (currentWebSocketServer) => new Promise((resolve) => {
+          const forceCloseTimer = setTimeout(() => {
+            for (const client of currentWebSocketServer.clients) {
+              client.terminate();
+            }
+          }, 2000);
 
-        websocketServer.close((error) => {
-          clearTimeout(forceCloseTimer);
-          if (error) {
-            shutdownFailed = true;
-            log(`[Relay] WebSocketServer 关闭错误：${error.message}`);
-          } else {
-            log('[Relay] WebSocketServer 已关闭');
-          }
-          resolve();
-        });
-      });
+          currentWebSocketServer.close((error) => {
+            clearTimeout(forceCloseTimer);
+            if (error) {
+              shutdownFailed = true;
+              log(`[Relay] WebSocketServer 关闭错误：${error.message}`);
+            } else {
+              log('[Relay] WebSocketServer 已关闭');
+            }
+            resolve();
+          });
+        })
+      ));
 
       await new Promise((resolve) => {
         server.close((error) => {

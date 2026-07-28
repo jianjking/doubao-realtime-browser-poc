@@ -517,3 +517,19 @@ test('close is idempotent and late events cannot reopen the client', async () =>
   ]);
   assert.equal(closedEvents.length, 1);
 });
+
+test('event listeners can be removed for relay cleanup', async () => {
+  resetFakeWebSockets();
+  const client = createTestClient();
+  let readyEvents = 0;
+  function handleReady() {
+    readyEvents += 1;
+  }
+
+  client.on('ready', handleReady);
+  assert.equal(client.off('ready', handleReady), client);
+  await connectAndOpen(client);
+
+  assert.equal(readyEvents, 0);
+  client.close();
+});

@@ -853,6 +853,10 @@ function createFortuneAsrClient({
       emitter.once(eventName, listener);
       return api;
     },
+    off(eventName, listener) {
+      emitter.off(eventName, listener);
+      return api;
+    },
     connect,
     sendPcmChunk,
     finish,
