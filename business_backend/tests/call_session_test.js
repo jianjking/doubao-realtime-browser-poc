@@ -33,6 +33,7 @@ function createCall(overrides = {}) {
     roleSlug: 'yuhuang',
     billingUnitMs: 6000,
     pricePerBillingUnitFen: 10,
+    chargeFen: null,
     status: 'pending',
     createdAt: FIXED_TIME,
     startedAt: null,
@@ -284,6 +285,7 @@ test('call service creates and stores a server-owned pending call', () => {
     roleSlug: 'yuhuang',
     billingUnitMs: 6000,
     pricePerBillingUnitFen: 10,
+    chargeFen: null,
     status: 'pending',
     createdAt: FIXED_TIME,
     startedAt: null,
@@ -314,10 +316,15 @@ test('call service snapshots role pricing for every new call', () => {
     Object.hasOwn(publicCall, 'pricePerBillingUnitFen'),
     false
   );
+  assert.equal(
+    Object.hasOwn(publicCall, 'chargeFen'),
+    false
+  );
 
   const oldCall = callStore.findById('call-price-old');
   assert.equal(oldCall.billingUnitMs, 6000);
   assert.equal(oldCall.pricePerBillingUnitFen, 10);
+  assert.equal(oldCall.chargeFen, null);
 
   const repricedRoles = PUBLIC_ROLES.map((role) => ({
     ...role,
@@ -348,6 +355,7 @@ test('call service snapshots role pricing for every new call', () => {
   assert.equal(unchangedOldCall.pricePerBillingUnitFen, 10);
   assert.equal(newCall.billingUnitMs, 3000);
   assert.equal(newCall.pricePerBillingUnitFen, 7);
+  assert.equal(newCall.chargeFen, null);
 });
 
 test('call service enforces exact and available role slugs', () => {
@@ -495,6 +503,7 @@ test('phone users create a strict public pending call', async () => {
       'remainingSeconds',
       'billingUnitMs',
       'pricePerBillingUnitFen',
+      'chargeFen',
       rawToken,
       'tokenHash',
       'speaker',
@@ -529,6 +538,7 @@ test('client-supplied call fields cannot override server values', async () => {
       endedAt: '2000-01-01T00:00:00.000Z',
       billingUnitMs: 1,
       pricePerBillingUnitFen: 999999,
+      chargeFen: 999999,
       role: {
         slug: 'unknown',
       },

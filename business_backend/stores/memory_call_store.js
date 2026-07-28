@@ -6,6 +6,7 @@ const CALL_FIELDS = new Set([
   'roleSlug',
   'billingUnitMs',
   'pricePerBillingUnitFen',
+  'chargeFen',
   'status',
   'createdAt',
   'startedAt',
@@ -71,6 +72,27 @@ function validateCall(call) {
   }
   if (typeof call.createdAt !== 'string' || call.createdAt === '') {
     throw new TypeError('call.createdAt must be a non-empty string');
+  }
+
+  if (call.status === 'ended') {
+    if (
+      !Number.isSafeInteger(call.chargeFen)
+      || call.chargeFen < 0
+    ) {
+      throw new TypeError(
+        'call.chargeFen must be a non-negative safe integer for ended'
+      );
+    }
+  } else if (call.status === 'failed') {
+    if (call.chargeFen !== 0) {
+      throw new TypeError(
+        'call.chargeFen must be zero for failed'
+      );
+    }
+  } else if (call.chargeFen !== null) {
+    throw new TypeError(
+      `call.chargeFen must be null for ${call.status}`
+    );
   }
 
   if (call.status === 'pending' || call.status === 'connecting') {
@@ -162,6 +184,15 @@ class MemoryCallStore {
       || call.createdAt !== existingCall.createdAt
     ) {
       throw new Error('Call identity fields cannot be changed');
+    }
+    if (
+      (existingCall.status === 'ended'
+        || existingCall.status === 'failed')
+      && call.chargeFen !== existingCall.chargeFen
+    ) {
+      throw new Error(
+        'Terminal call charge cannot be changed'
+      );
     }
     this.#callsById.set(call.id, { ...call });
   }

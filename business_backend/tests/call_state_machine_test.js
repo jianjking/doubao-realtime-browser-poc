@@ -19,6 +19,7 @@ function createCall(overrides = {}) {
     roleSlug: 'yuhuang',
     billingUnitMs: 6000,
     pricePerBillingUnitFen: 10,
+    chargeFen: null,
     status: 'pending',
     createdAt: CREATED_AT,
     startedAt: null,
@@ -88,10 +89,17 @@ test('memory call store supports valid lifecycle shapes', () => {
     status: 'ended',
     startedAt: ACTIVE_AT,
     endedAt: ENDED_AT,
+    chargeFen: 100,
   });
   callStore.replace(endedCall);
   const foundCall = callStore.findById(pendingCall.id);
   assert.deepEqual(foundCall, endedCall);
+  assert.throws(() => {
+    callStore.replace({
+      ...endedCall,
+      chargeFen: 90,
+    });
+  }, /Terminal call charge cannot be changed/);
   foundCall.status = 'changed outside store';
   assert.deepEqual(callStore.findById(pendingCall.id), endedCall);
 
@@ -120,6 +128,41 @@ test('memory call store rejects invalid state and timestamp shapes', () => {
       createCall({ pricePerBillingUnitFen: 1.5 }),
       /pricePerBillingUnitFen/,
     ],
+    [createCall({ chargeFen: 0 }), /chargeFen/],
+    [
+      createCall({
+        status: 'active',
+        startedAt: ACTIVE_AT,
+        chargeFen: 0,
+      }),
+      /chargeFen/,
+    ],
+    [
+      createCall({
+        status: 'ended',
+        startedAt: ACTIVE_AT,
+        endedAt: ENDED_AT,
+        chargeFen: -1,
+      }),
+      /chargeFen/,
+    ],
+    [
+      createCall({
+        status: 'ended',
+        startedAt: ACTIVE_AT,
+        endedAt: ENDED_AT,
+        chargeFen: 1.5,
+      }),
+      /chargeFen/,
+    ],
+    [
+      createCall({
+        status: 'failed',
+        endedAt: ENDED_AT,
+        chargeFen: 1,
+      }),
+      /chargeFen/,
+    ],
     [createCall({ startedAt: ACTIVE_AT }), /startedAt/],
     [
       createCall({
@@ -141,6 +184,7 @@ test('memory call store rejects invalid state and timestamp shapes', () => {
       createCall({
         status: 'ended',
         startedAt: ACTIVE_AT,
+        chargeFen: 0,
       }),
       /endedAt/,
     ],
@@ -148,10 +192,17 @@ test('memory call store rejects invalid state and timestamp shapes', () => {
       createCall({
         status: 'ended',
         endedAt: ENDED_AT,
+        chargeFen: 0,
       }),
       /startedAt/,
     ],
-    [createCall({ status: 'failed' }), /endedAt/],
+    [
+      createCall({
+        status: 'failed',
+        chargeFen: 0,
+      }),
+      /endedAt/,
+    ],
   ];
 
   for (const [call, expectedMessage] of invalidCalls) {
@@ -220,6 +271,7 @@ test('pending calls transition to connecting', () => {
     roleSlug: 'yuhuang',
     billingUnitMs: 6000,
     pricePerBillingUnitFen: 10,
+    chargeFen: null,
     status: 'connecting',
     createdAt: CREATED_AT,
     startedAt: null,
@@ -433,7 +485,7 @@ test('duration starts at active and is fixed on ended', () => {
     Date.parse(activeAt),
     Date.parse(endedAt),
   ];
-  const { callService } = createService({
+  const { callStore, callService } = createService({
     clock: () => clockValues.shift(),
     idGenerator: () => 'call-duration-ended',
   });
@@ -458,6 +510,14 @@ test('duration starts at active and is fixed on ended', () => {
   });
   assert.equal(endedCall.endedAt, endedAt);
   assert.equal(endedCall.durationMs, 12500);
+  assert.equal(
+    Object.hasOwn(endedCall, 'chargeFen'),
+    false
+  );
+  assert.equal(
+    callStore.findById(pendingCall.id).chargeFen,
+    30
+  );
 });
 
 test('failed duration covers active and pre-active sources', () => {
@@ -468,10 +528,13 @@ test('failed duration covers active and pre-active sources', () => {
     Date.parse(activeAt),
     Date.parse(failedAt),
   ];
-  const activeService = createService({
+  const {
+    callStore: activeCallStore,
+    callService: activeService,
+  } = createService({
     clock: () => activeClockValues.shift(),
     idGenerator: () => 'call-duration-active-failed',
-  }).callService;
+  });
   const activeSource = createPendingCall(activeService);
   activeService.markCallConnecting({ callId: activeSource.id });
   const activeCall = activeService.markCallActive({
@@ -483,21 +546,36 @@ test('failed duration covers active and pre-active sources', () => {
   assert.equal(activeFailed.startedAt, activeCall.startedAt);
   assert.equal(activeFailed.endedAt, failedAt);
   assert.equal(activeFailed.durationMs, 3200);
+  assert.equal(
+    Object.hasOwn(activeFailed, 'chargeFen'),
+    false
+  );
+  assert.equal(
+    activeCallStore.findById(activeSource.id).chargeFen,
+    0
+  );
 
   const pendingClockValues = [
     Date.parse(CREATED_AT),
     Date.parse('2026-07-25T06:01:00.000Z'),
   ];
-  const pendingService = createService({
+  const {
+    callStore: pendingCallStore,
+    callService: pendingService,
+  } = createService({
     clock: () => pendingClockValues.shift(),
     idGenerator: () => 'call-duration-pending-failed',
-  }).callService;
+  });
   const pendingSource = createPendingCall(pendingService);
   const pendingFailed = pendingService.markCallFailed({
     callId: pendingSource.id,
   });
   assert.equal(pendingFailed.startedAt, null);
   assert.equal(pendingFailed.durationMs, 0);
+  assert.equal(
+    pendingCallStore.findById(pendingSource.id).chargeFen,
+    0
+  );
 });
 
 test('terminal duration is idempotent and opposite terminal is rejected', () => {

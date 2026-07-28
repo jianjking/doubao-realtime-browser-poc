@@ -129,6 +129,7 @@ function createCallService({
       roleSlug,
       billingUnitMs: role.billingUnitMs,
       pricePerBillingUnitFen: role.pricePerBillingUnitFen,
+      chargeFen: null,
       status: 'pending',
       createdAt,
       startedAt: null,
@@ -201,6 +202,25 @@ function createCallService({
       nextCall.endedAt = null;
     } else {
       nextCall.endedAt = new Date(clock()).toISOString();
+
+      if (targetStatus === 'failed') {
+        nextCall.chargeFen = 0;
+      } else {
+        const durationMs = getDurationMs(nextCall);
+        const billableUnits = Math.ceil(
+          durationMs / nextCall.billingUnitMs
+        );
+        const chargeFen = billableUnits
+          * nextCall.pricePerBillingUnitFen;
+
+        if (!Number.isSafeInteger(chargeFen)) {
+          throw new Error(
+            'Call charge exceeds safe integer range'
+          );
+        }
+
+        nextCall.chargeFen = chargeFen;
+      }
     }
 
     callStore.replace(nextCall);
