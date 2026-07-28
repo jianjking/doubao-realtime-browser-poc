@@ -2101,13 +2101,21 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
+    /data-fortune-result[\s\S]*?data-lot-number[\s\S]*?data-lot-level[\s\S]*?data-lot-title[\s\S]*?data-lot-verses/
+  );
+  assert.match(
+    fortuneHtml,
+    /当前为项目原型签文，正式签谱后续校订。/
+  );
+  assert.match(
+    fortuneHtml,
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
   assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);
   assert.doesNotMatch(fortuneHtml, /神仙亲自解签/);
   assert.doesNotMatch(
     fortuneHtml,
-    /<(?:input|textarea)\b|contenteditable=|抽签动画|签文结果|语音识别预览/
+    /<(?:input|textarea)\b|contenteditable=|抽签动画|语音识别预览|解签内容|TTS/
   );
 
   assert.match(entryCss, /body\s*\{[\s\S]*?overflow-x:\s*hidden;/);

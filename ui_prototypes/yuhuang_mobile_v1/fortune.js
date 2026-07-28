@@ -4,6 +4,8 @@
   const OFFERING_DURATION_MS = 1800;
   const WISH_OFFERING_FALLBACK_MS = 3400;
   const REDUCED_WISH_OFFERING_FALLBACK_MS = 60;
+  const FORTUNE_SESSION_API_URL = '/api/fortune-sessions';
+  const FORTUNE_DEITY_KEY = 'yuhuang';
   const INTERACTION_STATES = Object.freeze({
     IDLE: 'idle',
     OFFERING_INCENSE: 'offering-incense',
@@ -16,6 +18,9 @@
     TRANSCRIPT_CONFIRMED: 'transcript-confirmed',
     WISH_OFFERING: 'wish-offering',
     WISH_OFFERED: 'wish-offered',
+    DRAWING_LOT: 'drawing-lot',
+    LOT_DRAWN: 'lot-drawn',
+    LOT_ERROR: 'lot-error',
     MICROPHONE_ERROR: 'microphone-error',
     ASR_ERROR: 'asr-error',
     CLOSED: 'closed',
@@ -63,6 +68,15 @@
   const drawFortuneButton = document.querySelector(
     '[data-draw-fortune]'
   );
+  const fortuneError = document.querySelector('[data-fortune-error]');
+  const retryFortuneButton = document.querySelector(
+    '[data-retry-fortune]'
+  );
+  const fortuneResult = document.querySelector('[data-fortune-result]');
+  const lotNumber = document.querySelector('[data-lot-number]');
+  const lotLevel = document.querySelector('[data-lot-level]');
+  const lotTitle = document.querySelector('[data-lot-title]');
+  const lotVerses = document.querySelector('[data-lot-verses]');
 
   if (
     !page
@@ -84,6 +98,13 @@
     || !offerWishButton
     || !wishOfferingComplete
     || !drawFortuneButton
+    || !fortuneError
+    || !retryFortuneButton
+    || !fortuneResult
+    || !lotNumber
+    || !lotLevel
+    || !lotTitle
+    || !lotVerses
   ) {
     return;
   }
@@ -95,6 +116,9 @@
   let transcriptIsFinal = false;
   let pageIsActive = true;
   let wishOfferingTimer = null;
+  let fortuneRequestController = null;
+  let fortuneRequestGeneration = 0;
+  let publicFortuneSession = null;
 
   function prefersReducedMotion() {
     return typeof window.matchMedia === 'function'
@@ -137,6 +161,11 @@
     offerWishButton.disabled = true;
     offerWishButton.textContent = '奉入香炉';
     wishOfferingComplete.hidden = true;
+    fortuneError.hidden = true;
+    fortuneResult.hidden = true;
+    drawFortuneButton.disabled = true;
+    drawFortuneButton.textContent = '诚心求一签';
+    retryFortuneButton.disabled = true;
     wishPaper.hidden = false;
     wishPaper.removeAttribute('aria-hidden');
 
@@ -266,13 +295,52 @@
       wishPaper.setAttribute('aria-hidden', 'true');
       wishPaper.hidden = true;
       wishOfferingComplete.hidden = false;
+      drawFortuneButton.disabled = (
+        !transcriptIsFinal
+        || currentTranscript.trim() === ''
+      );
+      return;
+    }
+
+    if (interactionState === INTERACTION_STATES.DRAWING_LOT) {
+      page.classList.add('has-offered-wish');
+      wishPaper.hidden = true;
+      wishPaper.setAttribute('aria-hidden', 'true');
+      wishOfferingComplete.hidden = false;
       drawFortuneButton.disabled = true;
+      drawFortuneButton.textContent = '正在请签……';
+      return;
+    }
+
+    if (interactionState === INTERACTION_STATES.LOT_ERROR) {
+      page.classList.add('has-offered-wish');
+      wishPaper.hidden = true;
+      wishPaper.setAttribute('aria-hidden', 'true');
+      fortuneError.hidden = false;
+      retryFortuneButton.disabled = false;
+      return;
+    }
+
+    if (
+      interactionState === INTERACTION_STATES.LOT_DRAWN
+      && publicFortuneSession
+    ) {
+      page.classList.add('has-offered-wish');
+      wishPaper.hidden = true;
+      wishPaper.setAttribute('aria-hidden', 'true');
+      fortuneResult.hidden = false;
+      lotNumber.textContent = String(publicFortuneSession.lot.number);
+      lotLevel.textContent = publicFortuneSession.lot.level;
+      lotTitle.textContent = publicFortuneSession.lot.title;
+      lotVerses.textContent =
+        publicFortuneSession.lot.verseLines.join('\n');
     }
   }
 
   function resetWishPaper() {
     currentTranscript = '';
     transcriptIsFinal = false;
+    publicFortuneSession = null;
     transcriptStatus.textContent = '等待诉说';
     transcriptText.textContent = '您的话会写在这里。';
     setWishPaperBusy(false);
@@ -283,6 +351,36 @@
     wishPaper.removeAttribute('aria-hidden');
     page.classList.remove('has-confirmed-wish');
     page.classList.remove('has-offered-wish');
+  }
+
+  function isPublicFortuneSession(value) {
+    return Boolean(
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && typeof value.id === 'string'
+      && value.id !== ''
+      && value.status === 'drawn'
+      && value.deityKey === FORTUNE_DEITY_KEY
+      && typeof value.catalogVersion === 'string'
+      && value.catalogVersion !== ''
+      && value.lot
+      && typeof value.lot === 'object'
+      && !Array.isArray(value.lot)
+      && typeof value.lot.id === 'string'
+      && Number.isSafeInteger(value.lot.number)
+      && typeof value.lot.level === 'string'
+      && value.lot.level !== ''
+      && typeof value.lot.title === 'string'
+      && value.lot.title !== ''
+      && Array.isArray(value.lot.verseLines)
+      && value.lot.verseLines.length > 0
+      && value.lot.verseLines.every(
+        (line) => typeof line === 'string' && line.trim() !== ''
+      )
+      && typeof value.createdAt === 'string'
+      && typeof value.drawnAt === 'string'
+    );
   }
 
   function updateWishPaper(text, isFinal) {
@@ -600,9 +698,90 @@
     );
   }
 
+  async function handleFortuneDraw() {
+    if (
+      (
+        interactionState !== INTERACTION_STATES.WISH_OFFERED
+        && interactionState !== INTERACTION_STATES.LOT_ERROR
+      )
+      || !transcriptIsFinal
+      || currentTranscript.trim() === ''
+      || fortuneRequestController !== null
+    ) {
+      return;
+    }
+
+    interactionState = INTERACTION_STATES.DRAWING_LOT;
+    publicFortuneSession = null;
+    renderSpeechState();
+    fortuneRequestGeneration += 1;
+    const requestGeneration = fortuneRequestGeneration;
+    fortuneRequestController = typeof window.AbortController === 'function'
+      ? new window.AbortController()
+      : { signal: undefined, abort() {} };
+
+    try {
+      const response = await window.fetch(FORTUNE_SESSION_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          deityKey: FORTUNE_DEITY_KEY,
+          situationText: currentTranscript.trim(),
+        }),
+        signal: fortuneRequestController.signal,
+      });
+      const responseBody = await response.json();
+      if (
+        !response.ok
+        || !responseBody
+        || !isPublicFortuneSession(responseBody.fortuneSession)
+      ) {
+        throw new Error('Fortune Session request failed');
+      }
+      if (
+        !pageIsActive
+        || requestGeneration !== fortuneRequestGeneration
+        || interactionState !== INTERACTION_STATES.DRAWING_LOT
+      ) {
+        return;
+      }
+
+      publicFortuneSession = responseBody.fortuneSession;
+      interactionState = INTERACTION_STATES.LOT_DRAWN;
+      renderSpeechState();
+      if (typeof fortuneResult.focus === 'function') {
+        fortuneResult.focus();
+      }
+    } catch (error) {
+      if (
+        !pageIsActive
+        || requestGeneration !== fortuneRequestGeneration
+        || interactionState !== INTERACTION_STATES.DRAWING_LOT
+      ) {
+        return;
+      }
+      interactionState = INTERACTION_STATES.LOT_ERROR;
+      renderSpeechState();
+      if (typeof fortuneError.focus === 'function') {
+        fortuneError.focus();
+      }
+    } finally {
+      if (requestGeneration === fortuneRequestGeneration) {
+        fortuneRequestController = null;
+      }
+    }
+  }
+
   function handlePageExit() {
     pageIsActive = false;
     sessionGeneration += 1;
+    fortuneRequestGeneration += 1;
+    if (fortuneRequestController !== null) {
+      fortuneRequestController.abort();
+      fortuneRequestController = null;
+    }
     closeActiveAsrSession();
     clearWishOfferingResources();
     if (
@@ -614,6 +793,9 @@
       || interactionState === INTERACTION_STATES.TRANSCRIPT_CONFIRMED
       || interactionState === INTERACTION_STATES.WISH_OFFERING
       || interactionState === INTERACTION_STATES.WISH_OFFERED
+      || interactionState === INTERACTION_STATES.DRAWING_LOT
+      || interactionState === INTERACTION_STATES.LOT_DRAWN
+      || interactionState === INTERACTION_STATES.LOT_ERROR
       || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
       || interactionState === INTERACTION_STATES.ASR_ERROR
     ) {
@@ -643,6 +825,8 @@
     handleTranscriptRetry
   );
   offerWishButton.addEventListener('click', handleWishOffering);
+  drawFortuneButton.addEventListener('click', handleFortuneDraw);
+  retryFortuneButton.addEventListener('click', handleFortuneDraw);
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
   window.addEventListener('pageshow', handlePageShow);

@@ -1,6 +1,10 @@
 'use strict';
 
 const express = require('express');
+const {
+  FORTUNE_CATALOG_VERSION,
+  FORTUNE_LOTS,
+} = require('./config/fortune_lots');
 const { PUBLIC_ROLES } = require('./config/public_roles');
 const {
   createRequireInternalToken,
@@ -16,6 +20,7 @@ const { healthRouter } = require('./routes/health_routes');
 const {
   createInternalCallRouter,
 } = require('./routes/internal_call_routes');
+const { createFortuneRouter } = require('./routes/fortune_routes');
 const { createRoleRouter } = require('./routes/role_routes');
 const {
   createAuthService,
@@ -23,12 +28,16 @@ const {
 } = require('./services/auth_service');
 const { createAccountService } = require('./services/account_service');
 const { createCallService } = require('./services/call_service');
+const { createFortuneService } = require('./services/fortune_service');
 const { createRoleService } = require('./services/role_service');
 const { createSessionService } = require('./services/session_service');
 const {
   MemoryAccountStore,
 } = require('./stores/memory_account_store');
 const { MemoryCallStore } = require('./stores/memory_call_store');
+const {
+  MemoryFortuneSessionStore,
+} = require('./stores/memory_fortune_session_store');
 const {
   MemorySessionStore,
 } = require('./stores/memory_session_store');
@@ -39,6 +48,7 @@ function createApp(options = {}) {
   const userStore = new MemoryUserStore();
   const accountStore = new MemoryAccountStore();
   const callStore = new MemoryCallStore();
+  const fortuneSessionStore = new MemoryFortuneSessionStore();
   const roleService = createRoleService({ roles: PUBLIC_ROLES });
   const sessionService = createSessionService({
     sessionStore,
@@ -66,6 +76,18 @@ function createApp(options = {}) {
     accountService,
     clock: options.clock,
     idGenerator: options.callIdGenerator,
+  });
+  const fortuneService = createFortuneService({
+    fortuneSessionStore,
+    catalogVersion: options.fortuneCatalogVersion === undefined
+      ? FORTUNE_CATALOG_VERSION
+      : options.fortuneCatalogVersion,
+    lots: options.fortuneLots === undefined
+      ? FORTUNE_LOTS
+      : options.fortuneLots,
+    clock: options.clock,
+    idGenerator: options.fortuneSessionIdGenerator,
+    randomInt: options.fortuneRandomInt,
   });
   const requireSession = createRequireSession({ sessionService });
   const app = express();
@@ -127,6 +149,10 @@ function createApp(options = {}) {
   app.use('/api', healthRouter);
   app.use('/api', createRoleRouter({ roleService }));
   app.use('/api', createAuthRouter({ sessionService, authService }));
+  app.use('/api', createFortuneRouter({
+    fortuneService,
+    sessionService,
+  }));
   app.use('/api', createAccountRouter({
     requireSession,
     userStore,
@@ -148,6 +174,10 @@ function createApp(options = {}) {
   }));
   app.use((error, request, response, next) => {
     if (error && error.type === 'entity.parse.failed') {
+      const isFortuneRequest = (
+        request.method === 'POST'
+        && request.path === '/api/fortune-sessions'
+      );
       const isCallRequest = (
         request.method === 'POST'
         && request.path === '/api/calls'
@@ -160,11 +190,15 @@ function createApp(options = {}) {
         error: {
           code: isCallRequest
             ? 'INVALID_CALL_REQUEST'
+            : isFortuneRequest
+              ? 'INVALID_FORTUNE_REQUEST'
             : isDevRechargeRequest
               ? 'INVALID_RECHARGE_AMOUNT'
               : 'INVALID_LOGIN_REQUEST',
           message: isCallRequest
             ? 'A valid roleSlug is required'
+            : isFortuneRequest
+              ? 'A valid fortune request is required'
             : isDevRechargeRequest
               ? 'A valid recharge amount is required'
               : 'Phone and verification code are required',

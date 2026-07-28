@@ -218,7 +218,8 @@ a {
 .wish-confirm-button:focus-visible,
 .wish-retry-button:focus-visible,
 .wish-offer-button:focus-visible,
-.draw-fortune-preview-button:focus-visible {
+.draw-fortune-preview-button:focus-visible,
+.fortune-retry-button:focus-visible {
   outline: 4px solid #fff2bd;
   outline-offset: 3px;
 }
@@ -851,14 +852,17 @@ a {
 
 .wish-paper-actions[hidden],
 .wish-paper-next[hidden],
-.wish-offering-complete[hidden] {
+.wish-offering-complete[hidden],
+.fortune-draw-error[hidden],
+.fortune-lot-result[hidden] {
   display: none;
 }
 
 .wish-confirm-button,
 .wish-retry-button,
 .wish-offer-button,
-.draw-fortune-preview-button {
+.draw-fortune-preview-button,
+.fortune-retry-button {
   width: 100%;
   min-height: 54px;
   padding: 10px 14px;
@@ -884,7 +888,8 @@ a {
 .wish-confirm-button:disabled,
 .wish-retry-button:disabled,
 .wish-offer-button:disabled,
-.draw-fortune-preview-button:disabled {
+.draw-fortune-preview-button:disabled,
+.fortune-retry-button:disabled {
   cursor: not-allowed;
   opacity: 0.64;
 }
@@ -982,15 +987,125 @@ a {
 
 .draw-fortune-preview-button {
   margin-top: 14px;
-  border: 2px solid #a48b66;
-  color: #74695e;
-  background: #e8dfd0;
-  box-shadow: none;
+  border: 2px solid #6b292d;
+  color: #fff8e9;
+  background: linear-gradient(180deg, #82373b, #5c2227);
+  box-shadow: 0 5px 13px rgba(68, 23, 27, 0.2);
 }
 
-.wish-offering-complete:focus {
+.wish-offering-complete:focus,
+.fortune-draw-error:focus,
+.fortune-lot-result:focus {
   outline: 4px solid #fff2bd;
   outline-offset: 3px;
+}
+
+.fortune-draw-error,
+.fortune-lot-result {
+  min-width: 0;
+  margin-top: 14px;
+  padding: 20px 16px;
+  border: 1px solid rgba(184, 139, 72, 0.62);
+  border-radius: 18px 10px 18px 10px;
+  color: #592c2b;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 249, 229, 0.98),
+      rgba(242, 224, 187, 0.98)
+    );
+  box-shadow: 0 9px 20px rgba(68, 34, 20, 0.16);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.fortune-draw-error h3,
+.fortune-draw-error p,
+.fortune-lot-result h3,
+.fortune-lot-result p {
+  margin: 0;
+}
+
+.fortune-draw-error h3,
+.fortune-lot-result h3 {
+  font-size: 24px;
+}
+
+.fortune-draw-error p {
+  margin-top: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.65;
+}
+
+.fortune-retry-button {
+  margin-top: 16px;
+  border: 2px solid #6b292d;
+  color: #fff8e9;
+  background: linear-gradient(180deg, #82373b, #5c2227);
+}
+
+.fortune-lot-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  font-size: 20px;
+  line-height: 1.5;
+}
+
+.fortune-lot-meta strong {
+  font-size: 24px;
+}
+
+.fortune-lot-meta span[data-lot-level] {
+  padding: 3px 12px;
+  border: 1px solid rgba(107, 41, 45, 0.46);
+  border-radius: 999px;
+  background: rgba(255, 248, 226, 0.72);
+  font-weight: 900;
+}
+
+.fortune-lot-result h3 {
+  margin-top: 15px;
+  color: #682b2e;
+}
+
+.fortune-lot-verses {
+  margin-top: 16px;
+  color: #4e2522;
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1.9;
+  white-space: pre-line;
+}
+
+.fortune-lot-result .fortune-prototype-notice,
+.fortune-lot-result .fortune-cultural-notice,
+.fortune-lot-result .fortune-next-stage {
+  margin-top: 15px;
+  line-height: 1.65;
+}
+
+.fortune-prototype-notice,
+.fortune-cultural-notice {
+  color: #74584c;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.fortune-next-stage {
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.fortune-lot-result small {
+  display: block;
+  margin-top: 5px;
+  color: #74584c;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .return-choice-button {

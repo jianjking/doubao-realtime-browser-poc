@@ -184,6 +184,16 @@ function loadFortuneRuntime(options = {}) {
     disabled: true,
     textContent: '诚心求一签',
   });
+  const fortuneError = new FakeElement({ hidden: true });
+  const retryFortuneButton = new FakeElement({
+    disabled: true,
+    textContent: '重新求签',
+  });
+  const fortuneResult = new FakeElement({ hidden: true });
+  const lotNumber = new FakeElement();
+  const lotLevel = new FakeElement();
+  const lotTitle = new FakeElement();
+  const lotVerses = new FakeElement();
   const elements = new Map([
     ['.fortune-page', page],
     ['[data-offer-incense]', offerButton],
@@ -204,6 +214,13 @@ function loadFortuneRuntime(options = {}) {
     ['[data-offer-wish]', offerWishButton],
     ['[data-wish-offering-complete]', wishOfferingComplete],
     ['[data-draw-fortune]', drawFortuneButton],
+    ['[data-fortune-error]', fortuneError],
+    ['[data-retry-fortune]', retryFortuneButton],
+    ['[data-fortune-result]', fortuneResult],
+    ['[data-lot-number]', lotNumber],
+    ['[data-lot-level]', lotLevel],
+    ['[data-lot-title]', lotTitle],
+    ['[data-lot-verses]', lotVerses],
   ]);
   const timers = [];
   const windowListeners = new Map();
@@ -213,6 +230,8 @@ function loadFortuneRuntime(options = {}) {
     || (() => Promise.resolve(defaultStream));
   let context;
   const asrSessions = [];
+  const fetchRequests = [];
+  const abortControllers = [];
 
   function createDefaultAsrSession(callbacks) {
     let closed = false;
@@ -323,6 +342,25 @@ function loadFortuneRuntime(options = {}) {
           timer.active = false;
         }
       },
+      fetch(pathname, requestOptions) {
+        fetchRequests.push({ pathname, ...requestOptions });
+        if (typeof options.fetchImpl === 'function') {
+          return options.fetchImpl(pathname, requestOptions);
+        }
+        return Promise.resolve(createFortuneResponse());
+      },
+      AbortController: class FakeAbortController {
+        constructor() {
+          this.signal = { aborted: false };
+          this.abortCallCount = 0;
+          abortControllers.push(this);
+        }
+
+        abort() {
+          this.abortCallCount += 1;
+          this.signal.aborted = true;
+        }
+      },
     },
   };
   context.window.FortuneAsrBrowser = {
@@ -341,12 +379,20 @@ function loadFortuneRuntime(options = {}) {
     confirmTranscriptButton,
     defaultStream,
     drawFortuneButton,
+    fetchRequests,
+    fortuneError,
+    fortuneResult,
     incenseState,
     microphoneRequests,
+    lotLevel,
+    lotNumber,
+    lotTitle,
+    lotVerses,
     offerButton,
     offerWishButton,
     page,
     retryTranscriptButton,
+    retryFortuneButton,
     speakControlButton,
     speechDetail,
     speechMessage,
@@ -366,6 +412,36 @@ function loadFortuneRuntime(options = {}) {
     wishOfferingComplete,
     wishPaper,
     windowListeners,
+    abortControllers,
+  };
+}
+
+function createFortuneResponse(overrides = {}) {
+  const fortuneSession = {
+    id: 'fortune-ui-test',
+    status: 'drawn',
+    deityKey: 'yuhuang',
+    catalogVersion: 'prototype-v1',
+    lot: {
+      id: 'prototype-002',
+      number: 2,
+      level: '中吉',
+      title: '守心待时',
+      verseLines: [
+        '眼前云淡风初定',
+        '守得心安路自明',
+      ],
+    },
+    createdAt: '2026-07-28T06:00:00.000Z',
+    drawnAt: '2026-07-28T06:00:00.000Z',
+    ...overrides,
+  };
+  return {
+    ok: true,
+    status: 201,
+    async json() {
+      return { fortuneSession };
+    },
   };
 }
 
@@ -454,6 +530,23 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     html,
+    /data-fortune-error[\s\S]*?暂时未能求得签文，请稍后再试。[\s\S]*?data-retry-fortune>重新求签<\/button>/
+  );
+  assert.match(
+    html,
+    /data-fortune-result[\s\S]*?data-lot-number[\s\S]*?data-lot-level[\s\S]*?data-lot-title[\s\S]*?data-lot-verses/
+  );
+  assert.match(
+    html,
+    /当前为项目原型签文，正式签谱后续校订。/
+  );
+  assert.match(
+    html,
+    /签文仅作传统文化体验与情绪陪伴参考。/
+  );
+  assert.match(html, /解签将在下一阶段接入。/);
+  assert.match(
+    html,
     /<script src="\.\/fortune_browser_asr\.js"><\/script>\s*<script src="\.\/fortune\.js"><\/script>/
   );
 
@@ -493,7 +586,7 @@ function verifyStaticSceneAndSafety() {
 
   assert.doesNotMatch(
     html,
-    /<(?:input|textarea)\b|contenteditable=|签筒|签文结果|录音波形/
+    /<(?:input|textarea)\b|contenteditable=|签筒|录音波形/
   );
   assert.match(
     asrJs,
@@ -507,7 +600,15 @@ function verifyStaticSceneAndSafety() {
   assert.match(js, /window\.addEventListener\('beforeunload'/);
   assert.doesNotMatch(
     js,
-    /localStorage|sessionStorage|document\.cookie|MediaRecorder|SpeechRecognition|fetch\(|enumerateDevices/
+    /localStorage|sessionStorage|document\.cookie|MediaRecorder|SpeechRecognition|enumerateDevices|innerHTML/
+  );
+  assert.match(
+    js,
+    /const FORTUNE_SESSION_API_URL = '\/api\/fortune-sessions';/
+  );
+  assert.match(
+    js,
+    /body:\s*JSON\.stringify\(\{\s*deityKey:\s*FORTUNE_DEITY_KEY,\s*situationText:\s*currentTranscript\.trim\(\),\s*\}\)/
   );
   assert.doesNotMatch(
     asrJs,
@@ -528,11 +629,11 @@ function verifyStaticSceneAndSafety() {
   );
   assert.doesNotMatch(
     `${html}\n${js}`,
-    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|神明已经收到|心愿已经永久保存|正在为您抽签|签文正在降下|签号|签文结果|解签结果/
+    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|神明已经收到|心愿已经永久保存|签文正在降下|解签结果/
   );
   assert.doesNotMatch(
     js,
-    /localStorage|sessionStorage|document\.cookie|indexedDB|fetch\(/
+    /localStorage|sessionStorage|document\.cookie|indexedDB|innerHTML/
   );
 }
 
@@ -1576,7 +1677,7 @@ async function verifyWishOfferingAnimationAndCleanup() {
     runtime.speechMessage.textContent,
     '心意已达殿前，请静候求签。'
   );
-  assert.equal(runtime.drawFortuneButton.disabled, true);
+  assert.equal(runtime.drawFortuneButton.disabled, false);
   assert.equal(
     runtime.drawFortuneButton.textContent,
     '诚心求一签'
@@ -1648,6 +1749,144 @@ async function verifyWishOfferingAnimationAndCleanup() {
       '您的话会写在这里。'
     );
   }
+}
+
+async function reachOfferedWish(runtime) {
+  await reachConfirmedWish(runtime);
+  runtime.offerWishButton.trigger('click');
+  runtime.wishPaper.trigger('animationend', {
+    animationName: 'wish-paper-offering',
+    target: runtime.wishPaper,
+  });
+  assert.equal(runtime.wishOfferingComplete.hidden, false);
+  assert.equal(runtime.drawFortuneButton.disabled, false);
+}
+
+async function verifyFortuneDrawFlowAndRetry() {
+  const pendingResponse = createDeferred();
+  const runtime = loadFortuneRuntime({
+    fetchImpl: () => pendingResponse.promise,
+  });
+
+  runtime.drawFortuneButton.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 0);
+  await reachOfferedWish(runtime);
+  const confirmedText = runtime.transcriptText.textContent;
+  runtime.drawFortuneButton.trigger('click');
+  runtime.drawFortuneButton.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 1);
+  assert.equal(runtime.fetchRequests[0].pathname, '/api/fortune-sessions');
+  assert.equal(runtime.fetchRequests[0].method, 'POST');
+  assert.equal(runtime.drawFortuneButton.disabled, true);
+  assert.equal(runtime.drawFortuneButton.textContent, '正在请签……');
+  const requestBody = JSON.parse(runtime.fetchRequests[0].body);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(requestBody)),
+    {
+      deityKey: 'yuhuang',
+      situationText: confirmedText.trim(),
+    }
+  );
+  assert.equal('lotId' in requestBody, false);
+  assert.equal('catalogVersion' in requestBody, false);
+  assert.equal('asr' in requestBody, false);
+
+  pendingResponse.resolve(createFortuneResponse({
+    situationText: '不应显示的处境',
+    ownerId: 'private-owner',
+  }));
+  await flushPromises();
+  await flushPromises();
+  assert.equal(runtime.fetchRequests.length, 1);
+  assert.equal(runtime.wishOfferingComplete.hidden, true);
+  assert.equal(runtime.fortuneError.hidden, true);
+  assert.equal(runtime.fortuneResult.hidden, false);
+  assert.equal(runtime.fortuneResult.focusCallCount, 1);
+  assert.equal(runtime.lotNumber.textContent, '2');
+  assert.equal(runtime.lotLevel.textContent, '中吉');
+  assert.equal(runtime.lotTitle.textContent, '守心待时');
+  assert.equal(
+    runtime.lotVerses.textContent,
+    '眼前云淡风初定\n守得心安路自明'
+  );
+  assert.equal(
+    [
+      runtime.lotNumber.textContent,
+      runtime.lotLevel.textContent,
+      runtime.lotTitle.textContent,
+      runtime.lotVerses.textContent,
+    ].join(' ').includes('不应显示的处境'),
+    false
+  );
+  runtime.drawFortuneButton.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 1);
+  runtime.asrSessions[0].callbacks.onPartial('迟到 partial');
+  runtime.asrSessions[0].callbacks.onFinal('迟到 final', true);
+  assert.equal(runtime.fortuneResult.hidden, false);
+  assert.equal(runtime.lotTitle.textContent, '守心待时');
+
+  let retryRequestCount = 0;
+  const retryRuntime = loadFortuneRuntime({
+    fetchImpl() {
+      retryRequestCount += 1;
+      if (retryRequestCount === 1) {
+        return Promise.reject(new Error('network unavailable'));
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
+  });
+  await reachOfferedWish(retryRuntime);
+  retryRuntime.drawFortuneButton.trigger('click');
+  await flushPromises();
+  assert.equal(retryRuntime.fortuneResult.hidden, true);
+  assert.equal(retryRuntime.fortuneError.hidden, false);
+  assert.equal(retryRuntime.fortuneError.focusCallCount, 1);
+  assert.equal(retryRuntime.retryFortuneButton.disabled, false);
+  retryRuntime.retryFortuneButton.trigger('click');
+  retryRuntime.retryFortuneButton.trigger('click');
+  assert.equal(retryRequestCount, 2);
+  assert.equal(retryRuntime.retryFortuneButton.disabled, true);
+  await flushPromises();
+  await flushPromises();
+  assert.equal(retryRuntime.fortuneResult.hidden, false);
+  assert.equal(retryRuntime.fortuneError.hidden, true);
+
+  const invalidRuntime = loadFortuneRuntime({
+    fetchImpl: async () => ({
+      ok: true,
+      status: 201,
+      async json() {
+        return {
+          fortuneSession: {
+            status: 'drawn',
+            situationText: 'fake result',
+          },
+        };
+      },
+    }),
+  });
+  await reachOfferedWish(invalidRuntime);
+  invalidRuntime.drawFortuneButton.trigger('click');
+  await flushPromises();
+  assert.equal(invalidRuntime.fortuneResult.hidden, true);
+  assert.equal(invalidRuntime.fortuneError.hidden, false);
+
+  const exitResponse = createDeferred();
+  const exitRuntime = loadFortuneRuntime({
+    fetchImpl: () => exitResponse.promise,
+  });
+  await reachOfferedWish(exitRuntime);
+  exitRuntime.drawFortuneButton.trigger('click');
+  assert.equal(exitRuntime.abortControllers.length, 1);
+  exitRuntime.triggerWindow('pagehide');
+  assert.equal(exitRuntime.abortControllers[0].abortCallCount, 1);
+  exitResponse.resolve(createFortuneResponse());
+  await flushPromises();
+  await flushPromises();
+  assert.equal(exitRuntime.fortuneResult.hidden, true);
+  exitRuntime.triggerWindow('pageshow');
+  assert.equal(exitRuntime.wishPaper.hidden, false);
+  assert.equal(exitRuntime.drawFortuneButton.disabled, true);
 }
 
 async function verifyAsrErrorsTimeoutAndIdempotentClose() {
@@ -1866,6 +2105,7 @@ async function main() {
   await verifyPartialFinalPreviewAndStaleRetry();
   await verifyWishPaperConfirmationRetryAndErrors();
   await verifyWishOfferingAnimationAndCleanup();
+  await verifyFortuneDrawFlowAndRetry();
   await verifyAsrErrorsTimeoutAndIdempotentClose();
   await verifyModulePageExitAndFailureBoundaries();
 
@@ -1878,6 +2118,7 @@ async function main() {
       + 'relay-url,start-started,real-sample-rate,resample-pcm16-le,'
       + 'binary-chunks,tail-before-finish,partial-final-preview,'
       + 'wish-paper-confirm-retry,wish-offering-animation,'
+      + 'fixed-fortune-draw,manual-fortune-retry,'
       + 'final-timeout,asr-error,'
       + 'abnormal-close,stale-session\n'
   );
