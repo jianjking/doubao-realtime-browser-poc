@@ -75,11 +75,17 @@
       </div>
       <p data-speech-message role="status" aria-live="polite" aria-atomic="true">请慢慢说，道童会在殿前听您诉说。</p>
       <button class="speak-control-button" type="button" data-speak-control>开始诉说</button>
-      <small data-speech-detail>本阶段只使用麦克风，不录制或上传音频。</small>
+      <small data-speech-detail>语音只用于当前识别，不会录制为音频文件。</small>
+      <section class="transcript-preview" aria-labelledby="transcript-preview-title">
+        <h3 id="transcript-preview-title">语音识别预览</h3>
+        <p class="transcript-preview-status" data-transcript-status>等待开始</p>
+        <p class="transcript-preview-text" data-transcript-text aria-live="polite" aria-atomic="true">您的话会在这里显示。</p>
+      </section>
     </section>
 
     <a class="return-choice-button" href="./choice.html">返回功能选择</a>
   </main>
+  <script src="./fortune_browser_asr.js"></script>
   <script src="./fortune.js"></script>
 </body>
 </html>

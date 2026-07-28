@@ -7,9 +7,13 @@
     OFFERING_INCENSE: 'offering-incense',
     WAITING_TO_SPEAK: 'waiting-to-speak',
     REQUESTING_MICROPHONE: 'requesting-microphone',
+    CONNECTING_ASR: 'connecting-asr',
     SPEAKING: 'speaking',
-    SPEECH_ENDED: 'speech-ended',
+    FINISHING_ASR: 'finishing-asr',
+    TRANSCRIPT_READY: 'transcript-ready',
     MICROPHONE_ERROR: 'microphone-error',
+    ASR_ERROR: 'asr-error',
+    CLOSED: 'closed',
   });
   const page = document.querySelector('.fortune-page');
   const offerIncenseButton = document.querySelector(
@@ -26,6 +30,12 @@
   const speakControlButton = document.querySelector(
     '[data-speak-control]'
   );
+  const transcriptStatus = document.querySelector(
+    '[data-transcript-status]'
+  );
+  const transcriptText = document.querySelector(
+    '[data-transcript-text]'
+  );
 
   if (
     !page
@@ -37,13 +47,17 @@
     || !speechMessage
     || !speechDetail
     || !speakControlButton
+    || !transcriptStatus
+    || !transcriptText
   ) {
     return;
   }
 
   let interactionState = INTERACTION_STATES.IDLE;
-  let activeMicrophoneStream = null;
-  let microphoneRequestSequence = 0;
+  let activeAsrSession = null;
+  let sessionGeneration = 0;
+  let currentTranscript = '';
+  let transcriptIsFinal = false;
   let pageIsActive = true;
 
   function prefersReducedMotion() {
@@ -52,7 +66,11 @@
   }
 
   function renderSpeechState() {
-    page.classList.remove('is-listening', 'has-microphone-error');
+    page.classList.remove(
+      'is-listening',
+      'has-microphone-error',
+      'has-asr-error'
+    );
     speakControlButton.hidden = false;
 
     if (interactionState === INTERACTION_STATES.WAITING_TO_SPEAK) {
@@ -60,7 +78,7 @@
       speechMessage.textContent =
         '请慢慢说，道童会在殿前听您诉说。';
       speechDetail.textContent =
-        '本阶段只使用麦克风，不录制或上传音频。';
+        '语音只用于当前识别，不会录制为音频文件。';
       speakControlButton.textContent = '开始诉说';
       speakControlButton.disabled = false;
       return;
@@ -72,8 +90,18 @@
       speechTitle.textContent = '请求麦克风权限';
       speechMessage.textContent = '请允许使用麦克风。';
       speechDetail.textContent =
-        '授权后，道童会在殿前听您诉说。';
+        '授权后将连接语音识别服务。';
       speakControlButton.textContent = '正在打开麦克风……';
+      speakControlButton.disabled = true;
+      return;
+    }
+
+    if (interactionState === INTERACTION_STATES.CONNECTING_ASR) {
+      speechTitle.textContent = '正在准备聆听';
+      speechMessage.textContent = '正在准备聆听，请稍候……';
+      speechDetail.textContent =
+        '连接完成后再开始诉说，以免遗漏开头。';
+      speakControlButton.textContent = '正在准备……';
       speakControlButton.disabled = true;
       return;
     }
@@ -83,49 +111,69 @@
       speechTitle.textContent = '道童正在聆听';
       speechMessage.textContent = '道童正在聆听，请慢慢说。';
       speechDetail.textContent =
-        '当前只使用麦克风流，不会录制或上传音频。';
+        '语音正用于实时识别，不会录制为音频文件。';
       speakControlButton.textContent = '我说完了';
       speakControlButton.disabled = false;
       return;
     }
 
-    if (interactionState === INTERACTION_STATES.SPEECH_ENDED) {
-      speechTitle.textContent = '诉说已结束';
-      speechMessage.textContent = '您已经说完了。';
-      speechDetail.textContent = '下一阶段将接入语音转写。';
-      speakControlButton.textContent = '诉说已结束';
+    if (interactionState === INTERACTION_STATES.FINISHING_ASR) {
+      speechTitle.textContent = '正在整理您的话';
+      speechMessage.textContent = '正在整理您的话……';
+      speechDetail.textContent = '请稍候，正在等待最终识别结果。';
+      speakControlButton.textContent = '正在识别……';
+      speakControlButton.disabled = true;
+      return;
+    }
+
+    if (interactionState === INTERACTION_STATES.TRANSCRIPT_READY) {
+      speechTitle.textContent = '识别完成';
+      speechMessage.textContent = '识别完成';
+      speechDetail.textContent =
+        '识别文字仅保留在当前页面的预览区域。';
+      speakControlButton.textContent = '识别完成';
       speakControlButton.disabled = true;
       speakControlButton.hidden = true;
     }
   }
 
-  function renderMicrophoneError(permissionDenied) {
+  function resetTranscriptPreview() {
+    currentTranscript = '';
+    transcriptIsFinal = false;
+    transcriptStatus.textContent = '等待开始';
+    transcriptText.textContent = '您的话会在这里显示。';
+  }
+
+  function updateTranscriptPreview(text, isFinal) {
+    if (typeof text !== 'string' || text.trim() === '') {
+      return;
+    }
+    currentTranscript = text;
+    transcriptIsFinal = isFinal;
+    transcriptStatus.textContent = isFinal
+      ? '识别完成'
+      : '正在识别';
+    transcriptText.textContent = text;
+  }
+
+  function renderInteractionError(kind, message) {
     page.classList.remove('is-listening');
-    page.classList.add('has-microphone-error');
-    speechTitle.textContent = '暂时无法使用麦克风';
-    speechMessage.textContent = permissionDenied
-      ? '麦克风权限未开启，请允许使用麦克风后重试。'
-      : '暂时无法使用麦克风，请检查权限后再试。';
-    speechDetail.textContent =
-      '请检查浏览器或系统的麦克风权限。';
-    speakControlButton.textContent = '重新尝试';
+    page.classList.remove('has-microphone-error', 'has-asr-error');
+    if (kind === 'microphone') {
+      page.classList.add('has-microphone-error');
+      speechTitle.textContent = '暂时无法使用麦克风';
+      speechDetail.textContent =
+        '请检查浏览器或系统的麦克风权限。';
+    } else {
+      page.classList.add('has-asr-error');
+      speechTitle.textContent = '语音识别暂时不可用';
+      speechDetail.textContent =
+        '请检查 Relay 是否开启求签语音识别后再试。';
+    }
+    speechMessage.textContent = message;
+    speakControlButton.textContent = '重新诉说';
     speakControlButton.disabled = false;
     speakControlButton.hidden = false;
-  }
-
-  function stopMicrophoneStream(stream) {
-    if (!stream || typeof stream.getTracks !== 'function') {
-      return;
-    }
-    stream.getTracks().forEach((track) => track.stop());
-  }
-
-  function releaseActiveMicrophone() {
-    if (!activeMicrophoneStream) {
-      return;
-    }
-    stopMicrophoneStream(activeMicrophoneStream);
-    activeMicrophoneStream = null;
   }
 
   function completeIncenseOffering() {
@@ -167,72 +215,140 @@
     );
   }
 
-  async function requestMicrophone() {
-    if (
-      !navigator.mediaDevices
-      || typeof navigator.mediaDevices.getUserMedia !== 'function'
-    ) {
-      interactionState = INTERACTION_STATES.MICROPHONE_ERROR;
-      renderMicrophoneError(false);
-      return;
-    }
-
-    interactionState = INTERACTION_STATES.REQUESTING_MICROPHONE;
-    const requestSequence = ++microphoneRequestSequence;
-    renderSpeechState();
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      if (
-        !pageIsActive
-        || interactionState
-          !== INTERACTION_STATES.REQUESTING_MICROPHONE
-        || requestSequence !== microphoneRequestSequence
-      ) {
-        stopMicrophoneStream(stream);
-        return;
-      }
-
-      activeMicrophoneStream = stream;
-      interactionState = INTERACTION_STATES.SPEAKING;
-      renderSpeechState();
-    } catch (error) {
-      if (
-        !pageIsActive
-        || requestSequence !== microphoneRequestSequence
-      ) {
-        return;
-      }
-
-      interactionState = INTERACTION_STATES.MICROPHONE_ERROR;
-      const permissionDenied = Boolean(
-        error
-        && (
-          error.name === 'NotAllowedError'
-          || error.name === 'SecurityError'
-        )
-      );
-      renderMicrophoneError(permissionDenied);
+  function closeActiveAsrSession() {
+    const sessionToClose = activeAsrSession;
+    activeAsrSession = null;
+    if (sessionToClose) {
+      sessionToClose.close();
     }
   }
 
-  function finishSpeaking() {
-    if (interactionState !== INTERACTION_STATES.SPEAKING) {
+  function startSpeakingSession() {
+    if (
+      !window.FortuneAsrBrowser
+      || typeof window.FortuneAsrBrowser.createSession !== 'function'
+    ) {
+      interactionState = INTERACTION_STATES.ASR_ERROR;
+      renderInteractionError(
+        'asr',
+        '当前页面暂时无法启动语音识别，请重新诉说。'
+      );
       return;
     }
-    releaseActiveMicrophone();
-    interactionState = INTERACTION_STATES.SPEECH_ENDED;
+
+    closeActiveAsrSession();
+    resetTranscriptPreview();
+    interactionState = INTERACTION_STATES.REQUESTING_MICROPHONE;
     renderSpeechState();
+    const generation = ++sessionGeneration;
+    let session = null;
+
+    function isCurrentSession() {
+      return pageIsActive
+        && generation === sessionGeneration
+        && activeAsrSession === session;
+    }
+
+    session = window.FortuneAsrBrowser.createSession({
+      onConnecting() {
+        if (!isCurrentSession()) {
+          return;
+        }
+        interactionState = INTERACTION_STATES.CONNECTING_ASR;
+        renderSpeechState();
+      },
+      onStarted() {
+        if (!isCurrentSession()) {
+          return;
+        }
+        interactionState = INTERACTION_STATES.SPEAKING;
+        renderSpeechState();
+      },
+      onPartial(text) {
+        if (!isCurrentSession()) {
+          return;
+        }
+        updateTranscriptPreview(text, false);
+      },
+      onFinal(text, completesSession) {
+        if (!isCurrentSession()) {
+          return;
+        }
+        updateTranscriptPreview(text, true);
+        if (completesSession) {
+          interactionState = INTERACTION_STATES.TRANSCRIPT_READY;
+          renderSpeechState();
+        }
+      },
+      onTranscriptReady() {
+        if (!isCurrentSession() || !transcriptIsFinal) {
+          return;
+        }
+        interactionState = INTERACTION_STATES.TRANSCRIPT_READY;
+        renderSpeechState();
+      },
+      onFinishing() {
+        if (!isCurrentSession()) {
+          return;
+        }
+        interactionState = INTERACTION_STATES.FINISHING_ASR;
+        renderSpeechState();
+      },
+      onError(error) {
+        if (
+          !isCurrentSession()
+          || interactionState === INTERACTION_STATES.TRANSCRIPT_READY
+        ) {
+          return;
+        }
+        activeAsrSession = null;
+        const microphoneError = error.kind === 'microphone';
+        interactionState = microphoneError
+          ? INTERACTION_STATES.MICROPHONE_ERROR
+          : INTERACTION_STATES.ASR_ERROR;
+        renderInteractionError(
+          microphoneError ? 'microphone' : 'asr',
+          error.message
+        );
+      },
+      onClosed() {
+        if (!isCurrentSession()) {
+          return;
+        }
+        activeAsrSession = null;
+      },
+    });
+    activeAsrSession = session;
+    Promise.resolve(session.start()).catch(() => {
+      if (!isCurrentSession()) {
+        return;
+      }
+      activeAsrSession = null;
+      interactionState = INTERACTION_STATES.ASR_ERROR;
+      renderInteractionError(
+        'asr',
+        '语音识别暂时不可用，请重新诉说。'
+      );
+    });
+  }
+
+  function finishSpeaking() {
+    if (
+      interactionState !== INTERACTION_STATES.SPEAKING
+      || !activeAsrSession
+    ) {
+      return;
+    }
+    activeAsrSession.finish();
   }
 
   function handleSpeakControl() {
     if (
       interactionState === INTERACTION_STATES.WAITING_TO_SPEAK
       || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
+      || interactionState === INTERACTION_STATES.ASR_ERROR
     ) {
-      requestMicrophone();
+      startSpeakingSession();
       return;
     }
     if (interactionState === INTERACTION_STATES.SPEAKING) {
@@ -242,11 +358,16 @@
 
   function handlePageExit() {
     pageIsActive = false;
-    microphoneRequestSequence += 1;
-    releaseActiveMicrophone();
+    sessionGeneration += 1;
+    closeActiveAsrSession();
     if (
       interactionState === INTERACTION_STATES.REQUESTING_MICROPHONE
+      || interactionState === INTERACTION_STATES.CONNECTING_ASR
       || interactionState === INTERACTION_STATES.SPEAKING
+      || interactionState === INTERACTION_STATES.FINISHING_ASR
+      || interactionState === INTERACTION_STATES.TRANSCRIPT_READY
+      || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
+      || interactionState === INTERACTION_STATES.ASR_ERROR
     ) {
       interactionState = INTERACTION_STATES.WAITING_TO_SPEAK;
     }
@@ -255,6 +376,7 @@
   function handlePageShow() {
     pageIsActive = true;
     if (interactionState === INTERACTION_STATES.WAITING_TO_SPEAK) {
+      resetTranscriptPreview();
       renderSpeechState();
     }
   }

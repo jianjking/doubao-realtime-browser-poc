@@ -724,7 +724,8 @@ a {
   display: inline-flex;
 }
 
-.has-microphone-error .waiting-to-speak {
+.has-microphone-error .waiting-to-speak,
+.has-asr-error .waiting-to-speak {
   border-color: rgba(139, 55, 61, 0.72);
   background: #fff3ed;
 }
@@ -766,6 +767,39 @@ a {
   display: block;
   color: #78655f;
   font-size: 15px;
+}
+
+.transcript-preview {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(155, 122, 78, 0.48);
+  border-radius: 14px;
+  background: rgba(255, 253, 246, 0.92);
+  text-align: left;
+}
+
+.transcript-preview h3 {
+  margin: 0;
+  color: #65292e;
+  font-size: 17px;
+}
+
+.transcript-preview .transcript-preview-status {
+  margin: 6px 0 0;
+  color: #78655f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.transcript-preview .transcript-preview-text {
+  min-height: 48px;
+  margin: 8px 0 0;
+  color: #392722;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .return-choice-button {
