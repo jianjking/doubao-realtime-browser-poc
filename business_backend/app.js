@@ -100,6 +100,30 @@ function createApp(options = {}) {
       })
     );
   }
+  if (options.fortuneAudioWorkletFile !== undefined) {
+    if (
+      typeof options.fortuneAudioWorkletFile !== 'string'
+      || options.fortuneAudioWorkletFile === ''
+    ) {
+      throw new TypeError(
+        'fortuneAudioWorkletFile must be a non-empty string'
+      );
+    }
+    app.get(
+      '/realtime-assets/pcm_capture_processor.js',
+      (request, response, next) => {
+        response.sendFile(
+          options.fortuneAudioWorkletFile,
+          { dotfiles: 'deny' },
+          (error) => {
+            if (error) {
+              next(error);
+            }
+          }
+        );
+      }
+    );
+  }
   app.use('/api', healthRouter);
   app.use('/api', createRoleRouter({ roleService }));
   app.use('/api', createAuthRouter({ sessionService, authService }));

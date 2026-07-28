@@ -164,11 +164,16 @@
       speechTitle.textContent = '暂时无法使用麦克风';
       speechDetail.textContent =
         '请检查浏览器或系统的麦克风权限。';
+    } else if (kind === 'worklet') {
+      page.classList.add('has-asr-error');
+      speechTitle.textContent = '语音识别暂时不可用';
+      speechDetail.textContent =
+        '如果问题仍然存在，请重新打开求签页面。';
     } else {
       page.classList.add('has-asr-error');
       speechTitle.textContent = '语音识别暂时不可用';
       speechDetail.textContent =
-        '请检查 Relay 是否开启求签语音识别后再试。';
+        '请确认语音识别服务已启动后再试。';
     }
     speechMessage.textContent = message;
     speakControlButton.textContent = '重新诉说';
@@ -303,12 +308,19 @@
         }
         activeAsrSession = null;
         const microphoneError = error.kind === 'microphone';
+        const workletError = error.kind === 'worklet';
         interactionState = microphoneError
           ? INTERACTION_STATES.MICROPHONE_ERROR
           : INTERACTION_STATES.ASR_ERROR;
         renderInteractionError(
-          microphoneError ? 'microphone' : 'asr',
-          error.message
+          microphoneError
+            ? 'microphone'
+            : workletError
+              ? 'worklet'
+              : 'asr',
+          microphoneError || workletError
+            ? error.message
+            : '暂时无法连接语音识别服务，请确认服务已启动后重试。'
         );
       },
       onClosed() {
@@ -327,7 +339,7 @@
       interactionState = INTERACTION_STATES.ASR_ERROR;
       renderInteractionError(
         'asr',
-        '语音识别暂时不可用，请重新诉说。'
+        '暂时无法连接语音识别服务，请确认服务已启动后重试。'
       );
     });
   }

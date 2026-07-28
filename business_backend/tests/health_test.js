@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
@@ -105,11 +106,16 @@ test('business backend exposes only the health route', async () => {
 });
 
 test('configured business backend serves the authoritative mobile UI', async () => {
+  const fortuneAudioWorkletFile = path.resolve(
+    __dirname,
+    '../../public/pcm_capture_processor.js'
+  );
   const app = createApp({
     mobileUiDirectory: path.resolve(
       __dirname,
       '../../ui_prototypes/yuhuang_mobile_v1'
     ),
+    fortuneAudioWorkletFile,
   });
   const server = http.createServer(app);
 
@@ -141,6 +147,27 @@ test('configured business backend serves the authoritative mobile UI', async () 
       '/ui_prototypes/yuhuang_mobile_v1/home.html'
     );
     assert.match(homeResponse.body, /data-current-credit>--</);
+
+    const workletResponse = await requestPath(
+      address.port,
+      '/realtime-assets/pcm_capture_processor.js'
+    );
+    assert.equal(workletResponse.statusCode, 200);
+    assert.match(
+      workletResponse.headers['content-type'] || '',
+      /(?:text|application)\/javascript/i
+    );
+    assert.match(workletResponse.body, /registerProcessor\s*\(/);
+    assert.equal(
+      workletResponse.body,
+      fs.readFileSync(fortuneAudioWorkletFile, 'utf8')
+    );
+
+    const oldRootResponse = await requestPath(
+      address.port,
+      '/pcm_capture_processor.js'
+    );
+    assert.equal(oldRootResponse.statusCode, 404);
   } finally {
     await closeServer(server);
   }

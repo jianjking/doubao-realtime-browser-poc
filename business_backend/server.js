@@ -48,6 +48,10 @@ function startServer() {
       __dirname,
       '../ui_prototypes/yuhuang_mobile_v1'
     ),
+    fortuneAudioWorkletFile: path.resolve(
+      __dirname,
+      '../public/pcm_capture_processor.js'
+    ),
   });
 
   const server = app.listen(port, host, () => {

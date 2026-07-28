@@ -18,6 +18,10 @@ const FORTUNE_ASR_JS_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/fortune_browser_asr.js'
 );
+const WORKLET_PATH = path.join(
+  PROJECT_DIR,
+  'public/pcm_capture_processor.js'
+);
 const ENTRY_CSS_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/entry.css'
@@ -294,6 +298,7 @@ function verifyStaticSceneAndSafety() {
   const css = fs.readFileSync(ENTRY_CSS_PATH, 'utf8');
   const js = fs.readFileSync(FORTUNE_JS_PATH, 'utf8');
   const asrJs = fs.readFileSync(FORTUNE_ASR_JS_PATH, 'utf8');
+  const workletJs = fs.readFileSync(WORKLET_PATH, 'utf8');
 
   assert.match(
     html,
@@ -398,6 +403,15 @@ function verifyStaticSceneAndSafety() {
     asrJs,
     /127\.0\.0\.1|MediaRecorder|Blob|FileReader|base64|data:audio|WAV|wave/
   );
+  assert.match(
+    asrJs,
+    /const WORKLET_URL = '\/realtime-assets\/pcm_capture_processor\.js';/
+  );
+  assert.doesNotMatch(
+    asrJs,
+    /const WORKLET_URL = '\/pcm_capture_processor\.js';/
+  );
+  assert.match(workletJs, /registerProcessor\s*\(/);
   assert.doesNotMatch(
     html,
     /<(?:input|textarea)\b|contenteditable=/
@@ -967,7 +981,7 @@ async function verifyStartProtocolAndRealSampleRate() {
   assert.equal(runtime.audioContexts[0].sampleRate, 44100);
   assert.equal(
     runtime.audioContexts[0].workletModuleUrl,
-    '/pcm_capture_processor.js'
+    '/realtime-assets/pcm_capture_processor.js'
   );
   assert.equal(runtime.workletNodes.length, 1);
   assert.equal(runtime.workletNodes[0].name, 'pcm-capture-processor');
@@ -1117,6 +1131,45 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
   });
   assert.equal(runtime.speechMessage.textContent, '识别完成');
 
+  const workletErrorRuntime = loadFortuneRuntime({
+    createSession(callbacks) {
+      return {
+        close() {
+          return true;
+        },
+        finish() {
+          return false;
+        },
+        start() {
+          callbacks.onConnecting();
+          callbacks.onError({
+            kind: 'worklet',
+            message: '语音采集组件加载失败，请刷新页面后重试。',
+          });
+          return Promise.resolve(false);
+        },
+      };
+    },
+  });
+  completeIncenseOffering(workletErrorRuntime);
+  workletErrorRuntime.speakControlButton.trigger('click');
+  await flushPromises();
+  assert.equal(
+    workletErrorRuntime.speechMessage.textContent,
+    '语音采集组件加载失败，请刷新页面后重试。'
+  );
+  assert.equal(
+    workletErrorRuntime.speechDetail.textContent,
+    '如果问题仍然存在，请重新打开求签页面。'
+  );
+  assert.equal(
+    (
+      workletErrorRuntime.speechMessage.textContent
+      + workletErrorRuntime.speechDetail.textContent
+    ).includes('Relay'),
+    false
+  );
+
   const retryRuntime = loadFortuneRuntime({
     createSession(callbacks) {
       const session = {
@@ -1144,6 +1197,18 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
   retryRuntime.speakControlButton.trigger('click');
   await flushPromises();
   const failedSession = createdSessions.at(-1);
+  assert.equal(
+    retryRuntime.speechMessage.textContent,
+    '暂时无法连接语音识别服务，请确认服务已启动后重试。'
+  );
+  assert.equal(
+    retryRuntime.speechDetail.textContent,
+    '请确认语音识别服务已启动后再试。'
+  );
+  assert.equal(
+    retryRuntime.speechDetail.textContent.includes('Relay'),
+    false
+  );
   assert.equal(retryRuntime.speakControlButton.textContent, '重新诉说');
   retryRuntime.speakControlButton.trigger('click');
   await flushPromises();
@@ -1299,7 +1364,14 @@ async function verifyModulePageExitAndFailureBoundaries() {
   workletConnection.socket.emitJson({ type: 'fortune.asr.started' });
   await flushPromises();
   assert.equal(workletErrors.length, 1);
-  assert.equal(workletErrors[0].kind, 'audio');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(workletErrors[0])),
+    {
+      kind: 'worklet',
+      message: '语音采集组件加载失败，请刷新页面后重试。',
+    }
+  );
+  assert.equal(workletRuntime.workletNodes.length, 0);
   assert.equal(workletRuntime.audioContexts[0].closeCallCount, 1);
   assert.deepEqual(
     workletRuntime.defaultStream.tracks.map(
@@ -1307,6 +1379,7 @@ async function verifyModulePageExitAndFailureBoundaries() {
     ),
     [1, 1]
   );
+  assert.equal(workletConnection.socket.closeCalls.length, 1);
 
   const processorErrors = [];
   const processorRuntime = loadFortuneAsrRuntime();

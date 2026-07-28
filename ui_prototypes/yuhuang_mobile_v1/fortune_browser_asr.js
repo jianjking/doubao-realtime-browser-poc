@@ -5,7 +5,7 @@
   const PCM_SAMPLES_PER_CHUNK = 3200;
   const MAX_PCM_CHUNK_BYTES = 64000;
   const FINAL_TIMEOUT_MS = 18000;
-  const WORKLET_URL = '/pcm_capture_processor.js';
+  const WORKLET_URL = '/realtime-assets/pcm_capture_processor.js';
   const WORKLET_NAME = 'pcm-capture-processor';
   const WEBSOCKET_CONNECTING = 0;
   const WEBSOCKET_OPEN = 1;
@@ -390,7 +390,15 @@
         if (!Number.isFinite(inputSampleRate) || inputSampleRate <= 0) {
           throw new Error('invalid input sample rate');
         }
-        await audioContext.audioWorklet.addModule(WORKLET_URL);
+        try {
+          await audioContext.audioWorklet.addModule(WORKLET_URL);
+        } catch {
+          fail(
+            'worklet',
+            '语音采集组件加载失败，请刷新页面后重试。'
+          );
+          return;
+        }
         if (state !== SESSION_STATES.STARTING_AUDIO) {
           return;
         }
