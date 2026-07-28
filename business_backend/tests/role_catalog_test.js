@@ -79,6 +79,20 @@ function copyExpectedRoles() {
   return EXPECTED_ROLES.map((role) => ({ ...role }));
 }
 
+function createExpectedPublicRoles(roles = EXPECTED_ROLES) {
+  return roles.map((role) => ({
+    ...role,
+    pricing: {
+      currency: 'CNY',
+      billingUnitSeconds: role.billingUnitMs / 1000,
+      pricePerMinuteFen: (
+        Math.ceil(60000 / role.billingUnitMs)
+        * role.pricePerBillingUnitFen
+      ),
+    },
+  }));
+}
+
 function listenOnTemporaryPort(server) {
   return new Promise((resolve, reject) => {
     const handleError = (error) => {
@@ -201,18 +215,24 @@ test('role service returns isolated copies in fixed order', () => {
   sourceRoles[0].displayName = 'changed source';
 
   const firstRoles = roleService.listPublicRoles();
-  assert.deepEqual(firstRoles, EXPECTED_ROLES);
+  const expectedPublicRoles = createExpectedPublicRoles();
+  assert.deepEqual(firstRoles, expectedPublicRoles);
   firstRoles.reverse();
   firstRoles[0].displayName = 'changed result';
+  firstRoles[0].pricing.pricePerMinuteFen = 1;
 
-  assert.deepEqual(roleService.listPublicRoles(), EXPECTED_ROLES);
+  assert.deepEqual(
+    roleService.listPublicRoles(),
+    expectedPublicRoles
+  );
 
   const firstYuhuang = roleService.findPublicRoleBySlug('yuhuang');
-  assert.deepEqual(firstYuhuang, EXPECTED_ROLES[0]);
+  assert.deepEqual(firstYuhuang, expectedPublicRoles[0]);
   firstYuhuang.displayName = 'changed lookup result';
+  firstYuhuang.pricing.billingUnitSeconds = 1;
   assert.deepEqual(
     roleService.findPublicRoleBySlug('yuhuang'),
-    EXPECTED_ROLES[0]
+    expectedPublicRoles[0]
   );
 });
 
@@ -223,7 +243,7 @@ test('role service requires an exact slug match', () => {
 
   assert.deepEqual(
     roleService.findPublicRoleBySlug('yuhuang'),
-    EXPECTED_ROLES[0]
+    createExpectedPublicRoles()[0]
   );
   assert.equal(roleService.findPublicRoleBySlug('YUHuang'), null);
   assert.equal(roleService.findPublicRoleBySlug('玉皇大帝'), null);
@@ -265,6 +285,17 @@ test('role service rejects invalid role configurations', () => {
   assert.throws(() => {
     createRoleService({ roles: invalidPriceRoles });
   }, /pricePerBillingUnitFen must be a positive safe integer/);
+  const fractionalSecondsRoles = copyExpectedRoles();
+  fractionalSecondsRoles[0].billingUnitMs = 6500;
+  assert.throws(() => {
+    createRoleService({ roles: fractionalSecondsRoles });
+  }, /whole number of seconds/);
+  const overflowingMinutePriceRoles = copyExpectedRoles();
+  overflowingMinutePriceRoles[0].pricePerBillingUnitFen =
+    Number.MAX_SAFE_INTEGER;
+  assert.throws(() => {
+    createRoleService({ roles: overflowingMinutePriceRoles });
+  }, /safe public pricing/);
   const emptyDisplayNameRoles = copyExpectedRoles();
   emptyDisplayNameRoles[0].displayName = '';
   assert.throws(() => {
@@ -283,8 +314,9 @@ test('GET /api/roles is public and returns the strict catalog', async () => {
       /application\/json/i
     );
     const responseBody = parseJson(response.body);
+    const expectedPublicRoles = createExpectedPublicRoles();
     assert.deepEqual(responseBody, {
-      roles: EXPECTED_ROLES,
+      roles: expectedPublicRoles,
     });
     assert.equal(responseBody.roles.length, 8);
     assert.equal(
@@ -311,6 +343,23 @@ test('GET /api/roles is public and returns the strict catalog', async () => {
       ),
       [10, 9, 11, 13, 15, 8, 6, 7]
     );
+    assert.deepEqual(
+      responseBody.roles.map((role) => role.pricing),
+      [
+        100,
+        90,
+        110,
+        130,
+        150,
+        80,
+        60,
+        70,
+      ].map((pricePerMinuteFen) => ({
+        currency: 'CNY',
+        billingUnitSeconds: 6,
+        pricePerMinuteFen,
+      }))
+    );
 
     const ignoredInputsResponse = await requestPath(
       port,
@@ -325,6 +374,32 @@ test('GET /api/roles is public and returns the strict catalog', async () => {
   } finally {
     await closeServer(server);
   }
+});
+
+test('minute pricing uses the real billing formula for changed units', () => {
+  const changedRoles = copyExpectedRoles();
+  changedRoles[0].billingUnitMs = 12000;
+  changedRoles[0].pricePerBillingUnitFen = 7;
+  changedRoles[1].billingUnitMs = 4000;
+  changedRoles[1].pricePerBillingUnitFen = 3;
+  const roleService = createRoleService({ roles: changedRoles });
+
+  assert.deepEqual(
+    roleService.findPublicRoleBySlug('yuhuang').pricing,
+    {
+      currency: 'CNY',
+      billingUnitSeconds: 12,
+      pricePerMinuteFen: 35,
+    }
+  );
+  assert.deepEqual(
+    roleService.findPublicRoleBySlug('sunwukong').pricing,
+    {
+      currency: 'CNY',
+      billingUnitSeconds: 4,
+      pricePerMinuteFen: 45,
+    }
+  );
 });
 
 test('GET /api/roles does not expose internal configuration', async () => {

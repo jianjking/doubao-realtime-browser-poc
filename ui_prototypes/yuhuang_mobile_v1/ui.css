@@ -493,12 +493,27 @@ button {
   touch-action: pan-y;
 }
 
-.character-motto {
+.character-context-bar {
   position: absolute;
   z-index: 2;
   top: 88px;
   left: 50%;
-  width: min(68%, 265px);
+  display: grid;
+  width: min(92%, 390px);
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 5px;
+  transform: translateX(-50%);
+}
+
+.character-context-bar::before {
+  width: 48px;
+  height: 48px;
+  content: "";
+}
+
+.character-motto {
+  min-width: 0;
   margin: 0;
   color: var(--cream);
   font-size: 15px;
@@ -507,7 +522,34 @@ button {
   letter-spacing: 0.08em;
   text-align: center;
   text-shadow: 0 2px 8px rgba(38, 10, 14, 0.88);
-  transform: translateX(-50%);
+}
+
+.role-pricing-trigger {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  padding: 0 0 8px;
+  border: 1px solid rgba(233, 208, 157, 0.58);
+  border-radius: 50%;
+  color: #fff8e9;
+  background: rgba(72, 26, 32, 0.72);
+  box-shadow: 0 5px 16px rgba(39, 10, 14, 0.24);
+  cursor: pointer;
+  font-size: 25px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 4px rgba(25, 8, 11, 0.82);
+  backdrop-filter: blur(7px);
+}
+
+.role-pricing-trigger:active:not(:disabled) {
+  background: rgba(92, 34, 41, 0.88);
+}
+
+.role-pricing-trigger:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .swipe-guidance {
@@ -735,6 +777,7 @@ button {
 
 .side-action:focus-visible,
 .call-button:focus-visible,
+.role-pricing-trigger:focus-visible,
 .account-summary-button:focus-visible,
 .time-recharge-entry:focus-visible,
 .overlay-close:focus-visible,
@@ -750,7 +793,8 @@ button {
 }
 
 .side-action:disabled,
-.call-button:disabled {
+.call-button:disabled,
+.role-pricing-trigger:disabled {
   border-color: rgba(90, 100, 103, 0.62);
   color: #d9d9d2;
   background: #737d7d;
@@ -873,6 +917,62 @@ button {
   margin-top: 10px;
   font-size: 17px;
   line-height: 1.65;
+}
+
+.role-pricing-card {
+  width: min(100%, 390px);
+}
+
+.role-pricing-content {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+  text-align: center;
+}
+
+.role-pricing-character-name {
+  margin: 0;
+  color: #66282d;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.role-pricing-minute-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 7px;
+  margin: 0;
+  color: #765d58;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.role-pricing-minute-price strong {
+  color: #8d2d37;
+  font-size: clamp(34px, 10vw, 44px);
+  line-height: 1.1;
+}
+
+.role-pricing-rules {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid rgba(155, 122, 78, 0.28);
+  border-radius: 17px;
+  background: #fff8e9;
+  text-align: left;
+}
+
+.role-pricing-rules p {
+  margin: 0;
+  color: #59413d;
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.role-pricing-rules p + p {
+  margin-top: 4px;
 }
 
 .dialog-actions,
@@ -1452,6 +1552,10 @@ button {
   }
 
   .character-motto {
+    font-size: 14px;
+  }
+
+  .character-context-bar {
     top: 78px;
   }
 

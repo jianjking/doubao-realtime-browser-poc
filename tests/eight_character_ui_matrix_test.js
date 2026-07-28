@@ -22,6 +22,10 @@ const HOME_HTML_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/home.html'
 );
+const HOME_CSS_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/ui.css'
+);
 const CALL_JS_PATH = path.join(PROJECT_DIR, 'public/realtime_call_ui.js');
 const CALL_HTML_PATH = path.join(PROJECT_DIR, 'public/index.html');
 const MIC_JS_PATH = path.join(
@@ -163,6 +167,39 @@ const UI_MATRIX = Object.freeze([
     speaking: '唐僧正在回应',
   },
 ]);
+const ROLE_PRICE_PER_MINUTE_FEN = Object.freeze([
+  100,
+  90,
+  110,
+  130,
+  150,
+  80,
+  60,
+  70,
+]);
+
+function createRoleCatalogResponse(
+  prices = ROLE_PRICE_PER_MINUTE_FEN
+) {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        roles: UI_MATRIX.map((role, index) => ({
+          slug: role.key,
+          displayName: role.name,
+          available: true,
+          pricing: {
+            currency: 'CNY',
+            billingUnitSeconds: 6,
+            pricePerMinuteFen: prices[index],
+          },
+        })),
+      };
+    },
+  };
+}
 
 class FakeClassList {
   constructor() {
@@ -200,6 +237,7 @@ class FakeElement {
     this.classList = new FakeClassList();
     this.dataset = {};
     this.disabled = false;
+    this.focused = false;
     this.handlers = new Map();
     this.hidden = false;
     this.style = {
@@ -211,6 +249,8 @@ class FakeElement {
       },
     };
     this.textContent = '';
+    this.parentOverlay = null;
+    this.queryMap = new Map();
   }
 
   addEventListener(eventName, handler) {
@@ -230,11 +270,15 @@ class FakeElement {
     }
   }
 
-  closest() {
-    return null;
+  closest(selector) {
+    return selector === '.prototype-overlay'
+      ? this.parentOverlay
+      : null;
   }
 
-  focus() {}
+  focus() {
+    this.focused = true;
+  }
 
   getBoundingClientRect() {
     return {
@@ -249,8 +293,8 @@ class FakeElement {
     return true;
   }
 
-  querySelector() {
-    return null;
+  querySelector(selector) {
+    return this.queryMap.get(selector) || null;
   }
 
   releasePointerCapture() {}
@@ -309,14 +353,23 @@ function loadHomeRuntime(options = {}) {
       getAccountBalanceCents: () => accountBalanceCents,
       getCurrentCharacterKey: () => currentCharacterKey,
       getIsStartingCall: () => isStartingCall,
+      getRoleCatalogLoadPromise: () => roleCatalogLoadPromise,
+      getRoleCatalogState: () => roleCatalogState,
+      getRolePricingByKey: () => rolePricingByKey,
       getValidatedAuthState,
       handleCharacterPointerDown,
       handleCharacterPointerUp,
       handlePackageSelection,
       handlePaymentSelection,
       handleRechargeConfirmation,
+      handleEscapeKey,
+      handleHomePageShow,
+      handleOverlayBackdropClick,
       handleStartConversation,
+      initializeUi,
       loadAccountState,
+      loadPublicRoleCatalog,
+      openCurrentRolePricing,
       openOverlay,
       selectCharacter,
       warmAdjacentCharacterImages,
@@ -331,6 +384,21 @@ function loadHomeRuntime(options = {}) {
   const rechargeResult = new FakeElement();
   const rechargeSelectionSummary = new FakeElement();
   const rechargeConfirmButton = new FakeElement();
+  const rolePricingTrigger = new FakeElement();
+  const rolePricingOverlay = new FakeElement();
+  rolePricingOverlay.hidden = true;
+  rolePricingOverlay.setAttribute('aria-hidden', 'true');
+  const rolePricingName = new FakeElement();
+  const rolePricingMinutePrice = new FakeElement();
+  const rolePricingUnitSeconds = new FakeElement();
+  const rolePricingRoundingSeconds = new FakeElement();
+  const rolePricingRoundingSecondsCopy = new FakeElement();
+  const rolePricingAcknowledgement = new FakeElement();
+  rolePricingAcknowledgement.parentOverlay = rolePricingOverlay;
+  rolePricingOverlay.queryMap.set(
+    '[data-dialog-initial-focus], [data-close-overlay], button',
+    rolePricingAcknowledgement
+  );
   const customAmountField = new FakeElement();
   const customAmountInput = new FakeElement();
   const customAmountError = new FakeElement();
@@ -359,6 +427,9 @@ function loadHomeRuntime(options = {}) {
           };
         },
       };
+    }
+    if (pathname === '/api/roles') {
+      return createRoleCatalogResponse();
     }
     if (pathname === '/api/dev/recharge') {
       return {
@@ -414,8 +485,15 @@ function loadHomeRuntime(options = {}) {
     }
   }
 
+  const documentHandlers = new Map();
+  const windowHandlers = new Map();
   const document = {
-    addEventListener() {},
+    addEventListener(eventName, handler) {
+      if (!documentHandlers.has(eventName)) {
+        documentHandlers.set(eventName, []);
+      }
+      documentHandlers.get(eventName).push(handler);
+    },
     body: {
       classList: new FakeClassList(),
       dataset: {},
@@ -433,9 +511,20 @@ function loadHomeRuntime(options = {}) {
         '.recharge-confirm': rechargeConfirmButton,
         '.recharge-result': rechargeResult,
         '.recharge-selection-summary': rechargeSelectionSummary,
+        '.role-pricing-overlay': rolePricingOverlay,
+        '.role-pricing-trigger': rolePricingTrigger,
         '.time-recharge-entry': rechargeEntry,
         '.ui-toast': toast,
         '[data-call-action-label]': callActionLabel,
+        '[data-role-pricing-minute-price]':
+          rolePricingMinutePrice,
+        '[data-role-pricing-name]': rolePricingName,
+        '[data-role-pricing-rounding-seconds]':
+          rolePricingRoundingSeconds,
+        '[data-role-pricing-rounding-seconds-copy]':
+          rolePricingRoundingSecondsCopy,
+        '[data-role-pricing-unit-seconds]':
+          rolePricingUnitSeconds,
       };
       return elements[selector] || null;
     },
@@ -449,11 +538,37 @@ function loadHomeRuntime(options = {}) {
       if (selector === '.payment-option') {
         return paymentButtons;
       }
+      if (selector === '.prototype-overlay') {
+        return [
+          rolePricingOverlay,
+          rechargePanel,
+          rechargeLoginOverlay,
+        ];
+      }
+      if (selector === '[data-close-overlay]') {
+        return [rolePricingAcknowledgement];
+      }
       return [];
+    },
+    dispatch(eventName, overrides = {}) {
+      const event = {
+        key: '',
+        preventDefault() {},
+        ...overrides,
+      };
+      for (const handler of documentHandlers.get(eventName) || []) {
+        handler(event);
+      }
     },
     title: '',
   };
   const window = {
+    addEventListener(eventName, handler) {
+      if (!windowHandlers.has(eventName)) {
+        windowHandlers.set(eventName, []);
+      }
+      windowHandlers.get(eventName).push(handler);
+    },
     clearTimeout,
     fetch(pathname, requestOptions) {
       fetchRequests.push({ pathname, requestOptions });
@@ -471,6 +586,9 @@ function loadHomeRuntime(options = {}) {
       protocol: homePageUrl.protocol,
     },
     setTimeout,
+    getListenerCount(eventName) {
+      return (windowHandlers.get(eventName) || []).length;
+    },
   };
   const context = {
     Element: FakeElement,
@@ -500,9 +618,19 @@ function loadHomeRuntime(options = {}) {
     locationAssignments,
     rechargeLoginOverlay,
     rechargePanel,
+    rolePricingMinutePrice,
+    rolePricingName,
+    rolePricingAcknowledgement,
+    rolePricingOverlay,
+    rolePricingRoundingSeconds,
+    rolePricingRoundingSecondsCopy,
+    rolePricingTrigger,
+    rolePricingUnitSeconds,
     toast,
     customAmountInput,
     test: context.__homeTest,
+    document,
+    window,
   };
 }
 
@@ -1454,6 +1582,270 @@ function createAuthState(mode) {
     });
 }
 
+async function verifyRolePricingDetails() {
+  const initializedRuntime = loadHomeRuntime({
+    storageEntries: {
+      companion_auth_state_v1: createAuthState('guest'),
+    },
+  });
+  initializedRuntime.test.initializeUi();
+  assert.equal(
+    await initializedRuntime.test.getRoleCatalogLoadPromise(),
+    true
+  );
+  assert.equal(
+    (initializedRuntime.rolePricingTrigger.handlers.get('click') || [])
+      .length,
+    1
+  );
+  assert.equal(initializedRuntime.window.getListenerCount('pageshow'), 1);
+  initializedRuntime.rolePricingTrigger.click();
+  assert.equal(initializedRuntime.rolePricingOverlay.hidden, false);
+  initializedRuntime.rolePricingAcknowledgement.click();
+  assert.equal(initializedRuntime.rolePricingOverlay.hidden, true);
+  assert.equal(initializedRuntime.rolePricingTrigger.focused, true);
+  initializedRuntime.rolePricingTrigger.click();
+  initializedRuntime.rolePricingOverlay.click();
+  assert.equal(initializedRuntime.rolePricingOverlay.hidden, true);
+  initializedRuntime.rolePricingTrigger.click();
+  initializedRuntime.document.dispatch('keydown', { key: 'Escape' });
+  assert.equal(initializedRuntime.rolePricingOverlay.hidden, true);
+
+  let resolveCatalog;
+  let catalogRequestCount = 0;
+  const loadingRuntime = loadHomeRuntime({
+    fetchImpl: async (pathname) => {
+      assert.equal(pathname, '/api/roles');
+      catalogRequestCount += 1;
+      return new Promise((resolve) => {
+        resolveCatalog = resolve;
+      });
+    },
+  });
+  const firstLoad = loadingRuntime.test.loadPublicRoleCatalog();
+  const duplicateLoad =
+    loadingRuntime.test.loadPublicRoleCatalog();
+  assert.equal(firstLoad, duplicateLoad);
+  assert.equal(catalogRequestCount, 1);
+  assert.equal(loadingRuntime.rolePricingTrigger.disabled, true);
+  assert.equal(loadingRuntime.test.openCurrentRolePricing(), false);
+  assert.doesNotMatch(
+    loadingRuntime.rolePricingMinutePrice.textContent,
+    /¥0\.00/
+  );
+  resolveCatalog(createRoleCatalogResponse());
+  assert.equal(await firstLoad, true);
+  assert.equal(loadingRuntime.test.getRoleCatalogState(), 'ready');
+  assert.equal(loadingRuntime.rolePricingTrigger.disabled, false);
+  assert.equal(
+    loadingRuntime.rolePricingTrigger.attributes.get('aria-busy'),
+    'false'
+  );
+
+  assert.equal(loadingRuntime.test.formatBalanceCents(100), '¥1.00');
+  assert.equal(loadingRuntime.test.formatBalanceCents(60), '¥0.60');
+  assert.equal(loadingRuntime.test.formatBalanceCents(150), '¥1.50');
+
+  assert.equal(loadingRuntime.test.openCurrentRolePricing(), true);
+  assert.equal(
+    loadingRuntime.test.getActiveOverlay(),
+    loadingRuntime.rolePricingOverlay
+  );
+  assert.equal(loadingRuntime.rolePricingName.textContent, '玉皇大帝');
+  assert.equal(
+    loadingRuntime.rolePricingMinutePrice.textContent,
+    '¥1.00'
+  );
+  assert.equal(loadingRuntime.rolePricingUnitSeconds.textContent, '6');
+  assert.equal(
+    loadingRuntime.rolePricingRoundingSeconds.textContent,
+    '6'
+  );
+  assert.equal(
+    loadingRuntime.rolePricingRoundingSecondsCopy.textContent,
+    '6'
+  );
+  assert.equal(
+    loadingRuntime.fetchRequests.some(
+      (request) => request.pathname === '/api/calls'
+    ),
+    false
+  );
+
+  loadingRuntime.test.closeOverlay(
+    loadingRuntime.rolePricingOverlay,
+    true
+  );
+  assert.equal(loadingRuntime.rolePricingOverlay.hidden, true);
+  assert.equal(loadingRuntime.rolePricingTrigger.focused, true);
+
+  for (const [index, role] of UI_MATRIX.entries()) {
+    assert.equal(
+      await loadingRuntime.test.selectCharacter(role.key, 'test'),
+      true
+    );
+    assert.equal(loadingRuntime.test.openCurrentRolePricing(), true);
+    assert.equal(loadingRuntime.rolePricingName.textContent, role.name);
+    assert.equal(
+      loadingRuntime.rolePricingMinutePrice.textContent,
+      loadingRuntime.test.formatBalanceCents(
+        ROLE_PRICE_PER_MINUTE_FEN[index]
+      )
+    );
+    loadingRuntime.test.closeOverlay(
+      loadingRuntime.rolePricingOverlay,
+      false
+    );
+  }
+
+  await loadingRuntime.test.selectCharacter('yuhuang', 'test');
+  loadingRuntime.test.openCurrentRolePricing();
+  assert.equal(
+    await loadingRuntime.test.selectCharacter('sunwukong', 'test'),
+    true
+  );
+  assert.equal(loadingRuntime.rolePricingOverlay.hidden, true);
+  assert.equal(loadingRuntime.test.openCurrentRolePricing(), true);
+  assert.equal(loadingRuntime.rolePricingName.textContent, '孙悟空');
+  assert.equal(
+    loadingRuntime.rolePricingMinutePrice.textContent,
+    '¥0.90'
+  );
+
+  loadingRuntime.test.handleEscapeKey({
+    key: 'Escape',
+    preventDefault() {},
+  });
+  assert.equal(loadingRuntime.rolePricingOverlay.hidden, true);
+  loadingRuntime.test.openCurrentRolePricing();
+  loadingRuntime.test.handleOverlayBackdropClick({
+    currentTarget: loadingRuntime.rolePricingOverlay,
+    target: loadingRuntime.rolePricingOverlay,
+  });
+  assert.equal(loadingRuntime.rolePricingOverlay.hidden, true);
+
+  loadingRuntime.test.openOverlay(
+    loadingRuntime.rechargePanel,
+    loadingRuntime.rechargeEntry
+  );
+  assert.equal(loadingRuntime.rechargePanel.hidden, false);
+  loadingRuntime.test.openCurrentRolePricing();
+  assert.equal(loadingRuntime.rechargePanel.hidden, true);
+  assert.equal(loadingRuntime.rolePricingOverlay.hidden, false);
+
+  let failureCatalogRequests = 0;
+  let callRequests = 0;
+  const failureRuntime = loadHomeRuntime({
+    storageEntries: {
+      companion_auth_state_v1: createAuthState('phone'),
+    },
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/roles') {
+        failureCatalogRequests += 1;
+        if (failureCatalogRequests === 1) {
+          throw new Error('catalog unavailable');
+        }
+        return createRoleCatalogResponse();
+      }
+      if (pathname === '/api/calls') {
+        callRequests += 1;
+        return {
+          ok: true,
+          status: 201,
+          async json() {
+            return { call: { id: 'call-after-catalog-failure' } };
+          },
+        };
+      }
+      if (pathname === '/api/dev/recharge') {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              account: {
+                currency: 'CNY',
+                balanceCents: 2250,
+                remainingSeconds: 0,
+              },
+            };
+          },
+        };
+      }
+      throw new Error(`unexpected request: ${pathname}`);
+    },
+  });
+  assert.equal(
+    await failureRuntime.test.loadPublicRoleCatalog(),
+    false
+  );
+  assert.equal(failureRuntime.test.getRoleCatalogState(), 'error');
+  assert.equal(failureRuntime.rolePricingTrigger.disabled, false);
+  assert.equal(failureRuntime.test.openCurrentRolePricing(), false);
+  assert.match(
+    failureRuntime.toast.textContent,
+    /收费信息暂时无法加载/
+  );
+  assert.equal(
+    await failureRuntime.test.getRoleCatalogLoadPromise(),
+    true
+  );
+  assert.equal(failureRuntime.test.getRoleCatalogState(), 'ready');
+  assert.equal(
+    await failureRuntime.test.selectCharacter('guanyin', 'test'),
+    true
+  );
+  assert.equal(
+    await failureRuntime.test.handleRechargeConfirmation(),
+    true
+  );
+  assert.equal(failureRuntime.test.getAccountBalanceCents(), 2250);
+  assert.equal(
+    await failureRuntime.test.handleStartConversation(),
+    true
+  );
+  assert.equal(callRequests, 1);
+
+  let catalogVersion = 0;
+  let bfcacheCatalogRequests = 0;
+  const bfcacheRuntime = loadHomeRuntime({
+    fetchImpl: async (pathname) => {
+      assert.equal(pathname, '/api/roles');
+      bfcacheCatalogRequests += 1;
+      const prices = [...ROLE_PRICE_PER_MINUTE_FEN];
+      if (catalogVersion === 1) {
+        prices[1] = 120;
+      }
+      return createRoleCatalogResponse(prices);
+    },
+  });
+  assert.equal(
+    await bfcacheRuntime.test.loadPublicRoleCatalog(),
+    true
+  );
+  await bfcacheRuntime.test.selectCharacter('sunwukong', 'test');
+  bfcacheRuntime.test.handleHomePageShow();
+  assert.equal(bfcacheRuntime.test.openCurrentRolePricing(), true);
+  catalogVersion = 1;
+  bfcacheRuntime.test.handleHomePageShow();
+  bfcacheRuntime.test.handleHomePageShow();
+  assert.equal(bfcacheRuntime.rolePricingOverlay.hidden, true);
+  assert.equal(
+    await bfcacheRuntime.test.getRoleCatalogLoadPromise(),
+    true
+  );
+  assert.equal(bfcacheCatalogRequests, 2);
+  assert.equal(
+    bfcacheRuntime.test.getCurrentCharacterKey(),
+    'sunwukong'
+  );
+  assert.equal(bfcacheRuntime.test.openCurrentRolePricing(), true);
+  assert.equal(
+    bfcacheRuntime.rolePricingMinutePrice.textContent,
+    '¥1.20'
+  );
+}
+
 async function verifyAuthGateAndRechargeRegression() {
   const authKey = 'companion_auth_state_v1';
   const guestRuntime = loadHomeRuntime({
@@ -1518,6 +1910,7 @@ async function verifyAuthGateAndRechargeRegression() {
 
 function verifyStaticSafetyAndCurrentUi() {
   const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
+  const homeCss = fs.readFileSync(HOME_CSS_PATH, 'utf8');
   const homeJs = fs.readFileSync(HOME_JS_PATH, 'utf8');
   const authHtml = fs.readFileSync(AUTH_HTML_PATH, 'utf8');
   const authJs = fs.readFileSync(AUTH_JS_PATH, 'utf8');
@@ -1591,11 +1984,44 @@ function verifyStaticSafetyAndCurrentUi() {
   assert.match(homeHtml, /data-package-mode="custom"/);
   assert.match(homeHtml, /data-payment-method="wechat"/);
   assert.match(homeHtml, /data-payment-method="alipay"/);
+  assert.equal(
+    (homeHtml.match(/class="role-pricing-trigger"/g) || []).length,
+    1
+  );
+  assert.match(
+    homeHtml,
+    /<button[\s\S]{0,180}class="role-pricing-trigger"[\s\S]{0,260}type="button"[\s\S]{0,180}aria-label="查看收费说明"[\s\S]{0,180}aria-haspopup="dialog"/
+  );
+  assert.match(
+    homeHtml,
+    /class="role-pricing-overlay prototype-overlay"[\s\S]{0,180}role="dialog"/
+  );
+  assert.match(homeHtml, /收费说明/);
+  assert.match(homeHtml, /\/ 分钟/);
+  assert.match(homeHtml, /实际每/);
+  assert.match(homeHtml, /不足/);
+  assert.match(homeHtml, /通话结束后自动从账户话费中扣除/);
+  assert.match(
+    homeHtml,
+    /data-close-overlay>我知道了<\/button>/
+  );
+  assert.match(
+    homeCss,
+    /\.role-pricing-trigger\s*\{[\s\S]*?width:\s*48px;[\s\S]*?height:\s*48px;/
+  );
+  assert.match(homeJs, /const ROLE_CATALOG_API_URL = '\/api\/roles'/);
+  assert.match(homeJs, /function loadPublicRoleCatalog\(\)/);
+  assert.match(homeJs, /rolePricingByKey\.get\(currentCharacterKey\)/);
+  assert.doesNotMatch(
+    homeJs,
+    /pricePerMinuteFen\s*:\s*(?:100|90|110|130|150|80|60|70)\b/
+  );
 }
 
 async function main() {
   verifyBrowserLifecycleBoundary();
   verifyStaticSafetyAndCurrentUi();
+  await verifyRolePricingDetails();
   await verifyAuthGateAndRechargeRegression();
   await verifyHomeConfigurationAndPreloading();
   await verifySwipeAndImageSafety();
@@ -1612,6 +2038,8 @@ async function main() {
       + 'vertical-swipe,overlay-lock,image-failure,race-safety,call-states,'
       + 'ended,restart,return-url-navigation,new-websocket,current-character-hello,'
       + 'business-call-id-url,unavailable-keys,'
+      + 'role-pricing-catalog,role-pricing-eight-roles,'
+      + 'role-pricing-loading-error-dedup-bfcache,role-pricing-overlay,'
       + 'fixed-custom-wechat-alipay-refresh-balance,lifecycle-boundary\n'
   );
   process.stdout.write(

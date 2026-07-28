@@ -5,6 +5,7 @@
   const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
   const ACCOUNT_API_URL = '/api/me';
   const CALL_API_URL = '/api/calls';
+  const ROLE_CATALOG_API_URL = '/api/roles';
   const DEV_RECHARGE_API_URL = '/api/dev/recharge';
   const MAX_DEV_RECHARGE_AMOUNT_CENTS = 100000;
   const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
@@ -192,6 +193,9 @@
   let currentAuthState = null;
   let isStartingCall = false;
   let isSubmittingRecharge = false;
+  let roleCatalogState = 'loading';
+  let roleCatalogLoadPromise = null;
+  let rolePricingByKey = new Map();
 
   const homeTitle = document.querySelector('.top-controls h1');
   const sceneImage = document.querySelector('.scene-image');
@@ -205,6 +209,27 @@
   );
   const rolePosition = document.querySelector(
     '[data-current-role-position]'
+  );
+  const rolePricingTrigger = document.querySelector(
+    '.role-pricing-trigger'
+  );
+  const rolePricingOverlay = document.querySelector(
+    '.role-pricing-overlay'
+  );
+  const rolePricingName = document.querySelector(
+    '[data-role-pricing-name]'
+  );
+  const rolePricingMinutePrice = document.querySelector(
+    '[data-role-pricing-minute-price]'
+  );
+  const rolePricingUnitSeconds = document.querySelector(
+    '[data-role-pricing-unit-seconds]'
+  );
+  const rolePricingRoundingSeconds = document.querySelector(
+    '[data-role-pricing-rounding-seconds]'
+  );
+  const rolePricingRoundingSecondsCopy = document.querySelector(
+    '[data-role-pricing-rounding-seconds-copy]'
   );
   const accountSummaryButton = document.querySelector(
     '.account-summary-button'
@@ -550,6 +575,145 @@
     return `${balanceCents < 0 ? '-' : ''}¥${yuan}.${cents}`;
   }
 
+  function parsePublicRoleCatalog(responseBody) {
+    const roles = responseBody && responseBody.roles;
+    if (!Array.isArray(roles) || roles.length !== characters.length) {
+      return null;
+    }
+
+    const nextPricingByKey = new Map();
+    for (const role of roles) {
+      const pricing = role && role.pricing;
+      if (
+        !role
+        || typeof role !== 'object'
+        || Array.isArray(role)
+        || typeof role.slug !== 'string'
+        || !charactersByKey.has(role.slug)
+        || typeof role.displayName !== 'string'
+        || role.displayName === ''
+        || role.available !== true
+        || !pricing
+        || typeof pricing !== 'object'
+        || Array.isArray(pricing)
+        || pricing.currency !== 'CNY'
+        || !Number.isSafeInteger(pricing.billingUnitSeconds)
+        || pricing.billingUnitSeconds <= 0
+        || !Number.isSafeInteger(pricing.pricePerMinuteFen)
+        || pricing.pricePerMinuteFen <= 0
+        || nextPricingByKey.has(role.slug)
+      ) {
+        return null;
+      }
+      nextPricingByKey.set(role.slug, Object.freeze({
+        slug: role.slug,
+        displayName: role.displayName,
+        pricing: Object.freeze({
+          currency: pricing.currency,
+          billingUnitSeconds: pricing.billingUnitSeconds,
+          pricePerMinuteFen: pricing.pricePerMinuteFen,
+        }),
+      }));
+    }
+    return nextPricingByKey.size === characters.length
+      ? nextPricingByKey
+      : null;
+  }
+
+  function setRoleCatalogState(state, nextPricingByKey = null) {
+    roleCatalogState = state;
+    rolePricingByKey = nextPricingByKey || new Map();
+    if (state !== 'ready' && activeOverlay === rolePricingOverlay) {
+      closeOverlay(rolePricingOverlay, true);
+    }
+    if (rolePricingTrigger) {
+      rolePricingTrigger.disabled = state === 'loading';
+      rolePricingTrigger.setAttribute(
+        'aria-busy',
+        String(state === 'loading')
+      );
+    }
+  }
+
+  function loadPublicRoleCatalog() {
+    if (roleCatalogLoadPromise) {
+      return roleCatalogLoadPromise;
+    }
+
+    setRoleCatalogState('loading');
+    const requestPromise = (async () => {
+      if (typeof window.fetch !== 'function') {
+        setRoleCatalogState('error');
+        return false;
+      }
+      try {
+        const response = await window.fetch(ROLE_CATALOG_API_URL, {
+          headers: {
+            Accept: 'application/json',
+          },
+        });
+        const responseBody = await readJsonResponse(response);
+        const nextPricingByKey = response.ok
+          ? parsePublicRoleCatalog(responseBody)
+          : null;
+        if (!nextPricingByKey) {
+          setRoleCatalogState('error');
+          return false;
+        }
+        setRoleCatalogState('ready', nextPricingByKey);
+        return true;
+      } catch {
+        setRoleCatalogState('error');
+        return false;
+      }
+    })();
+    const trackedPromise = requestPromise.finally(() => {
+      if (roleCatalogLoadPromise === trackedPromise) {
+        roleCatalogLoadPromise = null;
+      }
+    });
+    roleCatalogLoadPromise = trackedPromise;
+    return trackedPromise;
+  }
+
+  function renderCurrentRolePricing(rolePricing) {
+    if (rolePricingName) {
+      rolePricingName.textContent = rolePricing.displayName;
+    }
+    if (rolePricingMinutePrice) {
+      rolePricingMinutePrice.textContent = formatBalanceCents(
+        rolePricing.pricing.pricePerMinuteFen
+      );
+    }
+    const billingUnitSeconds =
+      String(rolePricing.pricing.billingUnitSeconds);
+    if (rolePricingUnitSeconds) {
+      rolePricingUnitSeconds.textContent = billingUnitSeconds;
+    }
+    if (rolePricingRoundingSeconds) {
+      rolePricingRoundingSeconds.textContent = billingUnitSeconds;
+    }
+    if (rolePricingRoundingSecondsCopy) {
+      rolePricingRoundingSecondsCopy.textContent = billingUnitSeconds;
+    }
+  }
+
+  function openCurrentRolePricing() {
+    const rolePricing = rolePricingByKey.get(currentCharacterKey);
+    if (roleCatalogState === 'loading') {
+      showToast('收费信息正在加载，请稍候');
+      return false;
+    }
+    if (!rolePricing) {
+      showToast('收费信息暂时无法加载，请稍后重试');
+      void loadPublicRoleCatalog();
+      return false;
+    }
+    renderCurrentRolePricing(rolePricing);
+    openOverlay(rolePricingOverlay, rolePricingTrigger);
+    return true;
+  }
+
   function renderCreditBalance() {
     let displayValue = '--';
     let ariaValue = '加载中';
@@ -702,6 +866,9 @@
       return;
     }
     void loadAccountState();
+    if (rolePricingTrigger && rolePricingOverlay) {
+      void loadPublicRoleCatalog();
+    }
   }
 
   function renderCharacter(character) {
@@ -830,6 +997,9 @@
       return false;
     }
 
+    if (activeOverlay === rolePricingOverlay) {
+      closeOverlay(rolePricingOverlay, false);
+    }
     currentCharacterKey = character.key;
     renderCharacter(character);
     warmAdjacentCharacterImages(character.key);
@@ -1419,6 +1589,9 @@
     renderAccountSummary(currentAuthState);
     renderAccountProfile(currentAuthState);
     renderCharacter(charactersByKey.get(currentCharacterKey));
+    if (rolePricingTrigger && rolePricingOverlay) {
+      void loadPublicRoleCatalog();
+    }
     if (isPhoneAuthenticated(currentAuthState)) {
       void loadAccountState();
     } else {
@@ -1447,6 +1620,13 @@
           openRechargeLoginPrompt(rechargeEntry);
         }
       });
+    }
+
+    if (rolePricingTrigger && rolePricingOverlay) {
+      rolePricingTrigger.addEventListener(
+        'click',
+        openCurrentRolePricing
+      );
     }
 
     document.querySelectorAll('.prototype-overlay').forEach((overlay) => {

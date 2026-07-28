@@ -83,7 +83,18 @@
 
     <main class="home-main">
       <section class="character-stage" aria-label="玉皇大帝角色主视觉" data-current-character-key="yuhuang">
-        <p class="character-motto">端坐凌霄，听您慢慢说</p>
+        <div class="character-context-bar">
+          <p class="character-motto">端坐凌霄，听您慢慢说</p>
+          <button
+            class="role-pricing-trigger"
+            type="button"
+            aria-label="查看收费说明"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            disabled>
+            <span aria-hidden="true">···</span>
+          </button>
+        </div>
         <div class="swipe-guidance" aria-label="角色切换提示">
           <p class="swipe-hint">
             <span class="swipe-hint-icon swipe-hint-icon-left" aria-hidden="true">←</span>
@@ -111,6 +122,39 @@
         <p class="usage-fee-note">话费用于与角色进行语音通话</p>
       </section>
     </main>
+
+    <section
+      class="role-pricing-overlay prototype-overlay"
+      id="role-pricing-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      hidden
+      aria-labelledby="role-pricing-title"
+      aria-describedby="role-pricing-rules">
+      <div class="role-pricing-card compact-dialog overlay-card">
+        <header class="overlay-header">
+          <div>
+            <h2 id="role-pricing-title">收费说明</h2>
+          </div>
+        </header>
+        <div class="role-pricing-content">
+          <p class="role-pricing-character-name" data-role-pricing-name>当前角色</p>
+          <p class="role-pricing-minute-price">
+            <strong data-role-pricing-minute-price>--</strong>
+            <span>/ 分钟</span>
+          </p>
+          <div class="role-pricing-rules" id="role-pricing-rules">
+            <p>实际每 <strong data-role-pricing-unit-seconds>--</strong> 秒为一个计费单位。</p>
+            <p>不足 <strong data-role-pricing-rounding-seconds>--</strong> 秒按 <strong data-role-pricing-rounding-seconds-copy>--</strong> 秒计算。</p>
+            <p>通话结束后自动从账户话费中扣除。</p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="dialog-primary-action" type="button" data-close-overlay>我知道了</button>
+        </div>
+      </div>
+    </section>
 
     <section
       class="recharge-panel prototype-overlay"

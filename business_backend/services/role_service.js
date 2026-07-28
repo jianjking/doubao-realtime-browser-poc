@@ -9,6 +9,36 @@ const PUBLIC_ROLE_FIELDS = new Set([
   'sortOrder',
 ]);
 
+function createPublicPricing(role, index) {
+  if (role.billingUnitMs % 1000 !== 0) {
+    throw new TypeError(
+      `roles[${index}].billingUnitMs must be a whole number of seconds`
+    );
+  }
+  const billingUnitSeconds = role.billingUnitMs / 1000;
+  const billingUnitsPerMinute = Math.ceil(
+    60000 / role.billingUnitMs
+  );
+  const pricePerMinuteFen = (
+    billingUnitsPerMinute * role.pricePerBillingUnitFen
+  );
+  if (
+    !Number.isSafeInteger(billingUnitSeconds)
+    || billingUnitSeconds <= 0
+    || !Number.isSafeInteger(pricePerMinuteFen)
+    || pricePerMinuteFen <= 0
+  ) {
+    throw new TypeError(
+      `roles[${index}] cannot produce safe public pricing`
+    );
+  }
+  return {
+    currency: 'CNY',
+    billingUnitSeconds,
+    pricePerMinuteFen,
+  };
+}
+
 function copyPublicRole(role) {
   return {
     slug: role.slug,
@@ -17,6 +47,7 @@ function copyPublicRole(role) {
     billingUnitMs: role.billingUnitMs,
     pricePerBillingUnitFen: role.pricePerBillingUnitFen,
     sortOrder: role.sortOrder,
+    pricing: { ...role.pricing },
   };
 }
 
@@ -79,6 +110,7 @@ function createRoleService({ roles } = {}) {
         `roles[${index}].pricePerBillingUnitFen must be a positive safe integer`
       );
     }
+    const pricing = createPublicPricing(role, index);
     if (
       !Number.isSafeInteger(role.sortOrder)
       || role.sortOrder < 1
@@ -96,7 +128,10 @@ function createRoleService({ roles } = {}) {
 
     slugs.add(role.slug);
     sortOrders.add(role.sortOrder);
-    return Object.freeze(copyPublicRole(role));
+    return Object.freeze({
+      ...role,
+      pricing: Object.freeze(pricing),
+    });
   });
 
   validatedRoles.sort((left, right) => (
