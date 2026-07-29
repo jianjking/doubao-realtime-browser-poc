@@ -209,6 +209,13 @@ function loadFortuneRuntime(options = {}) {
   const interpretationReflection = new FakeElement();
   const interpretationAction = new FakeElement();
   const interpretationSafety = new FakeElement();
+  const interpretationAudio = new FakeElement({ hidden: true });
+  const interpretationAudioStatus = new FakeElement({
+    textContent: '需要时，可请道童为您读出这份解签。',
+  });
+  const interpretationAudioControl = new FakeElement({
+    textContent: '听道童解签',
+  });
   const elements = new Map([
     ['.fortune-page', page],
     ['[data-offer-incense]', offerButton],
@@ -244,6 +251,9 @@ function loadFortuneRuntime(options = {}) {
     ['[data-interpretation-reflection]', interpretationReflection],
     ['[data-interpretation-action]', interpretationAction],
     ['[data-interpretation-safety]', interpretationSafety],
+    ['[data-interpretation-audio]', interpretationAudio],
+    ['[data-interpretation-audio-status]', interpretationAudioStatus],
+    ['[data-interpretation-audio-control]', interpretationAudioControl],
   ]);
   const timers = [];
   const windowListeners = new Map();
@@ -255,6 +265,64 @@ function loadFortuneRuntime(options = {}) {
   const asrSessions = [];
   const fetchRequests = [];
   const abortControllers = [];
+  const audioElements = [];
+  const createdObjectUrls = [];
+  const revokedObjectUrls = [];
+
+  class FakeAudio {
+    constructor() {
+      this.currentTime = 0;
+      this.loadCallCount = 0;
+      this.listeners = new Map();
+      this.pauseCallCount = 0;
+      this.paused = true;
+      this.playCallCount = 0;
+      this.preload = '';
+      this.src = '';
+      audioElements.push(this);
+    }
+
+    addEventListener(eventName, handler) {
+      if (!this.listeners.has(eventName)) {
+        this.listeners.set(eventName, []);
+      }
+      this.listeners.get(eventName).push(handler);
+    }
+
+    trigger(eventName) {
+      for (const handler of this.listeners.get(eventName) || []) {
+        handler({ target: this });
+      }
+    }
+
+    play() {
+      this.playCallCount += 1;
+      this.paused = false;
+      if (typeof options.audioPlayImpl === 'function') {
+        return options.audioPlayImpl(this, this.playCallCount);
+      }
+      return Promise.resolve();
+    }
+
+    pause() {
+      this.pauseCallCount += 1;
+      const wasPaused = this.paused;
+      this.paused = true;
+      if (!wasPaused) {
+        this.trigger('pause');
+      }
+    }
+
+    removeAttribute(name) {
+      if (name === 'src') {
+        this.src = '';
+      }
+    }
+
+    load() {
+      this.loadCallCount += 1;
+    }
+  }
 
   function createDefaultAsrSession(callbacks) {
     let closed = false;
@@ -370,10 +438,25 @@ function loadFortuneRuntime(options = {}) {
         if (typeof options.fetchImpl === 'function') {
           return options.fetchImpl(pathname, requestOptions);
         }
+        if (pathname.endsWith('/interpretation-audio')) {
+          return Promise.resolve(createAudioResponse());
+        }
         if (pathname.endsWith('/interpretation')) {
           return Promise.resolve(createInterpretationResponse());
         }
         return Promise.resolve(createFortuneResponse());
+      },
+      Audio: options.unsupportedAudio === true
+        ? undefined
+        : FakeAudio,
+      URL: {
+        createObjectURL(blob) {
+          createdObjectUrls.push(blob);
+          return `blob:fortune-audio-${createdObjectUrls.length}`;
+        },
+        revokeObjectURL(objectUrl) {
+          revokedObjectUrls.push(objectUrl);
+        },
       },
       AbortController: class FakeAbortController {
         constructor() {
@@ -410,6 +493,9 @@ function loadFortuneRuntime(options = {}) {
     fortuneResult,
     interpretFortuneButton,
     interpretationAction,
+    interpretationAudio,
+    interpretationAudioControl,
+    interpretationAudioStatus,
     interpretationError,
     interpretationReflection,
     interpretationResult,
@@ -447,6 +533,33 @@ function loadFortuneRuntime(options = {}) {
     wishPaper,
     windowListeners,
     abortControllers,
+    audioElements,
+    createdObjectUrls,
+    revokedObjectUrls,
+  };
+}
+
+function createAudioResponse(overrides = {}) {
+  const audioBlob = overrides.audioBlob || {
+    size: 8,
+    type: 'audio/mpeg',
+  };
+  const contentType = Object.hasOwn(overrides, 'contentType')
+    ? overrides.contentType
+    : 'audio/mpeg';
+  return {
+    ok: Object.hasOwn(overrides, 'ok') ? overrides.ok : true,
+    status: overrides.status || 200,
+    headers: {
+      get(name) {
+        return name.toLowerCase() === 'content-type'
+          ? contentType
+          : null;
+      },
+    },
+    async blob() {
+      return audioBlob;
+    },
   };
 }
 
@@ -609,6 +722,10 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     html,
+    /data-interpretation-safety[\s\S]*?data-interpretation-audio[\s\S]*?data-interpretation-audio-control[\s\S]*?>\s*听道童解签\s*<\/button>/
+  );
+  assert.match(
+    html,
     /解签仅供传统文化体验与情绪陪伴参考。/
   );
   assert.match(
@@ -643,6 +760,10 @@ function verifyStaticSceneAndSafety() {
     css,
     /\.wish-confirm-button,[\s\S]*?min-height:\s*54px;/
   );
+  assert.match(
+    css,
+    /\.fortune-interpretation-audio-button\s*\{[\s\S]*?min-height:\s*54px;/
+  );
   assert.match(css, /@keyframes wish-paper-offering\s*\{/);
   assert.match(css, /@keyframes wish-paper-offering-reduced\s*\{/);
   assert.match(
@@ -676,6 +797,12 @@ function verifyStaticSceneAndSafety() {
     js,
     /`\$\{FORTUNE_SESSION_API_URL\}\/\$\{encodeURIComponent\(sessionId\)\}`[\s\S]*?\+ '\/interpretation'/
   );
+  assert.match(
+    js,
+    /`\$\{FORTUNE_SESSION_API_URL\}\/\$\{encodeURIComponent\(sessionId\)\}`[\s\S]*?\+ '\/interpretation-audio'/
+  );
+  assert.match(js, /window\.URL\.createObjectURL\(audioBlob\)/);
+  assert.match(js, /window\.URL\.revokeObjectURL\(objectUrl\)/);
   assert.match(
     js,
     /body:\s*JSON\.stringify\(\{\s*deityKey:\s*FORTUNE_DEITY_KEY,\s*situationText:\s*currentTranscript\.trim\(\),\s*\}\)/
@@ -2094,6 +2221,179 @@ async function verifyFortuneInterpretationFlowAndSafety() {
   assert.equal(exitRuntime.interpretationResult.hidden, true);
 }
 
+async function reachInterpretedLot(runtime) {
+  await reachDrawnLot(runtime);
+  runtime.interpretFortuneButton.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  assert.equal(runtime.interpretationResult.hidden, false);
+  assert.equal(runtime.interpretationAudio.hidden, false);
+}
+
+async function verifyInterpretationAudioLifecycle() {
+  const runtime = loadFortuneRuntime();
+  runtime.interpretationAudioControl.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 0);
+  await reachInterpretedLot(runtime);
+  assert.equal(
+    runtime.interpretationAudioControl.textContent,
+    '听道童解签'
+  );
+  assert.equal(
+    runtime.interpretationAudioStatus.textContent,
+    '需要时，可请道童为您读出这份解签。'
+  );
+
+  runtime.interpretationAudioControl.trigger('click');
+  runtime.interpretationAudioControl.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 3);
+  const audioRequest = runtime.fetchRequests[2];
+  assert.equal(
+    audioRequest.pathname,
+    '/api/fortune-sessions/fortune-ui-test/interpretation-audio'
+  );
+  assert.equal(audioRequest.method, 'POST');
+  assert.equal('body' in audioRequest, false);
+  assert.equal(runtime.interpretationAudioControl.disabled, true);
+  assert.equal(
+    runtime.interpretationAudioControl.textContent,
+    '正在准备语音……'
+  );
+  await flushPromises();
+  await flushPromises();
+  assert.equal(runtime.createdObjectUrls.length, 1);
+  assert.equal(runtime.audioElements.length, 1);
+  assert.equal(runtime.audioElements[0].src, 'blob:fortune-audio-1');
+  assert.equal(runtime.audioElements[0].preload, 'metadata');
+  assert.equal(runtime.audioElements[0].playCallCount, 0);
+  assert.equal(
+    runtime.interpretationAudioControl.textContent,
+    '播放解签语音'
+  );
+
+  runtime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  assert.equal(runtime.audioElements[0].playCallCount, 1);
+  assert.equal(
+    runtime.interpretationAudioControl.textContent,
+    '暂停解签语音'
+  );
+  runtime.interpretationAudioControl.trigger('click');
+  assert.equal(runtime.audioElements[0].pauseCallCount, 1);
+  assert.equal(
+    runtime.interpretationAudioControl.textContent,
+    '继续播放'
+  );
+  runtime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  assert.equal(runtime.audioElements[0].playCallCount, 2);
+  runtime.audioElements[0].currentTime = 42;
+  runtime.audioElements[0].trigger('ended');
+  assert.equal(
+    runtime.interpretationAudioControl.textContent,
+    '重新播放'
+  );
+  runtime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  assert.equal(runtime.audioElements[0].currentTime, 0);
+  assert.equal(runtime.audioElements[0].playCallCount, 3);
+  assert.equal(runtime.fetchRequests.length, 3);
+
+  runtime.triggerWindow('pagehide');
+  assert.deepEqual(runtime.revokedObjectUrls, ['blob:fortune-audio-1']);
+  assert.equal(runtime.audioElements[0].src, '');
+  assert.equal(runtime.audioElements[0].loadCallCount, 1);
+
+  const pendingAudio = createDeferred();
+  const exitRuntime = loadFortuneRuntime({
+    fetchImpl(pathname) {
+      if (pathname.endsWith('/interpretation-audio')) {
+        return pendingAudio.promise;
+      }
+      if (pathname.endsWith('/interpretation')) {
+        return Promise.resolve(createInterpretationResponse());
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
+  });
+  await reachInterpretedLot(exitRuntime);
+  exitRuntime.interpretationAudioControl.trigger('click');
+  const audioController = exitRuntime.abortControllers.at(-1);
+  exitRuntime.triggerWindow('beforeunload');
+  assert.equal(audioController.abortCallCount, 1);
+  pendingAudio.resolve(createAudioResponse());
+  await flushPromises();
+  await flushPromises();
+  assert.equal(exitRuntime.createdObjectUrls.length, 0);
+  assert.equal(exitRuntime.audioElements.length, 0);
+
+  let audioCallCount = 0;
+  const retryRuntime = loadFortuneRuntime({
+    fetchImpl(pathname) {
+      if (pathname.endsWith('/interpretation-audio')) {
+        audioCallCount += 1;
+        return Promise.resolve(createAudioResponse(
+          audioCallCount === 1
+            ? { contentType: 'application/json' }
+            : {}
+        ));
+      }
+      if (pathname.endsWith('/interpretation')) {
+        return Promise.resolve(createInterpretationResponse());
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
+  });
+  await reachInterpretedLot(retryRuntime);
+  retryRuntime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  assert.equal(
+    retryRuntime.interpretationAudioControl.textContent,
+    '重新获取解签语音'
+  );
+  assert.equal(retryRuntime.createdObjectUrls.length, 0);
+  retryRuntime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  assert.equal(audioCallCount, 2);
+  assert.equal(retryRuntime.createdObjectUrls.length, 1);
+
+  const playRuntime = loadFortuneRuntime({
+    audioPlayImpl(audioElement, playCallCount) {
+      if (playCallCount === 1) {
+        return Promise.reject(new Error('play blocked'));
+      }
+      return Promise.resolve();
+    },
+  });
+  await reachInterpretedLot(playRuntime);
+  playRuntime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  playRuntime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  assert.equal(
+    playRuntime.interpretationAudioControl.textContent,
+    '再次播放'
+  );
+  playRuntime.interpretationAudioControl.trigger('click');
+  await flushPromises();
+  assert.equal(playRuntime.audioElements[0].playCallCount, 2);
+  assert.equal(playRuntime.fetchRequests.length, 3);
+
+  const unsupportedRuntime = loadFortuneRuntime({
+    unsupportedAudio: true,
+  });
+  await reachInterpretedLot(unsupportedRuntime);
+  unsupportedRuntime.interpretationAudioControl.trigger('click');
+  assert.equal(unsupportedRuntime.fetchRequests.length, 2);
+  assert.equal(
+    unsupportedRuntime.interpretationAudioControl.textContent,
+    '重新获取解签语音'
+  );
+}
+
 async function verifyAsrErrorsTimeoutAndIdempotentClose() {
   const errorEvents = [];
   const runtime = loadFortuneAsrRuntime();
@@ -2312,6 +2612,7 @@ async function main() {
   await verifyWishOfferingAnimationAndCleanup();
   await verifyFortuneDrawFlowAndRetry();
   await verifyFortuneInterpretationFlowAndSafety();
+  await verifyInterpretationAudioLifecycle();
   await verifyAsrErrorsTimeoutAndIdempotentClose();
   await verifyModulePageExitAndFailureBoundaries();
 
@@ -2326,6 +2627,7 @@ async function main() {
       + 'wish-paper-confirm-retry,wish-offering-animation,'
       + 'fixed-fortune-draw,manual-fortune-retry,'
       + 'fortune-interpretation,interpretation-safe-render,'
+      + 'interpretation-audio,manual-audio-playback,blob-url-cleanup,'
       + 'final-timeout,asr-error,'
       + 'abnormal-close,stale-session\n'
   );

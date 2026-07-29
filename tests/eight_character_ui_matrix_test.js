@@ -2117,6 +2117,10 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
+    /data-interpretation-safety[\s\S]*?data-interpretation-audio[\s\S]*?data-interpretation-audio-control[\s\S]*?>\s*听道童解签\s*<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
   assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);
@@ -2136,6 +2140,10 @@ function verifyFeatureChoiceAndFortuneEntry() {
     /\.return-choice-button\s*\{[\s\S]*?min-height:\s*60px;/
   );
   assert.match(entryCss, /width:\s*min\(430px,\s*100%\);/);
+  assert.match(
+    entryCss,
+    /\.fortune-interpretation-audio-button\s*\{[\s\S]*?min-height:\s*54px;/
+  );
 }
 
 async function main() {

@@ -28,6 +28,16 @@
     ASR_ERROR: 'asr-error',
     CLOSED: 'closed',
   });
+  const INTERPRETATION_AUDIO_STATES = Object.freeze({
+    IDLE: 'idle',
+    LOADING: 'loading',
+    READY: 'ready',
+    STARTING: 'starting',
+    PLAYING: 'playing',
+    PAUSED: 'paused',
+    ENDED: 'ended',
+    ERROR: 'error',
+  });
   const page = document.querySelector('.fortune-page');
   const offerIncenseButton = document.querySelector(
     '[data-offer-incense]'
@@ -104,6 +114,15 @@
   const interpretationSafety = document.querySelector(
     '[data-interpretation-safety]'
   );
+  const interpretationAudio = document.querySelector(
+    '[data-interpretation-audio]'
+  );
+  const interpretationAudioStatus = document.querySelector(
+    '[data-interpretation-audio-status]'
+  );
+  const interpretationAudioControl = document.querySelector(
+    '[data-interpretation-audio-control]'
+  );
 
   if (
     !page
@@ -140,6 +159,9 @@
     || !interpretationReflection
     || !interpretationAction
     || !interpretationSafety
+    || !interpretationAudio
+    || !interpretationAudioStatus
+    || !interpretationAudioControl
   ) {
     return;
   }
@@ -157,6 +179,12 @@
   let interpretationRequestController = null;
   let interpretationRequestGeneration = 0;
   let publicInterpretation = null;
+  let interpretationAudioState = INTERPRETATION_AUDIO_STATES.IDLE;
+  let interpretationAudioElement = null;
+  let interpretationAudioObjectUrl = null;
+  let interpretationAudioSessionId = null;
+  let interpretationAudioRequestController = null;
+  let interpretationAudioRequestGeneration = 0;
 
   function prefersReducedMotion() {
     return typeof window.matchMedia === 'function'
@@ -185,6 +213,86 @@
     page.classList.remove('is-wish-offering');
   }
 
+  function renderInterpretationAudioState() {
+    interpretationAudioControl.disabled = false;
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.LOADING) {
+      interpretationAudioStatus.textContent =
+        '正在准备解签语音，请稍候。';
+      interpretationAudioControl.textContent = '正在准备语音……';
+      interpretationAudioControl.disabled = true;
+      return;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.READY) {
+      interpretationAudioStatus.textContent =
+        '语音已准备好，请点击播放。';
+      interpretationAudioControl.textContent = '播放解签语音';
+      return;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.STARTING) {
+      interpretationAudioStatus.textContent =
+        '正在开始播放解签语音。';
+      interpretationAudioControl.textContent = '正在播放……';
+      interpretationAudioControl.disabled = true;
+      return;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.PLAYING) {
+      interpretationAudioStatus.textContent = '正在播放解签语音。';
+      interpretationAudioControl.textContent = '暂停解签语音';
+      return;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.PAUSED) {
+      interpretationAudioStatus.textContent = '已暂停，可继续播放。';
+      interpretationAudioControl.textContent = '继续播放';
+      return;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.ENDED) {
+      interpretationAudioStatus.textContent = '播放完毕，可重新播放。';
+      interpretationAudioControl.textContent = '重新播放';
+      return;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.ERROR) {
+      interpretationAudioStatus.textContent =
+        '解签语音暂时无法播放，请稍后重试。';
+      interpretationAudioControl.textContent = interpretationAudioElement
+        ? '再次播放'
+        : '重新获取解签语音';
+      return;
+    }
+    interpretationAudioStatus.textContent =
+      '需要时，可请道童为您读出这份解签。';
+    interpretationAudioControl.textContent = '听道童解签';
+  }
+
+  function releaseInterpretationAudio() {
+    interpretationAudioRequestGeneration += 1;
+    if (interpretationAudioRequestController !== null) {
+      interpretationAudioRequestController.abort();
+      interpretationAudioRequestController = null;
+    }
+
+    const audioElement = interpretationAudioElement;
+    const objectUrl = interpretationAudioObjectUrl;
+    interpretationAudioElement = null;
+    interpretationAudioObjectUrl = null;
+    interpretationAudioSessionId = null;
+    interpretationAudioState = INTERPRETATION_AUDIO_STATES.IDLE;
+
+    if (audioElement) {
+      audioElement.pause();
+      audioElement.removeAttribute('src');
+      if (typeof audioElement.load === 'function') {
+        audioElement.load();
+      }
+    }
+    if (
+      objectUrl
+      && window.URL
+      && typeof window.URL.revokeObjectURL === 'function'
+    ) {
+      window.URL.revokeObjectURL(objectUrl);
+    }
+  }
+
   function renderSpeechState() {
     page.classList.remove(
       'is-listening',
@@ -210,6 +318,7 @@
     interpretationError.hidden = true;
     retryInterpretationButton.disabled = true;
     interpretationResult.hidden = true;
+    interpretationAudio.hidden = true;
     wishPaper.hidden = false;
     wishPaper.removeAttribute('aria-hidden');
 
@@ -416,11 +525,14 @@
           publicInterpretation.smallAction;
         interpretationSafety.textContent =
           publicInterpretation.safetyNote;
+        interpretationAudio.hidden = false;
+        renderInterpretationAudioState();
       }
     }
   }
 
   function resetWishPaper() {
+    releaseInterpretationAudio();
     currentTranscript = '';
     transcriptIsFinal = false;
     publicFortuneSession = null;
@@ -492,6 +604,216 @@
           && value.interpretation[field].trim() !== ''
         )
       );
+  }
+
+  function isInterpretationAudioResponse(response, audioBlob) {
+    if (
+      !response
+      || !response.ok
+      || !response.headers
+      || typeof response.headers.get !== 'function'
+      || !audioBlob
+      || typeof audioBlob.size !== 'number'
+      || audioBlob.size <= 0
+    ) {
+      return false;
+    }
+    const contentType = response.headers.get('content-type');
+    return typeof contentType === 'string'
+      && contentType.split(';', 1)[0].trim().toLowerCase() === 'audio/mpeg';
+  }
+
+  function bindInterpretationAudioEvents(audioElement, sessionId) {
+    function isCurrentAudio() {
+      return (
+        pageIsActive
+        && interpretationAudioElement === audioElement
+        && interpretationAudioSessionId === sessionId
+        && publicFortuneSession
+        && publicFortuneSession.id === sessionId
+      );
+    }
+
+    audioElement.addEventListener('playing', () => {
+      if (!isCurrentAudio()) {
+        return;
+      }
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.PLAYING;
+      renderInterpretationAudioState();
+    });
+    audioElement.addEventListener('pause', () => {
+      if (
+        !isCurrentAudio()
+        || interpretationAudioState === INTERPRETATION_AUDIO_STATES.ENDED
+      ) {
+        return;
+      }
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.PAUSED;
+      renderInterpretationAudioState();
+    });
+    audioElement.addEventListener('ended', () => {
+      if (!isCurrentAudio()) {
+        return;
+      }
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.ENDED;
+      renderInterpretationAudioState();
+    });
+    audioElement.addEventListener('error', () => {
+      if (!isCurrentAudio()) {
+        return;
+      }
+      releaseInterpretationAudio();
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.ERROR;
+      renderInterpretationAudioState();
+    });
+  }
+
+  async function requestInterpretationAudio() {
+    if (
+      interactionState !== INTERACTION_STATES.LOT_INTERPRETED
+      || !publicFortuneSession
+      || typeof publicFortuneSession.id !== 'string'
+      || publicFortuneSession.id === ''
+      || interpretationAudioRequestController !== null
+      || interpretationAudioElement !== null
+    ) {
+      return;
+    }
+    if (
+      typeof window.fetch !== 'function'
+      || typeof window.Audio !== 'function'
+      || !window.URL
+      || typeof window.URL.createObjectURL !== 'function'
+      || typeof window.URL.revokeObjectURL !== 'function'
+    ) {
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.ERROR;
+      renderInterpretationAudioState();
+      return;
+    }
+
+    const sessionId = publicFortuneSession.id;
+    interpretationAudioState = INTERPRETATION_AUDIO_STATES.LOADING;
+    renderInterpretationAudioState();
+    interpretationAudioRequestGeneration += 1;
+    const requestGeneration = interpretationAudioRequestGeneration;
+    interpretationAudioRequestController =
+      typeof window.AbortController === 'function'
+        ? new window.AbortController()
+        : { signal: undefined, abort() {} };
+
+    try {
+      const response = await window.fetch(
+        `${FORTUNE_SESSION_API_URL}/${encodeURIComponent(sessionId)}`
+          + '/interpretation-audio',
+        {
+          method: 'POST',
+          signal: interpretationAudioRequestController.signal,
+        }
+      );
+      const audioBlob = await response.blob();
+      if (!isInterpretationAudioResponse(response, audioBlob)) {
+        throw new Error('Fortune interpretation audio request failed');
+      }
+      if (
+        !pageIsActive
+        || requestGeneration !== interpretationAudioRequestGeneration
+        || interactionState !== INTERACTION_STATES.LOT_INTERPRETED
+        || !publicFortuneSession
+        || publicFortuneSession.id !== sessionId
+      ) {
+        return;
+      }
+
+      const objectUrl = window.URL.createObjectURL(audioBlob);
+      let audioElement = null;
+      try {
+        audioElement = new window.Audio();
+        audioElement.preload = 'metadata';
+        audioElement.src = objectUrl;
+      } catch (error) {
+        window.URL.revokeObjectURL(objectUrl);
+        throw error;
+      }
+
+      interpretationAudioElement = audioElement;
+      interpretationAudioObjectUrl = objectUrl;
+      interpretationAudioSessionId = sessionId;
+      bindInterpretationAudioEvents(audioElement, sessionId);
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.READY;
+      renderInterpretationAudioState();
+    } catch (error) {
+      if (
+        !pageIsActive
+        || requestGeneration !== interpretationAudioRequestGeneration
+        || interactionState !== INTERACTION_STATES.LOT_INTERPRETED
+      ) {
+        return;
+      }
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.ERROR;
+      renderInterpretationAudioState();
+    } finally {
+      if (requestGeneration === interpretationAudioRequestGeneration) {
+        interpretationAudioRequestController = null;
+      }
+    }
+  }
+
+  async function handleInterpretationAudioControl() {
+    if (
+      interactionState !== INTERACTION_STATES.LOT_INTERPRETED
+      || !publicFortuneSession
+      || !publicInterpretation
+      || interpretationAudioState === INTERPRETATION_AUDIO_STATES.LOADING
+      || interpretationAudioState === INTERPRETATION_AUDIO_STATES.STARTING
+    ) {
+      return;
+    }
+    if (
+      !interpretationAudioElement
+      || interpretationAudioSessionId !== publicFortuneSession.id
+    ) {
+      await requestInterpretationAudio();
+      return;
+    }
+
+    const audioElement = interpretationAudioElement;
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.PLAYING) {
+      audioElement.pause();
+      if (
+        interpretationAudioElement === audioElement
+        && interpretationAudioState === INTERPRETATION_AUDIO_STATES.PLAYING
+      ) {
+        interpretationAudioState = INTERPRETATION_AUDIO_STATES.PAUSED;
+        renderInterpretationAudioState();
+      }
+      return;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.ENDED) {
+      audioElement.currentTime = 0;
+    }
+
+    interpretationAudioState = INTERPRETATION_AUDIO_STATES.STARTING;
+    renderInterpretationAudioState();
+    try {
+      const playResult = audioElement.play();
+      if (playResult && typeof playResult.then === 'function') {
+        await playResult;
+      }
+      if (
+        interpretationAudioElement === audioElement
+        && interpretationAudioSessionId === publicFortuneSession.id
+        && interpretationAudioState === INTERPRETATION_AUDIO_STATES.STARTING
+      ) {
+        interpretationAudioState = INTERPRETATION_AUDIO_STATES.PLAYING;
+        renderInterpretationAudioState();
+      }
+    } catch (error) {
+      if (interpretationAudioElement !== audioElement) {
+        return;
+      }
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.ERROR;
+      renderInterpretationAudioState();
+    }
   }
 
   function updateWishPaper(text, isFinal) {
@@ -823,6 +1145,7 @@
     }
 
     interactionState = INTERACTION_STATES.DRAWING_LOT;
+    releaseInterpretationAudio();
     publicFortuneSession = null;
     renderSpeechState();
     fortuneRequestGeneration += 1;
@@ -901,6 +1224,7 @@
 
     const sessionId = publicFortuneSession.id;
     interactionState = INTERACTION_STATES.INTERPRETING_LOT;
+    releaseInterpretationAudio();
     publicInterpretation = null;
     renderSpeechState();
     interpretationRequestGeneration += 1;
@@ -979,6 +1303,7 @@
       interpretationRequestController.abort();
       interpretationRequestController = null;
     }
+    releaseInterpretationAudio();
     closeActiveAsrSession();
     clearWishOfferingResources();
     if (
@@ -1034,6 +1359,10 @@
   retryInterpretationButton.addEventListener(
     'click',
     handleFortuneInterpretation
+  );
+  interpretationAudioControl.addEventListener(
+    'click',
+    handleInterpretationAudioControl
   );
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
