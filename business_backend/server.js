@@ -6,6 +6,9 @@ const { createApp } = require('./app');
 const {
   createFortuneInterpretationClientFromEnv,
 } = require('./clients/fortune_interpretation_client');
+const {
+  createFortuneTtsClientFromEnv,
+} = require('./clients/fortune_tts_client');
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3002;
@@ -48,6 +51,9 @@ function startServer() {
     createFortuneInterpretationClientFromEnv({
       env: process.env,
     });
+  const fortuneTtsClient = createFortuneTtsClientFromEnv({
+    env: process.env,
+  });
   const app = createApp({
     enableDevRecharge: isDevRechargeEnabled(process.env),
     internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
@@ -60,6 +66,7 @@ function startServer() {
       '../public/pcm_capture_processor.js'
     ),
     fortuneInterpretationClient,
+    fortuneTtsClient,
   });
 
   const server = app.listen(port, host, () => {
