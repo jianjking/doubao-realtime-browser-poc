@@ -453,6 +453,66 @@ test('HTTP route accepts only sessionId and returns a private projection', async
   }
 });
 
+test('HTTP route keeps model failure diagnostics out of the public 502', async () => {
+  const modelClient = new FakeInterpretationClient(async () => {
+    const error = new Error(
+      'provider-private-error Authorization: Bearer private-token'
+    );
+    error.httpStatus = 401;
+    error.upstreamErrorCode = 'invalid_api_key';
+    error.stack = 'private-stack';
+    throw error;
+  });
+  const app = createApp({
+    fortuneInterpretationClient: modelClient,
+    fortuneSessionIdGenerator: () => 'fortune-route-failure',
+    fortuneRandomInt: () => 0,
+  });
+  const server = http.createServer(app);
+  await listenOnTemporaryPort(server);
+  const port = server.address().port;
+
+  try {
+    const drawResponse = await request({
+      port,
+      path: '/api/fortune-sessions',
+      body: JSON.stringify({
+        deityKey: 'yuhuang',
+        situationText: 'route-private-situation',
+      }),
+    });
+    assert.equal(drawResponse.statusCode, 201);
+
+    const response = await request({
+      port,
+      path:
+        '/api/fortune-sessions/fortune-route-failure/interpretation',
+    });
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.body, {
+      error: {
+        code: 'FORTUNE_MODEL_FAILED',
+        message: 'Fortune interpretation could not be generated',
+      },
+    });
+    const serialized = JSON.stringify(response.body);
+    for (const privateValue of [
+      'provider-private-error',
+      'Authorization',
+      'private-token',
+      'private-stack',
+      'route-private-situation',
+      'httpStatus',
+      'upstreamErrorCode',
+      'invalid_api_key',
+    ]) {
+      assert.equal(serialized.includes(privateValue), false);
+    }
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test('HTTP route reports unconfigured text model as 503', async () => {
   const app = createApp({
     fortuneSessionIdGenerator: () => 'fortune-unconfigured',

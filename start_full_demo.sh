@@ -411,6 +411,7 @@ require_plain_env \
 require_plain_env \
   FORTUNE_TEXT_MODEL_NAME \
   "请输入 FORTUNE_TEXT_MODEL_NAME："
+export FORTUNE_TEXT_MODEL_TIMEOUT_MS="${FORTUNE_TEXT_MODEL_TIMEOUT_MS:-30000}"
 require_plain_env \
   FORTUNE_TTS_RESOURCE_ID \
   "请输入 FORTUNE_TTS_RESOURCE_ID："

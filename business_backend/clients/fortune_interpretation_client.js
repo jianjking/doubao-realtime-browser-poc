@@ -1,13 +1,27 @@
 'use strict';
 
-const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_TIMEOUT_MS = 30000;
+const MIN_TIMEOUT_MS = 1000;
+const MAX_TIMEOUT_MS = 120000;
+const DIAGNOSTIC_LOG_PREFIX = '[FortuneInterpretation]';
+const MAX_SAFE_MESSAGE_LENGTH = 200;
+const DIAGNOSTIC_DETAILS = Symbol('diagnosticDetails');
 
 class FortuneInterpretationClientError extends Error {
-  constructor(message, { code, unavailable = false } = {}) {
+  constructor(
+    message,
+    { code, unavailable = false, diagnosticDetails = null } = {}
+  ) {
     super(message);
     this.name = 'FortuneInterpretationClientError';
     this.code = code;
     this.unavailable = unavailable;
+    Object.defineProperty(this, DIAGNOSTIC_DETAILS, {
+      configurable: false,
+      enumerable: false,
+      value: diagnosticDetails,
+      writable: false,
+    });
   }
 }
 
@@ -64,20 +78,138 @@ function validateNonEmptyConfiguration(value, name) {
   }
 }
 
+function collectSensitiveInputStrings(input) {
+  if (!isPlainObject(input)) {
+    return [];
+  }
+  const lot = isPlainObject(input.lot) ? input.lot : {};
+  return [
+    input.deityKey,
+    input.situationText,
+    input.catalogVersion,
+    lot.id,
+    lot.level,
+    lot.title,
+    ...(Array.isArray(lot.verseLines) ? lot.verseLines : []),
+  ]
+    .filter((value) => typeof value === 'string' && value !== '')
+    .sort((left, right) => right.length - left.length);
+}
+
+function replaceAllLiteral(value, searchValue, replacement) {
+  return value.split(searchValue).join(replacement);
+}
+
+function sanitizeSafeMessage(rawMessage, sensitiveValues = []) {
+  if (typeof rawMessage !== 'string' || rawMessage === '') {
+    return null;
+  }
+
+  let safeMessage = rawMessage;
+  for (const sensitiveValue of sensitiveValues) {
+    if (typeof sensitiveValue === 'string' && sensitiveValue !== '') {
+      safeMessage = replaceAllLiteral(
+        safeMessage,
+        sensitiveValue,
+        '[REDACTED]'
+      );
+    }
+  }
+  safeMessage = safeMessage
+    .replace(
+      /\bAuthorization\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+/gi,
+      '[REDACTED]'
+    )
+    .replace(/\bBearer\s+[^\s,;]+/gi, '[REDACTED]')
+    .replace(
+      /\b(?:Cookie|Set-Cookie)\s*[:=]\s*[^\s,;]+/gi,
+      '[REDACTED]'
+    )
+    .replace(
+      /\b(?:api[_-]?key|token|access[_-]?token)\s*[:=]\s*[^\s,;]+/gi,
+      '[REDACTED]'
+    )
+    .replace(/https?:\/\/[^\s,;]+/gi, '[REDACTED]')
+    .replace(/[A-Za-z0-9_-]{24,}/g, '[REDACTED]')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (safeMessage === '') {
+    return null;
+  }
+  return safeMessage.slice(0, MAX_SAFE_MESSAGE_LENGTH);
+}
+
+function normalizeErrorName(error) {
+  if (
+    !error
+    || typeof error.name !== 'string'
+    || !/^[A-Za-z][A-Za-z0-9]{0,79}$/.test(error.name)
+  ) {
+    return null;
+  }
+  return error.name;
+}
+
+function normalizeUpstreamErrorCode(value) {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    value = String(value);
+  }
+  if (
+    typeof value !== 'string'
+    || value === ''
+    || value.trim() !== value
+    || !/^[A-Za-z0-9._:-]{1,80}$/.test(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function extractProviderError(responseBody) {
+  if (!isPlainObject(responseBody)) {
+    return { code: null, message: null };
+  }
+  const errorBody = isPlainObject(responseBody.error)
+    ? responseBody.error
+    : responseBody;
+  return {
+    code: normalizeUpstreamErrorCode(errorBody.code),
+    message: typeof errorBody.message === 'string'
+      ? errorBody.message
+      : null,
+  };
+}
+
+function defaultDiagnosticLogger(diagnostic) {
+  console.error(
+    `${DIAGNOSTIC_LOG_PREFIX} ${JSON.stringify(diagnostic)}`
+  );
+}
+
+function writeDiagnostic(logger, diagnostic) {
+  try {
+    logger(Object.freeze(diagnostic));
+  } catch {
+    // Diagnostics must never change the public request behavior.
+  }
+}
+
 function parseTimeoutMs(rawTimeoutMs) {
-  const timeoutMs = rawTimeoutMs === undefined
+  const timeoutMs = rawTimeoutMs === undefined || rawTimeoutMs === ''
     ? DEFAULT_TIMEOUT_MS
     : typeof rawTimeoutMs === 'string' && /^\d+$/.test(rawTimeoutMs)
       ? Number(rawTimeoutMs)
       : rawTimeoutMs;
   if (
     !Number.isSafeInteger(timeoutMs)
-    || timeoutMs < 100
-    || timeoutMs > 60000
+    || timeoutMs < MIN_TIMEOUT_MS
+    || timeoutMs > MAX_TIMEOUT_MS
   ) {
     throw new TypeError(
       'FORTUNE_TEXT_MODEL_TIMEOUT_MS must be an integer '
-        + 'between 100 and 60000'
+        + `between ${MIN_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}`
     );
   }
   return timeoutMs;
@@ -194,8 +326,12 @@ function createFortuneInterpretationClient({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   disableThinking = false,
   fetchImpl = globalThis.fetch,
+  logger = defaultDiagnosticLogger,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
 } = {}) {
   const normalizedBaseUrl = validateBaseUrl(baseUrl);
+  const upstreamHost = new URL(normalizedBaseUrl).hostname;
   validateNonEmptyConfiguration(
     apiKey,
     'FORTUNE_TEXT_MODEL_API_KEY'
@@ -211,18 +347,44 @@ function createFortuneInterpretationClient({
   if (typeof fetchImpl !== 'function') {
     throw new TypeError('fetchImpl must be a function');
   }
+  if (typeof logger !== 'function') {
+    throw new TypeError('logger must be a function');
+  }
+  if (typeof setTimeoutImpl !== 'function') {
+    throw new TypeError('setTimeoutImpl must be a function');
+  }
+  if (typeof clearTimeoutImpl !== 'function') {
+    throw new TypeError('clearTimeoutImpl must be a function');
+  }
 
   async function generateInterpretation(input) {
+    const startedAt = Date.now();
+    const sensitiveValues = [
+      apiKey,
+      ...collectSensitiveInputStrings(input),
+    ];
     const controller = new AbortController();
     let timeoutId;
     let timeoutTriggered = false;
     const timeoutPromise = new Promise((resolve, reject) => {
-      timeoutId = setTimeout(() => {
+      timeoutId = setTimeoutImpl(() => {
         timeoutTriggered = true;
         controller.abort();
         reject(new FortuneInterpretationClientError(
           'Text model request timed out',
-          { code: 'FORTUNE_MODEL_TIMEOUT' }
+          {
+            code: 'FORTUNE_MODEL_TIMEOUT',
+            diagnosticDetails: {
+              stage: 'request',
+              errorName: normalizeErrorName(
+                controller.signal.reason
+              ) || 'AbortError',
+              timeout: true,
+              httpStatus: null,
+              upstreamErrorCode: null,
+              safeMessage: 'Text model request timed out',
+            },
+          }
         ));
       }, normalizedTimeoutMs);
     });
@@ -230,15 +392,20 @@ function createFortuneInterpretationClient({
     const requestPromise = (async () => {
       let response;
       try {
+        const messages = buildMessages(input);
         const requestBody = {
           model: modelName,
-          messages: buildMessages(input),
+          messages,
           response_format: { type: 'json_object' },
           temperature: 0.2,
         };
         if (disableThinking) {
           requestBody.thinking = { type: 'disabled' };
         }
+        sensitiveValues.push(
+          ...messages.map((message) => message.content),
+          JSON.stringify(requestBody)
+        );
         response = await fetchImpl(
           `${normalizedBaseUrl}/chat/completions`,
           {
@@ -254,16 +421,41 @@ function createFortuneInterpretationClient({
             signal: controller.signal,
           }
         );
-      } catch {
+      } catch (error) {
         if (timeoutTriggered) {
           throw new FortuneInterpretationClientError(
             'Text model request timed out',
-            { code: 'FORTUNE_MODEL_TIMEOUT' }
+            {
+              code: 'FORTUNE_MODEL_TIMEOUT',
+              diagnosticDetails: {
+                stage: 'request',
+                errorName: normalizeErrorName(
+                  controller.signal.reason
+                ) || normalizeErrorName(error) || 'AbortError',
+                timeout: true,
+                httpStatus: null,
+                upstreamErrorCode: null,
+                safeMessage: 'Text model request timed out',
+              },
+            }
           );
         }
         throw new FortuneInterpretationClientError(
           'Text model network request failed',
-          { code: 'FORTUNE_MODEL_NETWORK_ERROR' }
+          {
+            code: 'FORTUNE_MODEL_NETWORK_ERROR',
+            diagnosticDetails: {
+              stage: 'request',
+              errorName: normalizeErrorName(error),
+              timeout: false,
+              httpStatus: null,
+              upstreamErrorCode: null,
+              safeMessage: sanitizeSafeMessage(
+                error && error.message,
+                sensitiveValues
+              ) || 'Text model network request failed',
+            },
+          }
         );
       }
 
@@ -275,32 +467,153 @@ function createFortuneInterpretationClient({
       ) {
         throw new FortuneInterpretationClientError(
           'Text model response was invalid',
-          { code: 'FORTUNE_MODEL_INVALID_RESPONSE' }
+          {
+            code: 'FORTUNE_MODEL_INVALID_RESPONSE',
+            diagnosticDetails: {
+              stage: 'read_response',
+              errorName: null,
+              timeout: false,
+              httpStatus: null,
+              upstreamErrorCode: null,
+              safeMessage: 'Text model response was invalid',
+            },
+          }
         );
       }
       if (response.status < 200 || response.status > 299) {
+        let errorResponseText;
+        try {
+          if (typeof response.text !== 'function') {
+            throw new TypeError(
+              'Text model error response cannot be read'
+            );
+          }
+          errorResponseText = await response.text();
+        } catch (error) {
+          throw new FortuneInterpretationClientError(
+            'Text model request failed',
+            {
+              code: 'FORTUNE_MODEL_HTTP_ERROR',
+              diagnosticDetails: {
+                stage: 'read_response',
+                errorName: normalizeErrorName(error),
+                timeout: false,
+                httpStatus: response.status,
+                upstreamErrorCode: null,
+                safeMessage: sanitizeSafeMessage(
+                  error && error.message,
+                  sensitiveValues
+                ) || 'Text model error response could not be read',
+              },
+            }
+          );
+        }
+
+        let errorResponseBody;
+        try {
+          errorResponseBody = JSON.parse(errorResponseText);
+        } catch (error) {
+          throw new FortuneInterpretationClientError(
+            'Text model request failed',
+            {
+              code: 'FORTUNE_MODEL_HTTP_ERROR',
+              diagnosticDetails: {
+                stage: 'parse_error_response',
+                errorName: normalizeErrorName(error),
+                timeout: false,
+                httpStatus: response.status,
+                upstreamErrorCode: null,
+                safeMessage:
+                  'Text model error response was not valid JSON',
+              },
+            }
+          );
+        }
+        const providerError = extractProviderError(
+          errorResponseBody
+        );
         throw new FortuneInterpretationClientError(
           'Text model request failed',
-          { code: 'FORTUNE_MODEL_HTTP_ERROR' }
+          {
+            code: 'FORTUNE_MODEL_HTTP_ERROR',
+            diagnosticDetails: {
+              stage: 'http',
+              errorName: null,
+              timeout: false,
+              httpStatus: response.status,
+              upstreamErrorCode: providerError.code,
+              safeMessage: sanitizeSafeMessage(
+                providerError.message,
+                sensitiveValues
+              ) || 'Text model request failed',
+            },
+          }
         );
       }
 
       let responseBody;
       try {
         responseBody = await response.json();
-      } catch {
+      } catch (error) {
         throw new FortuneInterpretationClientError(
           'Text model response was invalid',
-          { code: 'FORTUNE_MODEL_INVALID_RESPONSE' }
+          {
+            code: 'FORTUNE_MODEL_INVALID_RESPONSE',
+            diagnosticDetails: {
+              stage: 'read_response',
+              errorName: normalizeErrorName(error),
+              timeout: false,
+              httpStatus: response.status,
+              upstreamErrorCode: null,
+              safeMessage: 'Text model response was invalid',
+            },
+          }
         );
       }
-      return extractCandidate(responseBody);
+      try {
+        return extractCandidate(responseBody);
+      } catch (error) {
+        throw new FortuneInterpretationClientError(
+          'Text model response was invalid',
+          {
+            code: 'FORTUNE_MODEL_INVALID_RESPONSE',
+            diagnosticDetails: {
+              stage: 'parse_response',
+              errorName: normalizeErrorName(error),
+              timeout: false,
+              httpStatus: response.status,
+              upstreamErrorCode: null,
+              safeMessage: 'Text model response was invalid',
+            },
+          }
+        );
+      }
     })();
 
     try {
       return await Promise.race([requestPromise, timeoutPromise]);
+    } catch (error) {
+      const details = error && error[DIAGNOSTIC_DETAILS];
+      writeDiagnostic(logger, {
+        event: 'upstream_failure',
+        stage: details ? details.stage : 'request',
+        errorName: details
+          ? details.errorName
+          : normalizeErrorName(error),
+        timeout: details ? details.timeout : false,
+        elapsedMs: Math.max(0, Math.round(Date.now() - startedAt)),
+        upstreamHost,
+        httpStatus: details ? details.httpStatus : null,
+        upstreamErrorCode: details
+          ? details.upstreamErrorCode
+          : null,
+        safeMessage: details
+          ? details.safeMessage
+          : 'Text model request failed',
+      });
+      throw error;
     } finally {
-      clearTimeout(timeoutId);
+      clearTimeoutImpl(timeoutId);
     }
   }
 
@@ -312,6 +625,9 @@ function createFortuneInterpretationClient({
 function createFortuneInterpretationClientFromEnv({
   env = process.env,
   fetchImpl = globalThis.fetch,
+  logger = defaultDiagnosticLogger,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
 } = {}) {
   if (!env || typeof env !== 'object' || Array.isArray(env)) {
     throw new TypeError('env must be an object');
@@ -340,7 +656,7 @@ function createFortuneInterpretationClientFromEnv({
     .filter((value) => value !== undefined);
   if (
     configuredValues.length === 0
-    && rawTimeoutMs === undefined
+    && (rawTimeoutMs === undefined || rawTimeoutMs === '')
     && rawDisableThinking === undefined
   ) {
     return null;
@@ -359,11 +675,16 @@ function createFortuneInterpretationClientFromEnv({
     timeoutMs: parseTimeoutMs(rawTimeoutMs),
     disableThinking,
     fetchImpl,
+    logger,
+    setTimeoutImpl,
+    clearTimeoutImpl,
   });
 }
 
 module.exports = {
   DEFAULT_TIMEOUT_MS,
+  DIAGNOSTIC_LOG_PREFIX,
+  MAX_SAFE_MESSAGE_LENGTH,
   FortuneInterpretationClientError,
   buildMessages,
   createFortuneInterpretationClient,

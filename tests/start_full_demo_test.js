@@ -22,11 +22,14 @@ const SYNTHETIC_SECRETS = Object.freeze([
 ]);
 const DEFAULT_FORTUNE_SPEAKER_ID = 'S_bpBL3BA92';
 const EXPLICIT_FORTUNE_SPEAKER_ID = 'synthetic-speaker-override';
+const DEFAULT_FORTUNE_TIMEOUT_MS = '30000';
+const EXPLICIT_FORTUNE_TIMEOUT_MS = '45000';
 const EXPECTED_ENVIRONMENT_NAMES = Object.freeze([
   'VOLCENGINE_API_KEY',
   'DOUBAO_ASR_API_KEY',
   'FORTUNE_TTS_API_KEY',
   'FORTUNE_TEXT_MODEL_API_KEY',
+  'FORTUNE_TEXT_MODEL_TIMEOUT_MS',
   'FORTUNE_TTS_SPEAKER_ID',
 ]);
 
@@ -68,6 +71,7 @@ function buildEnvironment(overrides = {}) {
     'FORTUNE_TEXT_MODEL_API_KEY',
     'FORTUNE_TEXT_MODEL_NAME',
     'FORTUNE_TEXT_MODEL_DISABLE_THINKING',
+    'FORTUNE_TEXT_MODEL_TIMEOUT_MS',
     'FORTUNE_TTS_API_KEY',
     'FORTUNE_TTS_RESOURCE_ID',
     'FORTUNE_TTS_SPEAKER_ID',
@@ -258,10 +262,14 @@ function runScript(bashPath, {
   const command = `export PATH='${toGitBashSearchPath(temporaryDirectory)}':"$PATH"
 ${scriptCommand}`;
   const environment = buildEnvironment(envOverrides);
-  if (expectedEnvironment) {
-    for (const [name, value] of Object.entries(expectedEnvironment)) {
-      environment[`MOCK_EXPECT_${name}`] = value;
-    }
+  const effectiveExpectedEnvironment = {
+    FORTUNE_TEXT_MODEL_TIMEOUT_MS: DEFAULT_FORTUNE_TIMEOUT_MS,
+    ...expectedEnvironment,
+  };
+  for (const [name, value] of Object.entries(
+    effectiveExpectedEnvironment
+  )) {
+    environment[`MOCK_EXPECT_${name}`] = value;
   }
   const result = spawnSync(bashPath, ['-c', command], {
     cwd: PROJECT_DIR,
@@ -390,6 +398,10 @@ async function main() {
     /请输入 (?:VOLCENGINE_API_KEY|DOUBAO_ASR_API_KEY|FORTUNE_TTS_API_KEY)/
   );
   assert.doesNotMatch(source, /请输入 FORTUNE_TTS_SPEAKER_ID/);
+  assert.match(
+    source,
+    /FORTUNE_TEXT_MODEL_TIMEOUT_MS:-30000/
+  );
 
   let requestedUrl = null;
   const client = createInternalCallLifecycleClient({
@@ -431,6 +443,31 @@ async function main() {
     invalidThinking.result.stdout + invalidThinking.result.stderr
   );
 
+  for (const rawValue of [
+    '0',
+    '999',
+    '120001',
+    '-1',
+    '1.5',
+    'abc',
+    'Infinity',
+  ]) {
+    const invalidTimeout = runScript(bashPath, {
+      envOverrides: {
+        FORTUNE_TEXT_MODEL_TIMEOUT_MS: rawValue,
+      },
+    });
+    assert.notEqual(invalidTimeout.result.status, 0);
+    assert.match(
+      invalidTimeout.result.stderr,
+      /FORTUNE_TEXT_MODEL_TIMEOUT_MS must be an integer between 1000 and 120000/
+    );
+    assert.equal(invalidTimeout.events, '');
+    assertSecretsAbsent(
+      invalidTimeout.result.stdout + invalidTimeout.result.stderr
+    );
+  }
+
   const firstSuccess = runSuccessfulLifecycle(bashPath, {
     expectedEnvironment: {
       VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[0],
@@ -465,6 +502,7 @@ async function main() {
       DOUBAO_ASR_API_KEY: undefined,
       FORTUNE_TTS_API_KEY: undefined,
       FORTUNE_TEXT_MODEL_API_KEY: undefined,
+      FORTUNE_TEXT_MODEL_TIMEOUT_MS: '',
       FORTUNE_TTS_SPEAKER_ID: undefined,
       MOCK_BACKEND_MODE: 'fail',
     },
@@ -485,6 +523,7 @@ async function main() {
   const secondSuccess = runSuccessfulLifecycle(bashPath, {
     envOverrides: {
       DOUBAO_ASR_API_KEY: undefined,
+      FORTUNE_TEXT_MODEL_TIMEOUT_MS: EXPLICIT_FORTUNE_TIMEOUT_MS,
       FORTUNE_TTS_API_KEY: undefined,
     },
     expectedEnvironment: {
@@ -492,6 +531,7 @@ async function main() {
       DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[0],
       FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[0],
       FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[2],
+      FORTUNE_TEXT_MODEL_TIMEOUT_MS: EXPLICIT_FORTUNE_TIMEOUT_MS,
       FORTUNE_TTS_SPEAKER_ID: EXPLICIT_FORTUNE_SPEAKER_ID,
     },
   });
@@ -516,6 +556,7 @@ async function main() {
   console.log('start_full_demo_test: PASS');
   console.log(
     'verified=base-origin,internal-path,missing-config,thinking-validation,'
+      + 'timeout-default,timeout-override,timeout-validation,'
       + 'two-key-input,voice-key-mapping,text-key-isolation,default-speaker,'
       + 'speaker-override,existing-env,partial-voice-env,no-secret-echo,'
       + 'child-failure-cleanup,readiness,'
