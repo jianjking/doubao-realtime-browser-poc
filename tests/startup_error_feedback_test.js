@@ -73,10 +73,10 @@ function runMockedPortScenario(bashPath, statuses) {
   fs.writeFileSync(
     mockPath,
     `node() {
-  if [[ "$1" == "-" && "$2" == "3001" ]]; then
+  if [[ "$1" == "-" && "$2" == "port-open" && "$3" == "3001" ]]; then
     return "\${MOCK_3001_STATUS}"
   fi
-  if [[ "$1" == "-" && "$2" == "8765" ]]; then
+  if [[ "$1" == "-" && "$2" == "port-open" && "$3" == "8765" ]]; then
     return "\${MOCK_8765_STATUS}"
   fi
   return 99
@@ -128,7 +128,7 @@ function verifyStartupScript() {
   assert.match(source, /BUSINESS_BACKEND_PORT="8765"/);
   assert.match(
     source,
-    /BUSINESS_BACKEND_INTERNAL_BASE_URL="http:\/\/127\.0\.0\.1:8765\/internal"/
+    /BUSINESS_BACKEND_INTERNAL_BASE_URL="http:\/\/127\.0\.0\.1:8765"/
   );
   assert.match(source, /randomBytes\(32\)\.toString\('base64url'\)/);
   assert.doesNotMatch(
