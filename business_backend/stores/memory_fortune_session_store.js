@@ -14,6 +14,19 @@ function cloneFortuneSession(session) {
       : {
         ...session.interpretation,
       },
+    ...(session.interpretationAudio === undefined
+      ? {}
+      : {
+        interpretationAudio:
+          session.interpretationAudio === null
+            ? null
+            : {
+              ...session.interpretationAudio,
+              audioBuffer: Buffer.from(
+                session.interpretationAudio.audioBuffer
+              ),
+            },
+      }),
   };
 }
 

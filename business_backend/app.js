@@ -89,6 +89,7 @@ function createApp(options = {}) {
     idGenerator: options.fortuneSessionIdGenerator,
     randomInt: options.fortuneRandomInt,
     interpretationClient: options.fortuneInterpretationClient,
+    ttsClient: options.fortuneTtsClient,
   });
   const requireSession = createRequireSession({ sessionService });
   const app = express();
@@ -184,6 +185,11 @@ function createApp(options = {}) {
         && /^\/api\/fortune-sessions\/[^/]+\/interpretation$/
           .test(request.path)
       );
+      const isFortuneInterpretationAudioRequest = (
+        request.method === 'POST'
+        && /^\/api\/fortune-sessions\/[^/]+\/interpretation-audio$/
+          .test(request.path)
+      );
       const isCallRequest = (
         request.method === 'POST'
         && request.path === '/api/calls'
@@ -196,6 +202,8 @@ function createApp(options = {}) {
         error: {
           code: isCallRequest
             ? 'INVALID_CALL_REQUEST'
+            : isFortuneInterpretationAudioRequest
+              ? 'INVALID_FORTUNE_INTERPRETATION_AUDIO_REQUEST'
             : isFortuneInterpretationRequest
               ? 'INVALID_FORTUNE_INTERPRETATION_REQUEST'
             : isFortuneRequest
@@ -205,6 +213,8 @@ function createApp(options = {}) {
               : 'INVALID_LOGIN_REQUEST',
           message: isCallRequest
             ? 'A valid roleSlug is required'
+            : isFortuneInterpretationAudioRequest
+              ? 'Interpretation audio request body must be empty'
             : isFortuneInterpretationRequest
               ? 'Interpretation request body must be empty'
             : isFortuneRequest

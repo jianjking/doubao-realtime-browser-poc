@@ -17,6 +17,9 @@ const INTERPRETATION_LIMITS = Object.freeze({
   smallAction: 240,
   safetyNote: 300,
 });
+const SUPPORTED_INTERPRETATION_AUDIO_TYPES = new Set([
+  'audio/mpeg',
+]);
 const PROHIBITED_INTERPRETATION_PHRASES = Object.freeze([
   '一定',
   '必然',
@@ -51,6 +54,18 @@ function createPublicError(publicMessage) {
 }
 
 function createInterpretationError(
+  statusCode,
+  code,
+  publicMessage
+) {
+  const error = new Error(publicMessage);
+  error.statusCode = statusCode;
+  error.code = code;
+  error.publicMessage = publicMessage;
+  return error;
+}
+
+function createInterpretationAudioError(
   statusCode,
   code,
   publicMessage
@@ -235,6 +250,55 @@ function buildPublicInterpretation(session) {
   };
 }
 
+function buildInterpretationNarration(interpretation) {
+  if (
+    !isPlainObject(interpretation)
+    || INTERPRETATION_FIELDS.some(
+      (field) => (
+        typeof interpretation[field] !== 'string'
+        || interpretation[field].trim() === ''
+      )
+    )
+  ) {
+    throw new TypeError(
+      'interpretation must contain four non-empty strings'
+    );
+  }
+  return [
+    `签意概括。${interpretation.summary}`,
+    `道童解读。${interpretation.situationReflection}`,
+    `眼下可做的小事。${interpretation.smallAction}`,
+    `温馨提示。${interpretation.safetyNote}`,
+  ].join('\n');
+}
+
+function validateInterpretationAudioResult(result) {
+  if (
+    !isPlainObject(result)
+    || !Buffer.isBuffer(result.audioBuffer)
+    || result.audioBuffer.length === 0
+    || typeof result.contentType !== 'string'
+    || !SUPPORTED_INTERPRETATION_AUDIO_TYPES.has(
+      result.contentType
+    )
+  ) {
+    throw new TypeError('TTS client returned invalid audio');
+  }
+  return {
+    contentType: result.contentType,
+    audioBuffer: Buffer.from(result.audioBuffer),
+  };
+}
+
+function buildPublicInterpretationAudio(session) {
+  return {
+    contentType: session.interpretationAudio.contentType,
+    audioBuffer: Buffer.from(
+      session.interpretationAudio.audioBuffer
+    ),
+  };
+}
+
 function createFortuneService({
   fortuneSessionStore,
   catalogVersion,
@@ -243,6 +307,7 @@ function createFortuneService({
   idGenerator = () => `fortune_${crypto.randomUUID()}`,
   randomInt = crypto.randomInt,
   interpretationClient = null,
+  ttsClient = null,
 } = {}) {
   if (!fortuneSessionStore) {
     throw new TypeError('fortuneSessionStore is required');
@@ -268,12 +333,22 @@ function createFortuneService({
       'interpretationClient must provide generateInterpretation'
     );
   }
+  if (
+    ttsClient !== null
+    && (
+      typeof ttsClient !== 'object'
+      || typeof ttsClient.synthesize !== 'function'
+    )
+  ) {
+    throw new TypeError('ttsClient must provide synthesize');
+  }
 
   validateCatalog({ catalogVersion, lots });
   const enabledLots = lots
     .filter((lot) => lot.enabled)
     .map((lot) => cloneLot(lot));
   const interpretationRequestsBySessionId = new Map();
+  const interpretationAudioRequestsBySessionId = new Map();
 
   function createDrawnSession({
     deityKey,
@@ -337,6 +412,8 @@ function createFortuneService({
       drawnAt,
       interpretationStatus: 'not_requested',
       interpretation: null,
+      interpretationAudioStatus: 'not_requested',
+      interpretationAudio: null,
     };
     fortuneSessionStore.save(session);
     return buildPublicFortuneSession(session);
@@ -481,15 +558,145 @@ function createFortuneService({
     }
   }
 
+  async function synthesizeInterpretationAudio(sessionId) {
+    if (
+      typeof sessionId !== 'string'
+      || sessionId === ''
+      || sessionId.trim() !== sessionId
+      || sessionId.length > 128
+      || !/^[A-Za-z0-9_-]+$/.test(sessionId)
+    ) {
+      throw createInterpretationAudioError(
+        400,
+        'INVALID_FORTUNE_INTERPRETATION_AUDIO_REQUEST',
+        'A valid Fortune Session ID is required'
+      );
+    }
+
+    let session = fortuneSessionStore.findById(sessionId);
+    if (!session) {
+      throw createInterpretationAudioError(
+        404,
+        'FORTUNE_SESSION_NOT_FOUND',
+        'Requested Fortune Session was not found'
+      );
+    }
+    if (
+      session.interpretationStatus !== 'completed'
+      || session.interpretation === null
+    ) {
+      throw createInterpretationAudioError(
+        409,
+        'FORTUNE_INTERPRETATION_NOT_READY',
+        'Fortune interpretation must be completed before audio'
+      );
+    }
+    if (
+      session.interpretationAudioStatus === 'completed'
+      && session.interpretationAudio !== null
+    ) {
+      return buildPublicInterpretationAudio(session);
+    }
+
+    const existingRequest =
+      interpretationAudioRequestsBySessionId.get(sessionId);
+    if (existingRequest) {
+      const result = await existingRequest;
+      return {
+        contentType: result.contentType,
+        audioBuffer: Buffer.from(result.audioBuffer),
+      };
+    }
+    if (session.interpretationAudioStatus === 'generating') {
+      session = {
+        ...session,
+        interpretationAudioStatus: 'not_requested',
+        interpretationAudio: null,
+      };
+      fortuneSessionStore.replace(session);
+    }
+    if (ttsClient === null) {
+      throw createInterpretationAudioError(
+        503,
+        'FORTUNE_TTS_UNAVAILABLE',
+        'Fortune interpretation audio is temporarily unavailable'
+      );
+    }
+
+    const generatingSession = {
+      ...session,
+      interpretationAudioStatus: 'generating',
+      interpretationAudio: null,
+    };
+    fortuneSessionStore.replace(generatingSession);
+
+    const generationPromise = (async () => {
+      try {
+        const narrationText = buildInterpretationNarration(
+          generatingSession.interpretation
+        );
+        const result = validateInterpretationAudioResult(
+          await ttsClient.synthesize({ text: narrationText })
+        );
+        const completedSession = {
+          ...generatingSession,
+          interpretationAudioStatus: 'completed',
+          interpretationAudio: {
+            contentType: result.contentType,
+            audioBuffer: Buffer.from(result.audioBuffer),
+          },
+        };
+        fortuneSessionStore.replace(completedSession);
+        return buildPublicInterpretationAudio(completedSession);
+      } catch {
+        const currentSession =
+          fortuneSessionStore.findById(sessionId);
+        if (
+          currentSession
+          && currentSession.interpretationAudioStatus
+            === 'generating'
+        ) {
+          fortuneSessionStore.replace({
+            ...currentSession,
+            interpretationAudioStatus: 'not_requested',
+            interpretationAudio: null,
+          });
+        }
+        throw createInterpretationAudioError(
+          502,
+          'FORTUNE_TTS_FAILED',
+          'Fortune interpretation audio could not be generated'
+        );
+      }
+    })();
+    interpretationAudioRequestsBySessionId.set(
+      sessionId,
+      generationPromise
+    );
+
+    try {
+      return await generationPromise;
+    } finally {
+      if (
+        interpretationAudioRequestsBySessionId.get(sessionId)
+        === generationPromise
+      ) {
+        interpretationAudioRequestsBySessionId.delete(sessionId);
+      }
+    }
+  }
+
   return {
     createDrawnSession,
     interpretSession,
+    synthesizeInterpretationAudio,
   };
 }
 
 module.exports = {
   INTERPRETATION_SCHEMA_VERSION,
   MAX_SITUATION_TEXT_LENGTH,
+  buildInterpretationNarration,
   buildPublicFortuneSession,
   buildPublicInterpretation,
   createFortuneService,
