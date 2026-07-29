@@ -10,6 +10,7 @@ const {
   FORTUNE_LOTS,
 } = require('../config/fortune_lots');
 const {
+  MAX_INTERPRETATION_TEXT_LENGTH,
   createFortuneService,
 } = require('../services/fortune_service');
 const {
@@ -17,10 +18,7 @@ const {
 } = require('../stores/memory_fortune_session_store');
 
 const VALID_INTERPRETATION = Object.freeze({
-  summary: '签意提醒先稳住心绪，再辨明方向。',
-  situationReflection: '眼下的担忧值得被看见，可先把可控之事理清。',
-  smallAction: '今天先写下一件最需要核实的小事。',
-  safetyNote: '内容仅作文化体验参考，重要决定请咨询专业人士。',
+  text: '这支签提醒您先稳住心绪，再辨明方向。眼下的担忧值得被看见，可先把可控之事理清，今天写下一件最需要核实的小事，慢慢去做。',
 });
 
 function cloneLots() {
@@ -89,7 +87,7 @@ test('normal generation uses authoritative data and stores a copy', async () => 
   const client = new FakeInterpretationClient(async (input) => {
     input.lot.title = 'fake mutation';
     input.lot.verseLines[0] = 'fake verse mutation';
-    return { ...VALID_INTERPRETATION };
+    return { text: `  ${VALID_INTERPRETATION.text}  ` };
   });
   const { publicSession, service, store } = createHarness({ client });
 
@@ -111,7 +109,7 @@ test('normal generation uses authoritative data and stores a copy', async () => 
   assert.equal(stored.interpretationStatus, 'completed');
   assert.equal(
     stored.interpretation.schemaVersion,
-    'fortune-interpretation-v1'
+    'fortune-interpretation-v2'
   );
   assert.equal(
     stored.lotSnapshot.title,
@@ -121,11 +119,11 @@ test('normal generation uses authoritative data and stores a copy', async () => 
     stored.lotSnapshot.verseLines[0],
     FORTUNE_LOTS[1].verseLines[0]
   );
-  result.interpretation.summary = 'mutated public response';
-  stored.interpretation.summary = 'mutated store copy';
+  result.interpretation.text = 'mutated public response';
+  stored.interpretation.text = 'mutated store copy';
   assert.equal(
-    store.findById(publicSession.id).interpretation.summary,
-    VALID_INTERPRETATION.summary
+    store.findById(publicSession.id).interpretation.text,
+    VALID_INTERPRETATION.text
   );
 });
 
@@ -203,22 +201,37 @@ test('model failure resets state and one explicit retry can succeed', async () =
 });
 
 test('every invalid or unsafe candidate is rejected without a snapshot', async () => {
+  const enumerableSymbolCandidate = { ...VALID_INTERPRETATION };
+  enumerableSymbolCandidate[Symbol('extra')] = 'not allowed';
   const candidates = [
     null,
     [],
-    { ...VALID_INTERPRETATION, summary: undefined },
-    { ...VALID_INTERPRETATION, summary: 123 },
-    { ...VALID_INTERPRETATION, summary: '   ' },
-    { ...VALID_INTERPRETATION, summary: '字'.repeat(241) },
+    '正文',
+    {},
+    { text: undefined },
+    { text: 123 },
+    { text: '   ' },
+    { text: '字'.repeat(MAX_INTERPRETATION_TEXT_LENGTH + 1) },
     { ...VALID_INTERPRETATION, extra: 'not allowed' },
+    enumerableSymbolCandidate,
     {
-      ...VALID_INTERPRETATION,
-      summary: '<img src=x onerror=alert(1)>',
+      summary: '旧结构',
+      situationReflection: '旧结构',
+      smallAction: '旧结构',
+      safetyNote: '旧结构',
     },
-    { ...VALID_INTERPRETATION, summary: '这件事一定会成功' },
-    { ...VALID_INTERPRETATION, smallAction: '停止服药等待转机' },
-    { ...VALID_INTERPRETATION, smallAction: '确定买入这项投资' },
-    { ...VALID_INTERPRETATION, smallAction: '实施伤害他人的计划' },
+    {
+      text: '<img src=x onerror=alert(1)>',
+    },
+    { text: '签意概括：先稳住心绪。' },
+    { text: '道童解读：慢慢理清眼前的事。' },
+    { text: '眼下可做的小事：先写下一件事。' },
+    { text: '温馨提示：仅供参考。' },
+    { text: '安全免责声明：内容仅作文化体验参考。' },
+    { text: '这件事一定会成功' },
+    { text: '停止服药等待转机' },
+    { text: '确定买入这项投资' },
+    { text: '实施伤害他人的计划' },
   ];
   let currentCandidate;
   const client = new FakeInterpretationClient(

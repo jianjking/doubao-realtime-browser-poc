@@ -12,6 +12,9 @@ const {
   createFortuneInterpretationClient,
   createFortuneInterpretationClientFromEnv,
 } = require('../clients/fortune_interpretation_client');
+const {
+  MAX_INTERPRETATION_TEXT_LENGTH,
+} = require('../contracts/fortune_interpretation_contract');
 
 const TEST_INPUT = {
   deityKey: 'yuhuang',
@@ -27,10 +30,7 @@ const TEST_INPUT = {
 };
 
 const VALID_CANDIDATE = {
-  summary: '签意提醒先稳住心绪，再辨明方向。',
-  situationReflection: '眼下的担忧值得被看见，可先把可控之事理清。',
-  smallAction: '今天先写下一件最需要核实的小事。',
-  safetyNote: '内容仅作文化体验参考，重要决定请咨询专业人士。',
+  text: '这支签提醒您先稳住心绪，再辨明方向。眼下的担忧值得被看见，可先把可控之事理清，今天写下一件最需要核实的小事，慢慢去做。',
 };
 
 function createJsonResponse({
@@ -228,9 +228,7 @@ test('client sends one safe OpenAI-compatible JSON request', async () => {
         body: {
           choices: [{
             message: {
-              content: `\`\`\`json\n${
-                JSON.stringify(VALID_CANDIDATE)
-              }\n\`\`\``,
+              content: `  ${JSON.stringify(VALID_CANDIDATE)}  `,
             },
           }],
         },
@@ -264,6 +262,19 @@ test('client sends one safe OpenAI-compatible JSON request', async () => {
   assert.match(body.messages[0].content, /法律/);
   assert.match(body.messages[0].content, /投资/);
   assert.match(body.messages[0].content, /自伤/);
+  assert.match(
+    body.messages[0].content,
+    /\{"text":"一段完整的道童解签正文"\}/
+  );
+  assert.match(body.messages[0].content, /只能包含 text/);
+  assert.match(body.messages[0].content, /自然连贯/);
+  assert.match(body.messages[0].content, /适合长者/);
+  assert.match(body.messages[0].content, /不要机械复述/);
+  assert.match(body.messages[0].content, /不得加入免责声明/);
+  assert.doesNotMatch(
+    body.messages[0].content,
+    /summary|situationReflection|smallAction|safetyNote/
+  );
   const dataBlock = JSON.parse(body.messages[1].content);
   assert.equal(
     dataBlock.dataType,
@@ -354,6 +365,81 @@ test('message builder isolates untrusted data from system rules', () => {
     JSON.parse(messages[1].content).situationText,
     TEST_INPUT.situationText
   );
+});
+
+test('client accepts only one trimmed text field', async () => {
+  const validClient = createFortuneInterpretationClient({
+    baseUrl: 'https://model.invalid/v1',
+    apiKey: 'test-only-key',
+    modelName: 'test-model',
+    timeoutMs: 1000,
+    logger() {},
+    async fetchImpl() {
+      return createJsonResponse({
+        body: {
+          choices: [{
+            message: {
+              content: JSON.stringify({ text: '  一段完整解签。  ' }),
+            },
+          }],
+        },
+      });
+    },
+  });
+  assert.deepEqual(
+    await validClient.generateInterpretation(TEST_INPUT),
+    { text: '一段完整解签。' }
+  );
+
+  const invalidContents = [
+    'not json',
+    '```json\n{"text":"正文"}\n```',
+    'null',
+    '[]',
+    '"正文"',
+    '{}',
+    '{"text":null}',
+    '{"text":123}',
+    '{"text":"   "}',
+    JSON.stringify({
+      text: '正文',
+      extra: 'not allowed',
+    }),
+    JSON.stringify({
+      summary: '旧结构',
+      situationReflection: '旧结构',
+      smallAction: '旧结构',
+      safetyNote: '旧结构',
+    }),
+    JSON.stringify({
+      text: '字'.repeat(MAX_INTERPRETATION_TEXT_LENGTH + 1),
+    }),
+    JSON.stringify({ text: '签意概括：旧标题' }),
+    JSON.stringify({ text: '温馨提示：仅供参考' }),
+  ];
+  for (const content of invalidContents) {
+    const client = createFortuneInterpretationClient({
+      baseUrl: 'https://model.invalid/v1',
+      apiKey: 'test-only-key',
+      modelName: 'test-model',
+      timeoutMs: 1000,
+      logger() {},
+      async fetchImpl() {
+        return createJsonResponse({
+          body: {
+            choices: [{ message: { content } }],
+          },
+        });
+      },
+    });
+    await assert.rejects(
+      client.generateInterpretation(TEST_INPUT),
+      (error) => (
+        error instanceof FortuneInterpretationClientError
+        && error.code === 'FORTUNE_MODEL_INVALID_RESPONSE'
+      )
+    );
+  }
 });
 
 test('HTTP, network, JSON, and shape failures are sanitized', async () => {

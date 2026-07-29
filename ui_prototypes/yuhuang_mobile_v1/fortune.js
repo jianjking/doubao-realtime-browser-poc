@@ -102,17 +102,8 @@
   const interpretationResult = document.querySelector(
     '[data-interpretation-result]'
   );
-  const interpretationSummary = document.querySelector(
-    '[data-interpretation-summary]'
-  );
-  const interpretationReflection = document.querySelector(
-    '[data-interpretation-reflection]'
-  );
-  const interpretationAction = document.querySelector(
-    '[data-interpretation-action]'
-  );
-  const interpretationSafety = document.querySelector(
-    '[data-interpretation-safety]'
+  const interpretationText = document.querySelector(
+    '[data-interpretation-text]'
   );
   const interpretationAudio = document.querySelector(
     '[data-interpretation-audio]'
@@ -155,10 +146,7 @@
     || !interpretationError
     || !retryInterpretationButton
     || !interpretationResult
-    || !interpretationSummary
-    || !interpretationReflection
-    || !interpretationAction
-    || !interpretationSafety
+    || !interpretationText
     || !interpretationAudio
     || !interpretationAudioStatus
     || !interpretationAudioControl
@@ -517,14 +505,7 @@
         && publicInterpretation
       ) {
         interpretationResult.hidden = false;
-        interpretationSummary.textContent =
-          publicInterpretation.summary;
-        interpretationReflection.textContent =
-          publicInterpretation.situationReflection;
-        interpretationAction.textContent =
-          publicInterpretation.smallAction;
-        interpretationSafety.textContent =
-          publicInterpretation.safetyNote;
+        interpretationText.textContent = publicInterpretation.text;
         interpretationAudio.hidden = false;
         renderInterpretationAudioState();
       }
@@ -591,19 +572,11 @@
     ) {
       return false;
     }
-    const fields = [
-      'summary',
-      'situationReflection',
-      'smallAction',
-      'safetyNote',
-    ];
-    return Object.keys(value.interpretation).length === fields.length
-      && fields.every(
-        (field) => (
-          typeof value.interpretation[field] === 'string'
-          && value.interpretation[field].trim() !== ''
-        )
-      );
+    const fields = Object.keys(value.interpretation);
+    return fields.length === 1
+      && fields[0] === 'text'
+      && typeof value.interpretation.text === 'string'
+      && value.interpretation.text.trim() !== '';
   }
 
   function isInterpretationAudioResponse(response, audioBlob) {
@@ -1259,11 +1232,7 @@
       }
 
       publicInterpretation = {
-        summary: responseBody.interpretation.summary,
-        situationReflection:
-          responseBody.interpretation.situationReflection,
-        smallAction: responseBody.interpretation.smallAction,
-        safetyNote: responseBody.interpretation.safetyNote,
+        text: responseBody.interpretation.text,
       };
       interactionState = INTERACTION_STATES.LOT_INTERPRETED;
       renderSpeechState();

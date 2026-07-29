@@ -10,7 +10,6 @@ const {
   FORTUNE_LOTS,
 } = require('../config/fortune_lots');
 const {
-  buildInterpretationNarration,
   createFortuneService,
 } = require('../services/fortune_service');
 const {
@@ -18,20 +17,11 @@ const {
 } = require('../stores/memory_fortune_session_store');
 
 const VALID_INTERPRETATION = Object.freeze({
-  summary: '先安住心绪，再看眼前可做之事。',
-  situationReflection: '这份牵挂值得被看见，也可以慢慢理清。',
-  smallAction: '今天先完成一件力所能及的小事。',
-  safetyNote: '内容仅作文化体验参考，重要决定请咨询专业人士。',
+  text: '先安住心绪，再看眼前可做之事。这份牵挂值得被看见，也可以慢慢理清，今天先完成一件力所能及的小事。',
 });
 const TEST_AUDIO = Buffer.from([
   0x49, 0x44, 0x33, 0x04, 0x00, 0x00,
 ]);
-const EXPECTED_NARRATION = [
-  `签意概括。${VALID_INTERPRETATION.summary}`,
-  `道童解读。${VALID_INTERPRETATION.situationReflection}`,
-  `眼下可做的小事。${VALID_INTERPRETATION.smallAction}`,
-  `温馨提示。${VALID_INTERPRETATION.safetyNote}`,
-].join('\n');
 
 function cloneLots() {
   return FORTUNE_LOTS.map((lot) => ({
@@ -196,18 +186,7 @@ function parseJson(response) {
   return JSON.parse(response.body.toString('utf8'));
 }
 
-test('narration uses the authoritative four-field order', () => {
-  assert.equal(
-    buildInterpretationNarration(VALID_INTERPRETATION),
-    EXPECTED_NARRATION
-  );
-  assert.throws(
-    () => buildInterpretationNarration({
-      ...VALID_INTERPRETATION,
-      smallAction: '',
-    }),
-    /four non-empty strings/
-  );
+test('service validates the configured TTS client shape', () => {
   assert.throws(() => {
     createFortuneService({
       fortuneSessionStore: new MemoryFortuneSessionStore(),
@@ -290,8 +269,18 @@ test('normal and repeated audio generation stores one isolated snapshot', async 
     );
   assert.equal(ttsClient.calls.length, 1);
   assert.deepEqual(ttsClient.calls[0], {
-    text: EXPECTED_NARRATION,
+    text: VALID_INTERPRETATION.text,
   });
+  assert.doesNotMatch(
+    ttsClient.calls[0].text,
+    /签意概括|道童解读|眼下可做的小事|温馨提示|仅供参考/
+  );
+  assert.equal(
+    ttsClient.calls[0].text.includes(
+      '签文与解读仅作传统文化体验及情绪陪伴参考。'
+    ),
+    false
+  );
   assert.equal(first.contentType, 'audio/mpeg');
   assert.deepEqual(first.audioBuffer, TEST_AUDIO);
 
@@ -480,7 +469,7 @@ test('memory store copies audio buffers on write and read', () => {
     drawnAt: '2026-07-29T08:00:00.000Z',
     interpretationStatus: 'completed',
     interpretation: {
-      schemaVersion: 'fortune-interpretation-v1',
+      schemaVersion: 'fortune-interpretation-v2',
       ...VALID_INTERPRETATION,
       generatedAt: '2026-07-29T08:00:01.000Z',
     },
@@ -624,7 +613,7 @@ test('HTTP route accepts only session ID and returns binary audio', async () => 
     assert.deepEqual(first.body, TEST_AUDIO);
     assert.equal(ttsClient.calls.length, 1);
     assert.deepEqual(ttsClient.calls[0], {
-      text: EXPECTED_NARRATION,
+      text: VALID_INTERPRETATION.text,
     });
 
     const repeated = await requestJson({

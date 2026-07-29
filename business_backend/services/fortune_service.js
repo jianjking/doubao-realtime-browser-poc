@@ -1,22 +1,14 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const {
+  MAX_INTERPRETATION_TEXT_LENGTH,
+  normalizeInterpretationCandidate,
+} = require('../contracts/fortune_interpretation_contract');
 
 const ALLOWED_DEITY_KEYS = new Set(['yuhuang']);
 const MAX_SITUATION_TEXT_LENGTH = 1000;
-const INTERPRETATION_SCHEMA_VERSION = 'fortune-interpretation-v1';
-const INTERPRETATION_FIELDS = Object.freeze([
-  'summary',
-  'situationReflection',
-  'smallAction',
-  'safetyNote',
-]);
-const INTERPRETATION_LIMITS = Object.freeze({
-  summary: 240,
-  situationReflection: 500,
-  smallAction: 240,
-  safetyNote: 300,
-});
+const INTERPRETATION_SCHEMA_VERSION = 'fortune-interpretation-v2';
 const SUPPORTED_INTERPRETATION_AUDIO_TYPES = new Set([
   'audio/mpeg',
 ]);
@@ -178,20 +170,10 @@ function buildPublicFortuneSession(session) {
 }
 
 function validateInterpretationCandidate(candidate) {
-  if (!isPlainObject(candidate)) {
-    throw createInterpretationError(
-      502,
-      'FORTUNE_MODEL_INVALID_OUTPUT',
-      'The text model returned an invalid interpretation'
-    );
-  }
-  const fields = Object.keys(candidate);
-  if (
-    fields.length !== INTERPRETATION_FIELDS.length
-    || fields.some(
-      (field) => !INTERPRETATION_FIELDS.includes(field)
-    )
-  ) {
+  let normalized;
+  try {
+    normalized = normalizeInterpretationCandidate(candidate);
+  } catch {
     throw createInterpretationError(
       502,
       'FORTUNE_MODEL_INVALID_OUTPUT',
@@ -199,33 +181,12 @@ function validateInterpretationCandidate(candidate) {
     );
   }
 
-  const normalized = {};
-  for (const field of INTERPRETATION_FIELDS) {
-    const value = candidate[field];
-    if (
-      typeof value !== 'string'
-      || value.trim() === ''
-      || value.trim().length > INTERPRETATION_LIMITS[field]
-      || /[<>]/.test(value)
-    ) {
-      throw createInterpretationError(
-        502,
-        'FORTUNE_MODEL_INVALID_OUTPUT',
-        'The text model returned an invalid interpretation'
-      );
-    }
-    normalized[field] = value.trim();
-  }
-
-  const combinedText = INTERPRETATION_FIELDS
-    .map((field) => normalized[field])
-    .join('\n');
   if (
     PROHIBITED_INTERPRETATION_PHRASES.some(
-      (phrase) => combinedText.includes(phrase)
+      (phrase) => normalized.text.includes(phrase)
     )
     || PROHIBITED_INTERPRETATION_PATTERNS.some(
-      (pattern) => pattern.test(combinedText)
+      (pattern) => pattern.test(normalized.text)
     )
   ) {
     throw createInterpretationError(
@@ -241,35 +202,9 @@ function buildPublicInterpretation(session) {
   return {
     sessionId: session.id,
     interpretation: {
-      summary: session.interpretation.summary,
-      situationReflection:
-        session.interpretation.situationReflection,
-      smallAction: session.interpretation.smallAction,
-      safetyNote: session.interpretation.safetyNote,
+      text: session.interpretation.text,
     },
   };
-}
-
-function buildInterpretationNarration(interpretation) {
-  if (
-    !isPlainObject(interpretation)
-    || INTERPRETATION_FIELDS.some(
-      (field) => (
-        typeof interpretation[field] !== 'string'
-        || interpretation[field].trim() === ''
-      )
-    )
-  ) {
-    throw new TypeError(
-      'interpretation must contain four non-empty strings'
-    );
-  }
-  return [
-    `签意概括。${interpretation.summary}`,
-    `道童解读。${interpretation.situationReflection}`,
-    `眼下可做的小事。${interpretation.smallAction}`,
-    `温馨提示。${interpretation.safetyNote}`,
-  ].join('\n');
 }
 
 function validateInterpretationAudioResult(result) {
@@ -632,11 +567,10 @@ function createFortuneService({
 
     const generationPromise = (async () => {
       try {
-        const narrationText = buildInterpretationNarration(
-          generatingSession.interpretation
-        );
         const result = validateInterpretationAudioResult(
-          await ttsClient.synthesize({ text: narrationText })
+          await ttsClient.synthesize({
+            text: generatingSession.interpretation.text,
+          })
         );
         const completedSession = {
           ...generatingSession,
@@ -695,8 +629,8 @@ function createFortuneService({
 
 module.exports = {
   INTERPRETATION_SCHEMA_VERSION,
+  MAX_INTERPRETATION_TEXT_LENGTH,
   MAX_SITUATION_TEXT_LENGTH,
-  buildInterpretationNarration,
   buildPublicFortuneSession,
   buildPublicInterpretation,
   createFortuneService,

@@ -2113,11 +2113,19 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
-    /data-interpretation-result[\s\S]*?签意概括[\s\S]*?道童解读[\s\S]*?眼下可做的小事[\s\S]*?温馨提示/
+    /data-interpretation-result[\s\S]*?<h4>道童解签<\/h4>[\s\S]*?data-interpretation-text[\s\S]*?data-interpretation-audio/
   );
   assert.match(
     fortuneHtml,
-    /data-interpretation-safety[\s\S]*?data-interpretation-audio[\s\S]*?data-interpretation-audio-control[\s\S]*?>\s*听道童解签\s*<\/button>/
+    /data-interpretation-audio[\s\S]*?data-interpretation-audio-control[\s\S]*?>\s*听道童解签\s*<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
+    /签文与解读仅作传统文化体验及情绪陪伴参考。/
+  );
+  assert.doesNotMatch(
+    fortuneHtml,
+    /签意概括|道童解读|眼下可做的小事|温馨提示|data-interpretation-(?:summary|reflection|action|safety)/
   );
   assert.match(
     fortuneHtml,

@@ -1104,14 +1104,12 @@ a {
 }
 
 .fortune-lot-result .fortune-prototype-notice,
-.fortune-lot-result .fortune-cultural-notice,
 .fortune-lot-result .fortune-next-stage {
   margin-top: 15px;
   line-height: 1.65;
 }
 
-.fortune-prototype-notice,
-.fortune-cultural-notice {
+.fortune-prototype-notice {
   color: #74584c;
   font-size: 15px;
   font-weight: 700;
@@ -1162,18 +1160,6 @@ a {
   white-space: pre-wrap;
 }
 
-.fortune-interpretation-result h4:not(:first-child) {
-  margin-top: 16px;
-}
-
-.fortune-interpretation-result strong {
-  display: block;
-  margin-top: 17px;
-  color: #6f5045;
-  font-size: 15px;
-  line-height: 1.65;
-}
-
 .fortune-interpretation-audio {
   display: grid;
   gap: 10px;
@@ -1214,6 +1200,14 @@ a {
 
 .return-choice-button:active {
   background: var(--wine-deep);
+}
+
+.fortune-experience-disclaimer {
+  margin: 14px 8px 0;
+  color: #f4ddb2;
+  font-size: 14px;
+  line-height: 1.65;
+  text-align: center;
 }
 
 @keyframes incense-smoke-rise {

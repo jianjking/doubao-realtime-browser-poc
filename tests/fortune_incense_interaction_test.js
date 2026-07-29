@@ -205,10 +205,7 @@ function loadFortuneRuntime(options = {}) {
     textContent: '重新请道童解签',
   });
   const interpretationResult = new FakeElement({ hidden: true });
-  const interpretationSummary = new FakeElement();
-  const interpretationReflection = new FakeElement();
-  const interpretationAction = new FakeElement();
-  const interpretationSafety = new FakeElement();
+  const interpretationText = new FakeElement();
   const interpretationAudio = new FakeElement({ hidden: true });
   const interpretationAudioStatus = new FakeElement({
     textContent: '需要时，可请道童为您读出这份解签。',
@@ -247,10 +244,7 @@ function loadFortuneRuntime(options = {}) {
     ['[data-interpretation-error]', interpretationError],
     ['[data-retry-interpretation]', retryInterpretationButton],
     ['[data-interpretation-result]', interpretationResult],
-    ['[data-interpretation-summary]', interpretationSummary],
-    ['[data-interpretation-reflection]', interpretationReflection],
-    ['[data-interpretation-action]', interpretationAction],
-    ['[data-interpretation-safety]', interpretationSafety],
+    ['[data-interpretation-text]', interpretationText],
     ['[data-interpretation-audio]', interpretationAudio],
     ['[data-interpretation-audio-status]', interpretationAudioStatus],
     ['[data-interpretation-audio-control]', interpretationAudioControl],
@@ -492,15 +486,12 @@ function loadFortuneRuntime(options = {}) {
     fortuneError,
     fortuneResult,
     interpretFortuneButton,
-    interpretationAction,
     interpretationAudio,
     interpretationAudioControl,
     interpretationAudioStatus,
     interpretationError,
-    interpretationReflection,
     interpretationResult,
-    interpretationSafety,
-    interpretationSummary,
+    interpretationText,
     incenseState,
     microphoneRequests,
     lotLevel,
@@ -571,12 +562,7 @@ function createInterpretationResponse(overrides = {}) {
       return {
         sessionId: 'fortune-ui-test',
         interpretation: {
-          summary: '签意提醒先稳住心绪，再辨明方向。',
-          situationReflection:
-            '眼下的担忧值得被看见，可先把可控之事理清。',
-          smallAction: '今天先写下一件最需要核实的小事。',
-          safetyNote:
-            '内容仅作文化体验参考，重要决定请咨询专业人士。',
+          text: '这支签提醒您先稳住心绪，再辨明方向。眼下的担忧值得被看见，可先把可控之事理清，今天写下一件最需要核实的小事，慢慢去做。',
           ...overrides,
         },
       };
@@ -710,24 +696,29 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     html,
-    /签文仅作传统文化体验与情绪陪伴参考。/
-  );
-  assert.match(
-    html,
     /data-interpret-fortune>请道童解签<\/button>/
   );
   assert.match(
     html,
-    /data-interpretation-result[\s\S]*?签意概括[\s\S]*?道童解读[\s\S]*?眼下可做的小事[\s\S]*?温馨提示/
+    /data-interpretation-result[\s\S]*?<h4>道童解签<\/h4>[\s\S]*?data-interpretation-text[\s\S]*?data-interpretation-audio/
   );
   assert.match(
     html,
-    /data-interpretation-safety[\s\S]*?data-interpretation-audio[\s\S]*?data-interpretation-audio-control[\s\S]*?>\s*听道童解签\s*<\/button>/
+    /data-interpretation-audio[\s\S]*?data-interpretation-audio-control[\s\S]*?>\s*听道童解签\s*<\/button>/
   );
-  assert.match(
+  assert.equal(
+    (
+      html.match(
+        /签文与解读仅作传统文化体验及情绪陪伴参考。/g
+      ) || []
+    ).length,
+    1
+  );
+  assert.doesNotMatch(
     html,
-    /解签仅供传统文化体验与情绪陪伴参考。/
+    /签意概括|道童解读|眼下可做的小事|温馨提示|data-interpretation-(?:summary|reflection|action|safety)/
   );
+  assert.match(css, /\.fortune-experience-disclaimer\s*\{/);
   assert.match(
     html,
     /<script src="\.\/fortune_browser_asr\.js"><\/script>\s*<script src="\.\/fortune\.js"><\/script>/
@@ -2138,25 +2129,13 @@ async function verifyFortuneInterpretationFlowAndSafety() {
 
   const htmlText = '<img src=x onerror=alert(1)>';
   pendingInterpretation.resolve(createInterpretationResponse({
-    summary: htmlText,
+    text: htmlText,
   }));
   await flushPromises();
   await flushPromises();
   assert.equal(runtime.interpretationResult.hidden, false);
   assert.equal(runtime.interpretationResult.focusCallCount, 1);
-  assert.equal(runtime.interpretationSummary.textContent, htmlText);
-  assert.equal(
-    runtime.interpretationReflection.textContent,
-    '眼下的担忧值得被看见，可先把可控之事理清。'
-  );
-  assert.equal(
-    runtime.interpretationAction.textContent,
-    '今天先写下一件最需要核实的小事。'
-  );
-  assert.equal(
-    runtime.interpretationSafety.textContent,
-    '内容仅作文化体验参考，重要决定请咨询专业人士。'
-  );
+  assert.equal(runtime.interpretationText.textContent, htmlText);
   assert.equal(runtime.interpretFortuneButton.hidden, true);
   assert.equal(runtime.retryInterpretationButton.disabled, true);
   runtime.interpretFortuneButton.trigger('click');
