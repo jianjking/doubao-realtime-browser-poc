@@ -17,6 +17,17 @@ const SYNTHETIC_SECRETS = Object.freeze([
   'synthetic-asr-key-for-startup-test',
   'synthetic-model-key-for-startup-test',
   'synthetic-tts-key-for-startup-test',
+  'test-voice-key-not-secret',
+  'test-text-key-not-secret',
+]);
+const DEFAULT_FORTUNE_SPEAKER_ID = 'S_bpBL3BA92';
+const EXPLICIT_FORTUNE_SPEAKER_ID = 'synthetic-speaker-override';
+const EXPECTED_ENVIRONMENT_NAMES = Object.freeze([
+  'VOLCENGINE_API_KEY',
+  'DOUBAO_ASR_API_KEY',
+  'FORTUNE_TTS_API_KEY',
+  'FORTUNE_TEXT_MODEL_API_KEY',
+  'FORTUNE_TTS_SPEAKER_ID',
 ]);
 
 function findGitBash() {
@@ -62,6 +73,7 @@ function buildEnvironment(overrides = {}) {
     'FORTUNE_TTS_SPEAKER_ID',
     'MOCK_BACKEND_MODE',
     'MOCK_EVENT_FILE',
+    ...EXPECTED_ENVIRONMENT_NAMES.map((name) => `MOCK_EXPECT_${name}`),
   ];
   for (const name of managedNames) {
     delete env[name];
@@ -77,7 +89,7 @@ function buildEnvironment(overrides = {}) {
     FORTUNE_TEXT_MODEL_DISABLE_THINKING: '1',
     FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[3],
     FORTUNE_TTS_RESOURCE_ID: 'synthetic.tts.resource',
-    FORTUNE_TTS_SPEAKER_ID: 'synthetic-speaker',
+    FORTUNE_TTS_SPEAKER_ID: EXPLICIT_FORTUNE_SPEAKER_ID,
   };
   for (const [name, value] of Object.entries(overrides)) {
     if (value === undefined) {
@@ -100,6 +112,17 @@ const eventFile = process.env.MOCK_EVENT_FILE;
 const portFile = process.env.MOCK_PORT_FILE_DIR + '/' + role + '.port';
 function record(event) {
   fs.appendFileSync(eventFile, event + '\\n', 'utf8');
+}
+function recordExpectedEnvironment() {
+  for (const name of ${JSON.stringify(EXPECTED_ENVIRONMENT_NAMES)}) {
+    const expectedName = 'MOCK_EXPECT_' + name;
+    if (Object.prototype.hasOwnProperty.call(process.env, expectedName)) {
+      record(
+        'env:' + role + ':' + name + '='
+          + String(process.env[name] === process.env[expectedName])
+      );
+    }
+  }
 }
 const server = http.createServer((request, response) => {
   if (role === 'backend' && request.url === '/api/health') {
@@ -124,6 +147,7 @@ const server = http.createServer((request, response) => {
 server.listen(0, '127.0.0.1', () => {
   const port = server.address().port;
   fs.writeFileSync(portFile, String(port), 'utf8');
+  recordExpectedEnvironment();
   record('ready:' + role + ':' + port);
   if (mode === 'fail') {
     setTimeout(() => process.exit(7), 150);
@@ -202,8 +226,15 @@ function assertSecretsAbsent(output) {
   }
 }
 
+function assertExpectedEnvironment(artifact, role) {
+  for (const name of EXPECTED_ENVIRONMENT_NAMES) {
+    assert.match(artifact.events, new RegExp(`env:${role}:${name}=true`));
+  }
+}
+
 function runScript(bashPath, {
   envOverrides = {},
+  expectedEnvironment = null,
   input = '',
   harness = null,
 } = {}) {
@@ -226,11 +257,17 @@ function runScript(bashPath, {
     : defaultHarness;
   const command = `export PATH='${toGitBashSearchPath(temporaryDirectory)}':"$PATH"
 ${scriptCommand}`;
+  const environment = buildEnvironment(envOverrides);
+  if (expectedEnvironment) {
+    for (const [name, value] of Object.entries(expectedEnvironment)) {
+      environment[`MOCK_EXPECT_${name}`] = value;
+    }
+  }
   const result = spawnSync(bashPath, ['-c', command], {
     cwd: PROJECT_DIR,
     encoding: 'utf8',
     env: {
-      ...buildEnvironment(envOverrides),
+      ...environment,
       MOCK_EVENT_FILE: eventFile,
       MOCK_PORT_FILE_DIR: temporaryDirectory,
     },
@@ -296,8 +333,11 @@ fi
 exit 0`;
 }
 
-function runSuccessfulLifecycle(bashPath) {
-  return runScript(bashPath, { harness: successfulHarness });
+function runSuccessfulLifecycle(bashPath, options = {}) {
+  return runScript(bashPath, {
+    ...options,
+    harness: successfulHarness,
+  });
 }
 
 function isPortOpen(port) {
@@ -337,6 +377,19 @@ async function main() {
     /BUSINESS_BACKEND_INTERNAL_BASE_URL="http:\/\/127\.0\.0\.1:8765\/internal"/
   );
   assert.match(source, /^trap handle_signal INT TERM$/m);
+  assert.equal(
+    source.match(/请输入语音服务 API Key/g)?.length,
+    1
+  );
+  assert.equal(
+    source.match(/请输入文本模型 API Key/g)?.length,
+    1
+  );
+  assert.doesNotMatch(
+    source,
+    /请输入 (?:VOLCENGINE_API_KEY|DOUBAO_ASR_API_KEY|FORTUNE_TTS_API_KEY)/
+  );
+  assert.doesNotMatch(source, /请输入 FORTUNE_TTS_SPEAKER_ID/);
 
   let requestedUrl = null;
   const client = createInternalCallLifecycleClient({
@@ -358,10 +411,10 @@ async function main() {
   assert.equal(requestedUrl.includes('/internal/internal/'), false);
 
   const missing = runScript(bashPath, {
-    envOverrides: { DOUBAO_ASR_API_KEY: undefined },
+    envOverrides: { FORTUNE_TTS_RESOURCE_ID: undefined },
   });
   assert.notEqual(missing.result.status, 0);
-  assert.match(missing.result.stderr, /DOUBAO_ASR_API_KEY/);
+  assert.match(missing.result.stderr, /FORTUNE_TTS_RESOURCE_ID/);
   assert.equal(missing.events, '');
   assertSecretsAbsent(missing.result.stdout + missing.result.stderr);
 
@@ -378,13 +431,23 @@ async function main() {
     invalidThinking.result.stdout + invalidThinking.result.stderr
   );
 
-  const firstSuccess = runSuccessfulLifecycle(bashPath);
+  const firstSuccess = runSuccessfulLifecycle(bashPath, {
+    expectedEnvironment: {
+      VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[0],
+      DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[1],
+      FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[3],
+      FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[2],
+      FORTUNE_TTS_SPEAKER_ID: EXPLICIT_FORTUNE_SPEAKER_ID,
+    },
+  });
   assert.equal(firstSuccess.result.status, 0);
   assert.match(firstSuccess.capturedStdout, /手机端入口/);
   assert.match(firstSuccess.capturedStdout, /Realtime Relay/);
   assert.match(firstSuccess.capturedStdout, /求签 ASR/);
   assert.match(firstSuccess.events, /ready:backend:\d+/);
   assert.match(firstSuccess.events, /ready:relay:\d+/);
+  assertExpectedEnvironment(firstSuccess, 'backend');
+  assertExpectedEnvironment(firstSuccess, 'relay');
   assertSecretsAbsent(
     firstSuccess.capturedStdout + firstSuccess.capturedStderr
   );
@@ -396,8 +459,45 @@ async function main() {
     assert.equal(await isPortOpen(Number(match[1])), false);
   }
 
-  const secondSuccess = runSuccessfulLifecycle(bashPath);
+  const prompted = runScript(bashPath, {
+    envOverrides: {
+      VOLCENGINE_API_KEY: undefined,
+      DOUBAO_ASR_API_KEY: undefined,
+      FORTUNE_TTS_API_KEY: undefined,
+      FORTUNE_TEXT_MODEL_API_KEY: undefined,
+      FORTUNE_TTS_SPEAKER_ID: undefined,
+      MOCK_BACKEND_MODE: 'fail',
+    },
+    expectedEnvironment: {
+      VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[4],
+      DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[4],
+      FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[4],
+      FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[5],
+      FORTUNE_TTS_SPEAKER_ID: DEFAULT_FORTUNE_SPEAKER_ID,
+    },
+    input: `${SYNTHETIC_SECRETS[4]}\n${SYNTHETIC_SECRETS[5]}\n`,
+  });
+  assert.notEqual(prompted.result.status, 0);
+  assertExpectedEnvironment(prompted, 'backend');
+  assertExpectedEnvironment(prompted, 'relay');
+  assertSecretsAbsent(prompted.result.stdout + prompted.result.stderr);
+
+  const secondSuccess = runSuccessfulLifecycle(bashPath, {
+    envOverrides: {
+      DOUBAO_ASR_API_KEY: undefined,
+      FORTUNE_TTS_API_KEY: undefined,
+    },
+    expectedEnvironment: {
+      VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[0],
+      DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[0],
+      FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[0],
+      FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[2],
+      FORTUNE_TTS_SPEAKER_ID: EXPLICIT_FORTUNE_SPEAKER_ID,
+    },
+  });
   assert.equal(secondSuccess.result.status, 0);
+  assertExpectedEnvironment(secondSuccess, 'backend');
+  assertExpectedEnvironment(secondSuccess, 'relay');
   for (const match of secondSuccess.events.matchAll(/ready:\w+:(\d+)/g)) {
     assert.equal(await isPortOpen(Number(match[1])), false);
   }
@@ -416,7 +516,9 @@ async function main() {
   console.log('start_full_demo_test: PASS');
   console.log(
     'verified=base-origin,internal-path,missing-config,thinking-validation,'
-      + 'existing-env,no-secret-echo,child-failure-cleanup,readiness,'
+      + 'two-key-input,voice-key-mapping,text-key-isolation,default-speaker,'
+      + 'speaker-override,existing-env,partial-voice-env,no-secret-echo,'
+      + 'child-failure-cleanup,readiness,'
       + 'ctrl-c-cleanup,restart-no-port-residue,no-external-network'
   );
 }

@@ -188,6 +188,44 @@ require_sensitive_env() {
   unset entered
 }
 
+configure_voice_service_credentials() {
+  local voice_key="${VOLCENGINE_API_KEY-}"
+  local name=""
+
+  if [[ -z "$voice_key" ]]; then
+    voice_key="${DOUBAO_ASR_API_KEY-}"
+  fi
+  if [[ -z "$voice_key" ]]; then
+    voice_key="${FORTUNE_TTS_API_KEY-}"
+  fi
+  if [[ -z "$voice_key" ]]; then
+    if ! IFS= read -r -s -p \
+      "请输入语音服务 API Key（实时通话、求签 ASR、道童 TTS 共用）：" \
+      voice_key; then
+      printf '\n'
+      printf '错误：语音服务 API Key 不能为空。\n' >&2
+      return 1
+    fi
+    printf '\n'
+    if [[ -z "${voice_key//[[:space:]]/}" ]]; then
+      printf '错误：语音服务 API Key 不能为空。\n' >&2
+      unset voice_key
+      return 1
+    fi
+  fi
+
+  for name in \
+    VOLCENGINE_API_KEY \
+    DOUBAO_ASR_API_KEY \
+    FORTUNE_TTS_API_KEY; do
+    if [[ -z "${!name-}" ]]; then
+      printf -v "$name" '%s' "$voice_key"
+      export "$name"
+    fi
+  done
+  unset voice_key
+}
+
 require_plain_env() {
   local name="$1"
   local prompt="$2"
@@ -357,18 +395,10 @@ else
   fi
 fi
 
-require_sensitive_env \
-  VOLCENGINE_API_KEY \
-  "请输入 VOLCENGINE_API_KEY："
-require_sensitive_env \
-  DOUBAO_ASR_API_KEY \
-  "请输入 DOUBAO_ASR_API_KEY："
+configure_voice_service_credentials
 require_sensitive_env \
   FORTUNE_TEXT_MODEL_API_KEY \
-  "请输入 FORTUNE_TEXT_MODEL_API_KEY："
-require_sensitive_env \
-  FORTUNE_TTS_API_KEY \
-  "请输入 FORTUNE_TTS_API_KEY："
+  "请输入文本模型 API Key（用于生成文字解签）："
 
 export DOUBAO_ENABLE_FORTUNE_ASR=1
 if [[ -z "${DOUBAO_ASR_RESOURCE_ID-}" ]]; then
@@ -384,9 +414,9 @@ require_plain_env \
 require_plain_env \
   FORTUNE_TTS_RESOURCE_ID \
   "请输入 FORTUNE_TTS_RESOURCE_ID："
-require_plain_env \
-  FORTUNE_TTS_SPEAKER_ID \
-  "请输入 FORTUNE_TTS_SPEAKER_ID："
+if [[ -z "${FORTUNE_TTS_SPEAKER_ID-}" ]]; then
+  export FORTUNE_TTS_SPEAKER_ID="S_bpBL3BA92"
+fi
 
 export DOUBAO_ENABLE_SUNWUKONG=1
 export DOUBAO_SUNWUKONG_SPEAKER_ID=S_UiUfvBA92

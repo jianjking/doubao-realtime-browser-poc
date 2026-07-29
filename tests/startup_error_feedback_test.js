@@ -121,7 +121,7 @@ function verifyStartupScript() {
   );
   assert.ok(
     source.indexOf('check_port_in_use 3001')
-      < source.indexOf('请输入 VOLCENGINE_API_KEY')
+      < source.lastIndexOf('configure_voice_service_credentials')
   );
   assert.match(source, /kill -0 "\$BUSINESS_BACKEND_PID"/);
   assert.match(source, /node business_backend\/server\.js/);
