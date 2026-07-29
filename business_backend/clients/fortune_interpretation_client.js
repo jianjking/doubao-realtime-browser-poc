@@ -83,6 +83,27 @@ function parseTimeoutMs(rawTimeoutMs) {
   return timeoutMs;
 }
 
+function parseDisableThinking(rawDisableThinking) {
+  if (
+    rawDisableThinking === undefined
+    || rawDisableThinking === ''
+    || rawDisableThinking === '0'
+    || rawDisableThinking === 'false'
+  ) {
+    return false;
+  }
+  if (
+    rawDisableThinking === '1'
+    || rawDisableThinking === 'true'
+  ) {
+    return true;
+  }
+  throw new TypeError(
+    'FORTUNE_TEXT_MODEL_DISABLE_THINKING must be '
+      + '1, true, 0, false, or empty'
+  );
+}
+
 function buildMessages(input) {
   if (
     !isPlainObject(input)
@@ -171,6 +192,7 @@ function createFortuneInterpretationClient({
   apiKey,
   modelName,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  disableThinking = false,
   fetchImpl = globalThis.fetch,
 } = {}) {
   const normalizedBaseUrl = validateBaseUrl(baseUrl);
@@ -183,6 +205,9 @@ function createFortuneInterpretationClient({
     'FORTUNE_TEXT_MODEL_NAME'
   );
   const normalizedTimeoutMs = parseTimeoutMs(timeoutMs);
+  if (typeof disableThinking !== 'boolean') {
+    throw new TypeError('disableThinking must be a boolean');
+  }
   if (typeof fetchImpl !== 'function') {
     throw new TypeError('fetchImpl must be a function');
   }
@@ -205,6 +230,15 @@ function createFortuneInterpretationClient({
     const requestPromise = (async () => {
       let response;
       try {
+        const requestBody = {
+          model: modelName,
+          messages: buildMessages(input),
+          response_format: { type: 'json_object' },
+          temperature: 0.2,
+        };
+        if (disableThinking) {
+          requestBody.thinking = { type: 'disabled' };
+        }
         response = await fetchImpl(
           `${normalizedBaseUrl}/chat/completions`,
           {
@@ -214,12 +248,7 @@ function createFortuneInterpretationClient({
               Authorization: `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              model: modelName,
-              messages: buildMessages(input),
-              response_format: { type: 'json_object' },
-              temperature: 0.2,
-            }),
+            body: JSON.stringify(requestBody),
             redirect: 'error',
             cache: 'no-store',
             signal: controller.signal,
@@ -292,19 +321,28 @@ function createFortuneInterpretationClientFromEnv({
   let apiKey;
   let modelName;
   let rawTimeoutMs;
+  let rawDisableThinking;
   try {
     baseUrl = env.FORTUNE_TEXT_MODEL_BASE_URL;
     apiKey = env.FORTUNE_TEXT_MODEL_API_KEY;
     modelName = env.FORTUNE_TEXT_MODEL_NAME;
     rawTimeoutMs = env.FORTUNE_TEXT_MODEL_TIMEOUT_MS;
+    rawDisableThinking =
+      env.FORTUNE_TEXT_MODEL_DISABLE_THINKING;
   } catch {
     throw new TypeError(
       'Unable to read fortune text model configuration'
     );
   }
+  const disableThinking =
+    parseDisableThinking(rawDisableThinking);
   const configuredValues = [baseUrl, apiKey, modelName]
     .filter((value) => value !== undefined);
-  if (configuredValues.length === 0 && rawTimeoutMs === undefined) {
+  if (
+    configuredValues.length === 0
+    && rawTimeoutMs === undefined
+    && rawDisableThinking === undefined
+  ) {
     return null;
   }
   if (configuredValues.length !== 3) {
@@ -319,6 +357,7 @@ function createFortuneInterpretationClientFromEnv({
     apiKey,
     modelName,
     timeoutMs: parseTimeoutMs(rawTimeoutMs),
+    disableThinking,
     fetchImpl,
   });
 }
