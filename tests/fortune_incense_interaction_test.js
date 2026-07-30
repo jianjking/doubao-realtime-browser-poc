@@ -26,6 +26,10 @@ const ENTRY_CSS_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/entry.css'
 );
+const DAOTONG_ASSET_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/assets/fortune/daotong-guide-v1.png'
+);
 
 class FakeClassList {
   constructor(initialClasses = []) {
@@ -71,6 +75,7 @@ class FakeElement {
     this.disabled = options.disabled === true;
     this.hidden = options.hidden === true;
     this.textContent = options.textContent || '';
+    this.dataset = { ...(options.dataset || {}) };
     this.attributes = new Map(
       Object.entries(options.attributes || {})
     );
@@ -167,7 +172,18 @@ function flushPromises() {
 }
 
 function loadFortuneRuntime(options = {}) {
-  const page = new FakeElement({ classes: ['fortune-page'] });
+  const page = new FakeElement({
+    classes: ['fortune-page'],
+    dataset: { fortuneCharacterKey: 'yuhuang' },
+  });
+  const fortuneCharacterImage = new FakeElement({
+    attributes: {
+      alt: '当前所选神仙角色主视觉',
+      src: './assets/characters/yuhuang/yuhuang-home-hero-v1.png',
+    },
+    dataset: { fortuneCharacterImage: '' },
+  });
+  const fortuneCharacterUnavailable = new FakeElement({ hidden: true });
   const offerButton = new FakeElement({
     textContent: '敬上一炷香',
   });
@@ -258,6 +274,11 @@ function loadFortuneRuntime(options = {}) {
   });
   const elements = new Map([
     ['.fortune-page', page],
+    ['[data-fortune-character-image]', fortuneCharacterImage],
+    [
+      '[data-fortune-character-unavailable]',
+      fortuneCharacterUnavailable,
+    ],
     ['[data-offer-incense]', offerButton],
     ['[data-incense-state]', incenseState],
     ['[data-acolyte-guidance]', acolyteGuidance],
@@ -427,6 +448,7 @@ function loadFortuneRuntime(options = {}) {
   }
 
   context = {
+    URLSearchParams,
     document: {
       querySelector(selector) {
         return elements.get(selector) || null;
@@ -448,6 +470,9 @@ function loadFortuneRuntime(options = {}) {
     window: {
       innerHeight: 932,
       innerWidth: 430,
+      location: {
+        search: options.locationSearch || '',
+      },
       addEventListener(eventName, handler) {
         if (!windowListeners.has(eventName)) {
           windowListeners.set(eventName, []);
@@ -528,6 +553,8 @@ function loadFortuneRuntime(options = {}) {
     fetchRequests,
     fortuneError,
     fortuneResult,
+    fortuneCharacterImage,
+    fortuneCharacterUnavailable,
     flyingWishPaper,
     flyingWishPaperText,
     interpretFortuneButton,
@@ -648,14 +675,27 @@ function verifyStaticSceneAndSafety() {
   const js = fs.readFileSync(FORTUNE_JS_PATH, 'utf8');
   const asrJs = fs.readFileSync(FORTUNE_ASR_JS_PATH, 'utf8');
   const workletJs = fs.readFileSync(WORKLET_PATH, 'utf8');
+  const daotongAsset = fs.readFileSync(DAOTONG_ASSET_PATH);
 
   assert.match(
     html,
-    /<section class="temple-scene"[\s\S]*?神明高坐庙堂/
+    /class="shrine-scene-background"[\s\S]*?data-fortune-character-image/
   );
   assert.match(
     html,
-    /role="img" aria-label="神明高坐神龛，殿内供灯散发柔和金光"/
+    /class="temple-scene shrine-character-layer"[\s\S]*?class="acolyte-character"[\s\S]*?src="\.\/assets\/fortune\/daotong-guide-v1\.png"/
+  );
+  assert.match(
+    html,
+    /class="shrine-foreground"[\s\S]*?<section class="offering-stage"[\s\S]*?<section class="waiting-to-speak"/
+  );
+  assert.match(
+    html,
+    /class="fortune-result-layer"[\s\S]*?data-fortune-result/
+  );
+  assert.match(
+    html,
+    /class="page-footnotes"[\s\S]*?当前为项目原型签文，正式签谱后续校订。[\s\S]*?签文与解读仅作传统文化体验及情绪陪伴参考。/
   );
   assert.match(
     html,
@@ -664,6 +704,10 @@ function verifyStaticSceneAndSafety() {
   assert.match(
     html,
     /<section class="acolyte-guide"[\s\S]*?<h2 id="acolyte-guide-title">道童引导<\/h2>/
+  );
+  assert.doesNotMatch(
+    html,
+    /acolyte-silhouette|acolyte-head|acolyte-body/
   );
   assert.match(
     html,
@@ -773,7 +817,24 @@ function verifyStaticSceneAndSafety() {
     html,
     /签意概括|道童解读|眼下可做的小事|温馨提示|data-interpretation-(?:summary|reflection|action|safety)/
   );
-  assert.match(css, /\.fortune-experience-disclaimer\s*\{/);
+  assert.match(css, /\.page-footnotes\s*\{/);
+  assert.match(
+    css,
+    /\.shrine-deity-visual\s*\{[\s\S]*?object-fit:\s*cover;[\s\S]*?object-position:\s*50% 42%;[\s\S]*?scale\(1\.035\)/
+  );
+  assert.match(
+    css,
+    /\.acolyte-character\s*\{[\s\S]*?object-fit:\s*contain;/
+  );
+  assert.doesNotMatch(css, /\.acolyte-silhouette\s*\{/);
+  assert.equal(
+    daotongAsset.subarray(0, 8).toString('hex'),
+    '89504e470d0a1a0a'
+  );
+  assert.equal(daotongAsset.readUInt32BE(16), 1024);
+  assert.equal(daotongAsset.readUInt32BE(20), 1536);
+  assert.equal((js.match(/assets\/characters/g) || []).length, 1);
+  assert.doesNotMatch(js, /https?:\/\/[^'"]+\.(?:png|webp|jpe?g)/i);
   assert.match(
     html,
     /<script src="\.\/fortune_browser_asr\.js"><\/script>\s*<script src="\.\/fortune\.js"><\/script>/
@@ -897,6 +958,48 @@ function verifyStaticSceneAndSafety() {
   assert.doesNotMatch(
     js,
     /localStorage|sessionStorage|document\.cookie|indexedDB|innerHTML/
+  );
+}
+
+function verifyCharacterVisualSelection() {
+  const defaultRuntime = loadFortuneRuntime();
+  assert.equal(
+    defaultRuntime.fortuneCharacterImage.getAttribute('src'),
+    './assets/characters/yuhuang/yuhuang-home-hero-v1.png'
+  );
+  assert.equal(defaultRuntime.page.dataset.fortuneCharacterKey, 'yuhuang');
+  assert.equal(defaultRuntime.fortuneCharacterImage.hidden, false);
+
+  const sunwukongRuntime = loadFortuneRuntime({
+    locationSearch: '?characterKey=sunwukong',
+  });
+  assert.equal(
+    sunwukongRuntime.fortuneCharacterImage.getAttribute('src'),
+    './assets/characters/sunwukong/sunwukong-home-hero-v2.png'
+  );
+  assert.equal(
+    sunwukongRuntime.page.dataset.fortuneCharacterKey,
+    'sunwukong'
+  );
+
+  const invalidRuntime = loadFortuneRuntime({
+    locationSearch: '?characterKey=../../yuhuang',
+  });
+  assert.equal(invalidRuntime.fortuneCharacterImage.hidden, true);
+  assert.equal(
+    invalidRuntime.fortuneCharacterImage.getAttribute('src'),
+    null
+  );
+  assert.equal(
+    invalidRuntime.page.dataset.fortuneCharacterKey,
+    'unavailable'
+  );
+
+  sunwukongRuntime.fortuneCharacterImage.trigger('error');
+  assert.equal(sunwukongRuntime.fortuneCharacterImage.hidden, true);
+  assert.equal(
+    sunwukongRuntime.page.dataset.fortuneCharacterKey,
+    'unavailable'
   );
 }
 
@@ -2745,6 +2848,7 @@ async function verifyModulePageExitAndFailureBoundaries() {
 
 async function main() {
   verifyStaticSceneAndSafety();
+  verifyCharacterVisualSelection();
   verifySingleOfferingFlow();
   verifyReducedMotionAndRefreshReset();
   await verifyMicrophoneStartStopAndConcurrency();

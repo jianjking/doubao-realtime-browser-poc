@@ -9,11 +9,23 @@
   <link rel="stylesheet" href="./entry.css">
 </head>
 <body>
-  <main class="entry-shell fortune-page" aria-labelledby="fortune-title">
-    <div class="entry-ambient" aria-hidden="true">
-      <span class="entry-halo"></span>
-      <span class="entry-cloud entry-cloud-left"></span>
-      <span class="entry-cloud entry-cloud-right"></span>
+  <main
+    class="entry-shell fortune-page"
+    data-fortune-character-key="yuhuang"
+    aria-labelledby="fortune-title"
+  >
+    <div class="shrine-scene-background" aria-hidden="true">
+      <img
+        class="shrine-deity-visual"
+        data-fortune-character-image
+        data-character-key="yuhuang"
+        src="./assets/characters/yuhuang/yuhuang-home-hero-v1.png"
+        alt=""
+      >
+      <span class="shrine-scene-warmth"></span>
+      <span class="shrine-scene-vignette"></span>
+      <span class="shrine-scene-smoke shrine-scene-smoke-left"></span>
+      <span class="shrine-scene-smoke shrine-scene-smoke-right"></span>
     </div>
 
     <header class="entry-heading fortune-heading">
@@ -22,116 +34,123 @@
       <p class="fortune-introduction">神明高坐庙堂，道童在殿前引导求签。</p>
     </header>
 
-    <section class="temple-scene" aria-labelledby="temple-scene-title">
-      <h2 id="temple-scene-title">神明高坐庙堂</h2>
-      <div class="sanctuary" role="img" aria-label="神明高坐神龛，殿内供灯散发柔和金光">
-        <span class="sanctuary-canopy" aria-hidden="true"></span>
-        <span class="offering-lamp offering-lamp-left" aria-hidden="true"></span>
-        <span class="offering-lamp offering-lamp-right" aria-hidden="true"></span>
-        <div class="deity-seat" aria-hidden="true">
-          <span class="deity-halo"></span>
-          <span class="deity-silhouette"></span>
-          <span class="deity-tablet">神明</span>
-        </div>
+    <section class="temple-scene shrine-character-layer" aria-labelledby="temple-scene-title">
+      <h2 id="temple-scene-title" class="visually-hidden">神明与道童同在殿前</h2>
+      <div class="acolyte-figure">
+        <img
+          class="acolyte-character"
+          src="./assets/fortune/daotong-guide-v1.png"
+          width="1024"
+          height="1536"
+          alt="殿前引导求签的道童"
+        >
       </div>
-      <p>神明居于庙堂高处，安然接受香火与祈愿。</p>
+      <section class="acolyte-guide" aria-labelledby="acolyte-guide-title">
+        <div class="acolyte-copy">
+          <h2 id="acolyte-guide-title">道童引导</h2>
+          <p data-acolyte-guidance aria-live="polite" aria-atomic="true">善信请静心，先敬上一炷香。</p>
+        </div>
+      </section>
+      <p
+        class="fortune-character-unavailable"
+        data-fortune-character-unavailable
+        role="status"
+        hidden
+      >当前神仙主视觉暂时无法显示，请返回重新选择。</p>
     </section>
 
-    <section class="offering-stage" aria-labelledby="offering-stage-title">
-      <h2 id="offering-stage-title">殿前香案</h2>
-      <div class="incense-table" aria-label="香炉与一炷未点燃的香">
-        <div class="incense-stick" aria-hidden="true">
-          <span class="incense-ember"></span>
-          <span class="incense-smoke incense-smoke-one"></span>
-          <span class="incense-smoke incense-smoke-two"></span>
+    <div class="shrine-foreground">
+      <section class="offering-stage" aria-labelledby="offering-stage-title">
+        <h2 id="offering-stage-title">殿前香案</h2>
+        <div class="incense-table" aria-label="香炉与一炷未点燃的香">
+          <div class="incense-stick" aria-hidden="true">
+            <span class="incense-ember"></span>
+            <span class="incense-smoke incense-smoke-one"></span>
+            <span class="incense-smoke incense-smoke-two"></span>
+          </div>
+          <div class="incense-burner" aria-hidden="true">
+            <span class="burner-rim"></span>
+            <span class="burner-body">福</span>
+            <span class="burner-foot burner-foot-left"></span>
+            <span class="burner-foot burner-foot-right"></span>
+          </div>
         </div>
-        <div class="incense-burner" aria-hidden="true">
-          <span class="burner-rim"></span>
-          <span class="burner-body">福</span>
-          <span class="burner-foot burner-foot-left"></span>
-          <span class="burner-foot burner-foot-right"></span>
+        <p class="incense-state" data-incense-state aria-live="polite">香尚未点燃</p>
+      </section>
+
+      <button class="offer-incense-button" type="button" data-offer-incense>敬上一炷香</button>
+
+      <section class="waiting-to-speak" data-waiting-state aria-labelledby="waiting-to-speak-title" hidden>
+        <div class="speech-state-heading">
+          <h2 id="waiting-to-speak-title" data-speech-title>等待诉说</h2>
+          <span class="microphone-use-indicator" aria-hidden="true">麦克风使用中</span>
         </div>
-      </div>
-      <p class="incense-state" data-incense-state aria-live="polite">香尚未点燃</p>
-    </section>
-
-    <section class="acolyte-guide" aria-labelledby="acolyte-guide-title">
-      <div class="acolyte-silhouette" aria-hidden="true">
-        <span class="acolyte-head"></span>
-        <span class="acolyte-body"></span>
-      </div>
-      <div class="acolyte-copy">
-        <h2 id="acolyte-guide-title">道童引导</h2>
-        <p data-acolyte-guidance aria-live="polite" aria-atomic="true">善信请静心，先敬上一炷香。</p>
-      </div>
-    </section>
-
-    <button class="offer-incense-button" type="button" data-offer-incense>敬上一炷香</button>
-
-    <section class="waiting-to-speak" data-waiting-state aria-labelledby="waiting-to-speak-title" hidden>
-      <div class="speech-state-heading">
-        <h2 id="waiting-to-speak-title" data-speech-title>等待诉说</h2>
-        <span class="microphone-use-indicator" aria-hidden="true">麦克风使用中</span>
-      </div>
-      <p data-speech-message role="status" aria-live="polite" aria-atomic="true">请慢慢说，道童会在殿前听您诉说。</p>
-      <button class="speak-control-button" type="button" data-speak-control>开始诉说</button>
-      <small data-speech-detail>语音只用于当前识别，不会录制为音频文件。</small>
-      <section class="wish-paper" data-wish-paper aria-labelledby="wish-paper-title" aria-busy="false">
-        <h3 id="wish-paper-title">道童代您写下</h3>
-        <p class="wish-paper-status" data-transcript-status>等待诉说</p>
-        <p class="wish-paper-text" data-transcript-text>您的话会写在这里。</p>
-      </section>
-      <section class="wish-offering-complete" data-wish-offering-complete tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
-        <h3>心愿已呈</h3>
-        <p>心意已达殿前，请静候求签。</p>
-        <small>心愿呈送完成后，便可诚心求取一签。</small>
-        <button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>诚心求一签</button>
-      </section>
-      <section class="fortune-draw-error" data-fortune-error tabindex="-1" role="alert" hidden>
-        <h3>求签未成</h3>
-        <p>暂时未能求得签文，请稍后再试。</p>
-        <button class="fortune-retry-button" type="button" data-retry-fortune>重新求签</button>
-      </section>
-      <section class="fortune-lot-result" data-fortune-result tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
-        <p class="fortune-lot-meta">
-          <strong>第<span data-lot-number></span>签</strong>
-          <span data-lot-level></span>
-        </p>
-        <h3 data-lot-title></h3>
-        <div class="fortune-lot-verses" data-lot-verses></div>
-        <p class="fortune-prototype-notice">当前为项目原型签文，正式签谱后续校订。</p>
-        <button class="fortune-interpret-button" type="button" data-interpret-fortune>请道童解签</button>
-        <section class="fortune-interpretation-error" data-interpretation-error tabindex="-1" role="alert" hidden>
-          <h4>暂未解成</h4>
-          <p>道童暂时未能完成解签，请稍后再试。</p>
-          <button class="fortune-interpretation-retry-button" type="button" data-retry-interpretation>重新请道童解签</button>
+        <p data-speech-message role="status" aria-live="polite" aria-atomic="true">请慢慢说，道童会在殿前听您诉说。</p>
+        <button class="speak-control-button" type="button" data-speak-control>开始诉说</button>
+        <small data-speech-detail>语音只用于当前识别，不会录制为音频文件。</small>
+        <section class="wish-paper" data-wish-paper aria-labelledby="wish-paper-title" aria-busy="false">
+          <h3 id="wish-paper-title">道童代您写下</h3>
+          <p class="wish-paper-status" data-transcript-status>等待诉说</p>
+          <p class="wish-paper-text" data-transcript-text>您的话会写在这里。</p>
         </section>
-        <section class="fortune-interpretation-result" data-interpretation-result tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
-          <h4>道童解签</h4>
-          <p data-interpretation-text></p>
-          <section
-            class="fortune-interpretation-audio"
-            data-interpretation-audio
-            aria-live="polite"
-            aria-atomic="true"
-            hidden
-          >
-            <h4>语音解签</h4>
-            <p data-interpretation-audio-status>需要时，可请道童为您读出这份解签。</p>
-            <button
-              class="fortune-interpretation-audio-button"
-              type="button"
-              data-interpretation-audio-control
-            >
-              听道童解签
-            </button>
+        <div class="fortune-result-layer">
+          <section class="wish-offering-complete" data-wish-offering-complete tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
+            <h3>心愿已呈</h3>
+            <p>心意已达殿前，请静候求签。</p>
+            <small>心愿呈送完成后，便可诚心求取一签。</small>
+            <button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>诚心求一签</button>
           </section>
-        </section>
+          <section class="fortune-draw-error" data-fortune-error tabindex="-1" role="alert" hidden>
+            <h3>求签未成</h3>
+            <p>暂时未能求得签文，请稍后再试。</p>
+            <button class="fortune-retry-button" type="button" data-retry-fortune>重新求签</button>
+          </section>
+          <section class="fortune-lot-result" data-fortune-result tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
+            <p class="fortune-lot-meta">
+              <strong>第<span data-lot-number></span>签</strong>
+              <span data-lot-level></span>
+            </p>
+            <h3 data-lot-title></h3>
+            <div class="fortune-lot-verses" data-lot-verses></div>
+            <button class="fortune-interpret-button" type="button" data-interpret-fortune>请道童解签</button>
+            <section class="fortune-interpretation-error" data-interpretation-error tabindex="-1" role="alert" hidden>
+              <h4>暂未解成</h4>
+              <p>道童暂时未能完成解签，请稍后再试。</p>
+              <button class="fortune-interpretation-retry-button" type="button" data-retry-interpretation>重新请道童解签</button>
+            </section>
+            <section class="fortune-interpretation-result" data-interpretation-result tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
+              <h4>道童解签</h4>
+              <p data-interpretation-text></p>
+              <section
+                class="fortune-interpretation-audio"
+                data-interpretation-audio
+                aria-live="polite"
+                aria-atomic="true"
+                hidden
+              >
+                <h4>语音解签</h4>
+                <p data-interpretation-audio-status>需要时，可请道童为您读出这份解签。</p>
+                <button
+                  class="fortune-interpretation-audio-button"
+                  type="button"
+                  data-interpretation-audio-control
+                >
+                  听道童解签
+                </button>
+              </section>
+            </section>
+          </section>
+        </div>
       </section>
-    </section>
+    </div>
 
-    <a class="return-choice-button" href="./choice.html">返回功能选择</a>
-    <p class="fortune-experience-disclaimer">签文与解读仅作传统文化体验及情绪陪伴参考。</p>
+    <footer class="page-footnotes">
+      <a class="return-choice-button" href="./choice.html">返回功能选择</a>
+      <p class="fortune-prototype-notice">当前为项目原型签文，正式签谱后续校订。</p>
+      <p class="fortune-experience-disclaimer">
+        签文与解读仅作传统文化体验及情绪陪伴参考。
+      </p>
+    </footer>
   </main>
   <div class="wish-offering-stage" data-wish-offering-stage aria-hidden="true" hidden>
     <p class="wish-offering-stage-caption" aria-hidden="true">

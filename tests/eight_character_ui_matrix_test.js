@@ -30,6 +30,14 @@ const FORTUNE_HTML_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/fortune.html'
 );
+const FORTUNE_JS_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/fortune.js'
+);
+const DAOTONG_ASSET_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/assets/fortune/daotong-guide-v1.png'
+);
 const ENTRY_CSS_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/entry.css'
@@ -2033,6 +2041,7 @@ function verifyStaticSafetyAndCurrentUi() {
 function verifyFeatureChoiceAndFortuneEntry() {
   const choiceHtml = fs.readFileSync(CHOICE_HTML_PATH, 'utf8');
   const fortuneHtml = fs.readFileSync(FORTUNE_HTML_PATH, 'utf8');
+  const fortuneJs = fs.readFileSync(FORTUNE_JS_PATH, 'utf8');
   const entryCss = fs.readFileSync(ENTRY_CSS_PATH, 'utf8');
   const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
 
@@ -2061,7 +2070,15 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
-    /<section class="temple-scene"[\s\S]*?神明高坐庙堂/
+    /class="shrine-scene-background"[\s\S]*?data-fortune-character-image/
+  );
+  assert.match(
+    fortuneHtml,
+    /class="temple-scene shrine-character-layer"[\s\S]*?class="acolyte-character"[\s\S]*?src="\.\/assets\/fortune\/daotong-guide-v1\.png"/
+  );
+  assert.match(
+    fortuneHtml,
+    /class="shrine-foreground"[\s\S]*?class="fortune-result-layer"[\s\S]*?class="page-footnotes"/
   );
   assert.match(
     fortuneHtml,
@@ -2070,6 +2087,10 @@ function verifyFeatureChoiceAndFortuneEntry() {
   assert.match(
     fortuneHtml,
     /<section class="acolyte-guide"[\s\S]*?道童引导/
+  );
+  assert.doesNotMatch(
+    fortuneHtml,
+    /acolyte-silhouette|acolyte-head|acolyte-body/
   );
   assert.match(
     fortuneHtml,
@@ -2128,6 +2149,24 @@ function verifyFeatureChoiceAndFortuneEntry() {
     /<a class="return-choice-button" href="\.\/choice\.html">返回功能选择<\/a>/
   );
   assert.match(fortuneHtml, /<script src="\.\/fortune\.js"><\/script>/);
+  assert.match(
+    fortuneJs,
+    /new URLSearchParams\(window\.location\.search\)[\s\S]*?get\('characterKey'\)/
+  );
+  assert.match(
+    fortuneJs,
+    /`\.\/*assets\/characters\/\$\{characterKey\}\/\$\{characterKey\}-home-hero-\$\{version\}\.png`/
+  );
+  assert.equal((fortuneJs.match(/assets\/characters/g) || []).length, 1);
+  assert.equal(fs.existsSync(DAOTONG_ASSET_PATH), true);
+  assert.match(
+    entryCss,
+    /\.shrine-deity-visual\s*\{[\s\S]*?object-fit:\s*cover;[\s\S]*?object-position:\s*50% 42%;[\s\S]*?scale\(1\.035\)/
+  );
+  assert.match(
+    entryCss,
+    /\.acolyte-character\s*\{[\s\S]*?object-fit:\s*contain;/
+  );
   assert.doesNotMatch(fortuneHtml, /神仙亲自解签/);
   assert.doesNotMatch(
     fortuneHtml,

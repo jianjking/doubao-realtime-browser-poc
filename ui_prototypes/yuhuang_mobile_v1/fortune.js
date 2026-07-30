@@ -6,6 +6,17 @@
   const REDUCED_WISH_OFFERING_FALLBACK_MS = 180;
   const FORTUNE_SESSION_API_URL = '/api/fortune-sessions';
   const FORTUNE_DEITY_KEY = 'yuhuang';
+  const DEFAULT_FORTUNE_CHARACTER_KEY = 'yuhuang';
+  const FORTUNE_CHARACTER_KEYS = new Set([
+    'yuhuang',
+    'sunwukong',
+    'guanyin',
+    'caishen',
+    'rulai',
+    'zhubajie',
+    'shawujing',
+    'tangseng',
+  ]);
   const INTERACTION_STATES = Object.freeze({
     IDLE: 'idle',
     OFFERING_INCENSE: 'offering-incense',
@@ -37,6 +48,12 @@
     ERROR: 'error',
   });
   const page = document.querySelector('.fortune-page');
+  const fortuneCharacterImage = document.querySelector(
+    '[data-fortune-character-image]'
+  );
+  const fortuneCharacterUnavailable = document.querySelector(
+    '[data-fortune-character-unavailable]'
+  );
   const offerIncenseButton = document.querySelector(
     '[data-offer-incense]'
   );
@@ -112,6 +129,8 @@
 
   if (
     !page
+    || !fortuneCharacterImage
+    || !fortuneCharacterUnavailable
     || !offerIncenseButton
     || !incenseState
     || !acolyteGuidance
@@ -169,6 +188,55 @@
   let interpretationAudioSessionId = null;
   let interpretationAudioRequestController = null;
   let interpretationAudioRequestGeneration = 0;
+
+  function resolveRequestedCharacterKey() {
+    const searchParams = new URLSearchParams(window.location.search);
+    return searchParams.has('characterKey')
+      ? searchParams.get('characterKey')
+      : DEFAULT_FORTUNE_CHARACTER_KEY;
+  }
+
+  function resolveFortuneCharacterImageSrc(characterKey) {
+    if (!FORTUNE_CHARACTER_KEYS.has(characterKey)) {
+      return null;
+    }
+    const version = characterKey === 'sunwukong' ? 'v2' : 'v1';
+    return `./assets/characters/${characterKey}/${characterKey}-home-hero-${version}.png`;
+  }
+
+  function renderUnavailableFortuneCharacter() {
+    fortuneCharacterImage.hidden = true;
+    fortuneCharacterImage.removeAttribute('src');
+    fortuneCharacterImage.setAttribute('alt', '');
+    fortuneCharacterUnavailable.hidden = false;
+    page.dataset.fortuneCharacterKey = 'unavailable';
+  }
+
+  function renderFortuneCharacter() {
+    const characterKey = resolveRequestedCharacterKey();
+    const imageSrc = resolveFortuneCharacterImageSrc(characterKey);
+    if (imageSrc === null) {
+      renderUnavailableFortuneCharacter();
+      return;
+    }
+
+    page.dataset.fortuneCharacterKey = characterKey;
+    fortuneCharacterUnavailable.hidden = true;
+    fortuneCharacterImage.hidden = false;
+    fortuneCharacterImage.dataset.characterKey = characterKey;
+    fortuneCharacterImage.setAttribute('src', imageSrc);
+    fortuneCharacterImage.setAttribute(
+      'alt',
+      '当前所选神仙角色主视觉'
+    );
+    fortuneCharacterImage.addEventListener(
+      'error',
+      renderUnavailableFortuneCharacter,
+      { once: true }
+    );
+  }
+
+  renderFortuneCharacter();
 
   function prefersReducedMotion() {
     return typeof window.matchMedia === 'function'
