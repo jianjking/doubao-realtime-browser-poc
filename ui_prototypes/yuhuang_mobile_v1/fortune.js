@@ -19,6 +19,15 @@
     'shawujing',
     'tangseng',
   ]);
+  const INTEGRATED_FORTUNE_SCENE_SOURCES = Object.freeze({
+    guanyin:
+      './assets/fortune/scenes/fortune-scene-guanyin-v1.png',
+    caishen:
+      './assets/fortune/scenes/fortune-scene-caishen-v1.png',
+    rulai:
+      './assets/fortune/scenes/fortune-scene-rulai-v1.png',
+  });
+
   const INTERACTION_STATES = Object.freeze({
     READY_TO_SPEAK: 'ready-to-speak',
     REQUESTING_MICROPHONE: 'requesting-microphone',
@@ -208,7 +217,18 @@
     if (!FORTUNE_CHARACTER_KEYS.has(characterKey)) {
       return null;
     }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        INTEGRATED_FORTUNE_SCENE_SOURCES,
+        characterKey
+      )
+    ) {
+      return INTEGRATED_FORTUNE_SCENE_SOURCES[characterKey];
+    }
+
     const version = characterKey === 'sunwukong' ? 'v2' : 'v1';
+
     return `./assets/characters/${characterKey}/${characterKey}-home-hero-${version}.png`;
   }
 
@@ -218,25 +238,40 @@
     fortuneCharacterImage.setAttribute('alt', '');
     fortuneCharacterUnavailable.hidden = false;
     page.dataset.fortuneCharacterKey = 'unavailable';
+    page.dataset.fortuneSceneMode = 'unavailable';
   }
 
   function renderFortuneCharacter() {
     const characterKey = resolveRequestedCharacterKey();
     const imageSrc = resolveFortuneCharacterImageSrc(characterKey);
+
     if (imageSrc === null) {
       renderUnavailableFortuneCharacter();
       return;
     }
 
+    const usesIntegratedScene =
+      Object.prototype.hasOwnProperty.call(
+        INTEGRATED_FORTUNE_SCENE_SOURCES,
+        characterKey
+      );
+
     page.dataset.fortuneCharacterKey = characterKey;
+    page.dataset.fortuneSceneMode = usesIntegratedScene
+      ? 'integrated'
+      : 'character';
+
     fortuneCharacterUnavailable.hidden = true;
     fortuneCharacterImage.hidden = false;
     fortuneCharacterImage.dataset.characterKey = characterKey;
     fortuneCharacterImage.setAttribute('src', imageSrc);
     fortuneCharacterImage.setAttribute(
       'alt',
-      '当前所选神仙角色主视觉'
+      usesIntegratedScene
+        ? '当前所选神仙的寺庙求签场景'
+        : '当前所选神仙角色主视觉'
     );
+
     fortuneCharacterImage.addEventListener(
       'error',
       renderUnavailableFortuneCharacter,

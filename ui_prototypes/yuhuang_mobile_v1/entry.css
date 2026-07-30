@@ -2972,3 +2972,168 @@ a {
     animation-delay: 0ms !important;
   }
 }
+
+/* ========== INTEGRATED FORTUNE SCENES V3 START ========== */
+/*
+ * 观音、财神、如来使用完整寺庙求签场景图。
+ * 场景图已包含远处神像、左下男道童、香案、香炉和三炷香。
+ */
+
+.fortune-page[data-fortune-scene-mode="integrated"] {
+  background: #1c0908;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .shrine-scene-background {
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #1c0908;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .shrine-deity-visual {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  object-fit: fill;
+  object-position: 50% 50%;
+  box-shadow: none;
+  transform: none;
+}
+
+/*
+ * 图片顶部和底部加入暗层，
+ * 保证标题、按钮和固定说明清晰。
+ */
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .shrine-scene-warmth {
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(24, 6, 6, 0.78) 0%,
+      rgba(24, 6, 6, 0.28) 17%,
+      transparent 32%,
+      transparent 72%,
+      rgba(22, 5, 6, 0.28) 82%,
+      rgba(20, 5, 6, 0.94) 100%
+    );
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .shrine-scene-vignette {
+  z-index: 2;
+  inset: 0;
+  background: none;
+  box-shadow:
+    inset 18px 0 28px rgba(16, 4, 4, 0.2),
+    inset -18px 0 28px rgba(16, 4, 4, 0.2);
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .shrine-scene-smoke {
+  display: none;
+}
+
+/*
+ * 完整场景图已经画有男道童和香案，
+ * 隐藏原来的独立女道童、气泡和 CSS 香炉。
+ */
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .acolyte-figure,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .acolyte-guide,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .offering-stage {
+  display: none;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .temple-scene.shrine-character-layer {
+  position: absolute;
+  z-index: 4;
+  inset: 0 0 72px;
+  min-height: 0;
+  pointer-events: none;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .temple-scene.shrine-character-layer::before,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .temple-scene.shrine-character-layer::after {
+  display: none;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .shrine-foreground {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  display: block;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      transparent 74%,
+      rgba(24, 6, 7, 0.12) 80%,
+      rgba(22, 5, 6, 0.7) 94%,
+      rgba(19, 4, 5, 0.96) 100%
+    );
+}
+
+/*
+ * 保留现有诉说、抽签、解签按钮及全部状态逻辑。
+ */
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .ritual-stage.waiting-to-speak {
+  position: absolute;
+  z-index: 14;
+  right: 20px;
+  bottom: 70px;
+  left: 20px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .speak-control-button,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .draw-fortune-preview-button,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .fortune-retry-button,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .fortune-interpret-button,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .fortune-interpretation-retry-button,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .fortune-interpretation-audio-button {
+  border-color: rgba(239, 197, 112, 0.94);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(128, 47, 42, 0.98),
+      rgba(67, 20, 22, 0.98)
+    );
+  box-shadow:
+    0 9px 22px rgba(18, 4, 5, 0.46),
+    inset 0 1px 0 rgba(255, 237, 194, 0.16);
+}
+
+/* ========== INTEGRATED FORTUNE SCENES V3 END ========== */
