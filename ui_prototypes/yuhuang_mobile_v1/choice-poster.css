@@ -1,0 +1,96 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #230b0f;
+}
+
+body {
+  display: block;
+}
+
+/*
+ * 整页就是一张海报。
+ * 不再加圆角、阴影、外框、手机模拟壳。
+ */
+.choice-page {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #230b0f;
+}
+
+.choice-poster-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+/*
+ * 852×1846 是原图尺寸。
+ * 用原图比例等比缩放，尽量铺满一屏。
+ */
+.choice-poster-frame {
+  position: relative;
+  width: min(100vw, calc(100dvh * 852 / 1846));
+  height: min(100dvh, calc(100vw * 1846 / 852));
+  aspect-ratio: 852 / 1846;
+  overflow: hidden;
+  background: #230b0f;
+}
+
+.choice-poster-image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/*
+ * 整张卡片都能点。
+ * 坐标按 852×1846 原图比例换算。
+ */
+.choice-link {
+  position: absolute;
+  z-index: 5;
+  display: block;
+  background: transparent;
+  border-radius: 5%;
+  -webkit-tap-highlight-color: rgba(255, 231, 176, 0.20);
+  touch-action: manipulation;
+}
+
+.choice-link-call {
+  top: 40.60%;
+  left: 4.20%;
+  width: 91.60%;
+  height: 23.20%;
+}
+
+.choice-link-fortune {
+  top: 64.45%;
+  left: 4.20%;
+  width: 91.60%;
+  height: 23.40%;
+}
+
+.choice-link:focus-visible {
+  outline: 4px solid #fff1b6;
+  outline-offset: -6px;
+}
+
+.choice-link:active {
+  background: rgba(255, 238, 200, 0.08);
+}
