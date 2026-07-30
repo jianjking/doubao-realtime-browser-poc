@@ -8,7 +8,7 @@
   const REDUCED_DRAW_DURATION_MS = 120;
   const FORTUNE_SESSION_API_URL = '/api/fortune-sessions';
   const FORTUNE_DEITY_KEY = 'yuhuang';
-  const DEFAULT_FORTUNE_CHARACTER_KEY = 'yuhuang';
+  const DEFAULT_FORTUNE_CHARACTER_KEY = 'guanyin';
   const FORTUNE_CHARACTER_KEYS = new Set([
     'yuhuang',
     'sunwukong',
@@ -27,6 +27,15 @@
     rulai:
       './assets/fortune/scenes/fortune-scene-rulai-v1.png',
   });
+
+  const INTEGRATED_FORTUNE_CHARACTER_ORDER = Object.freeze([
+    'guanyin',
+    'caishen',
+    'rulai',
+  ]);
+
+  const FORTUNE_SCENE_SWIPE_MIN_DISTANCE_PX = 56;
+  const FORTUNE_SCENE_SWIPE_AXIS_RATIO = 1.15;
 
   const INTERACTION_STATES = Object.freeze({
     READY_TO_SPEAK: 'ready-to-speak',
@@ -205,6 +214,9 @@
   let interpretationAudioRequestController = null;
   let interpretationAudioRequestGeneration = 0;
   let interpretationAudioAutoPlayAttemptCount = 0;
+  let fortuneSceneSwipePointerId = null;
+  let fortuneSceneSwipeStartX = 0;
+  let fortuneSceneSwipeStartY = 0;
 
   function resolveRequestedCharacterKey() {
     const searchParams = new URLSearchParams(window.location.search);
@@ -279,7 +291,181 @@
     );
   }
 
+  function preloadIntegratedFortuneScenes() {
+    Object.values(
+      INTEGRATED_FORTUNE_SCENE_SOURCES
+    ).forEach((sceneSource) => {
+      const sceneImage = new Image();
+
+      sceneImage.decoding = 'async';
+      sceneImage.src = sceneSource;
+    });
+  }
+
   renderFortuneCharacter();
+  preloadIntegratedFortuneScenes();
+
+  function resetFortuneSceneSwipe() {
+    fortuneSceneSwipePointerId = null;
+    fortuneSceneSwipeStartX = 0;
+    fortuneSceneSwipeStartY = 0;
+  }
+
+  function isInteractiveFortuneTarget(target) {
+    return Boolean(
+      target
+      && typeof target.closest === 'function'
+      && target.closest(
+        'button, a, input, textarea, select, audio'
+      )
+    );
+  }
+
+  function switchIntegratedFortuneCharacter(step) {
+    if (
+      interactionState !== INTERACTION_STATES.READY_TO_SPEAK
+      || page.dataset.fortuneSceneMode !== 'integrated'
+    ) {
+      return false;
+    }
+
+    const currentCharacterKey = resolveRequestedCharacterKey();
+    const currentIndex =
+      INTEGRATED_FORTUNE_CHARACTER_ORDER.indexOf(
+        currentCharacterKey
+      );
+
+    const safeCurrentIndex = currentIndex >= 0
+      ? currentIndex
+      : 0;
+
+    const nextIndex = (
+      safeCurrentIndex
+      + step
+      + INTEGRATED_FORTUNE_CHARACTER_ORDER.length
+    ) % INTEGRATED_FORTUNE_CHARACTER_ORDER.length;
+
+    const nextCharacterKey =
+      INTEGRATED_FORTUNE_CHARACTER_ORDER[nextIndex];
+
+    const nextUrl = new URL(window.location.href);
+
+    nextUrl.searchParams.set(
+      'characterKey',
+      nextCharacterKey
+    );
+
+    /*
+     * 只修改当前地址栏中的 characterKey，
+     * 不重新加载 fortune.html。
+     *
+     * 因此不会先显示 HTML 中原来的玉皇大帝场景，
+     * 也不会丢失当前页面已经建立的前端状态。
+     */
+    window.history.replaceState(
+      null,
+      '',
+      nextUrl.href
+    );
+
+    renderFortuneCharacter();
+    return true;
+  }
+
+  function handleFortuneSceneSwipePointerDown(event) {
+    if (
+      page.dataset.fortuneSceneMode !== 'integrated'
+      || interactionState !== INTERACTION_STATES.READY_TO_SPEAK
+      || fortuneSceneSwipePointerId !== null
+      || (event && event.isPrimary === false)
+      || (
+        event
+        && Number.isFinite(event.button)
+        && event.button !== 0
+      )
+      || isInteractiveFortuneTarget(event && event.target)
+      || !Number.isFinite(event && event.clientX)
+      || !Number.isFinite(event && event.clientY)
+    ) {
+      return;
+    }
+
+    fortuneSceneSwipePointerId = event.pointerId;
+    fortuneSceneSwipeStartX = event.clientX;
+    fortuneSceneSwipeStartY = event.clientY;
+
+    if (typeof page.setPointerCapture === 'function') {
+      try {
+        page.setPointerCapture(event.pointerId);
+      } catch (error) {
+        resetFortuneSceneSwipe();
+      }
+    }
+  }
+
+  function handleFortuneSceneSwipePointerEnd(event) {
+    if (
+      fortuneSceneSwipePointerId === null
+      || !event
+      || event.pointerId !== fortuneSceneSwipePointerId
+    ) {
+      return;
+    }
+
+    const pointerId = fortuneSceneSwipePointerId;
+    const distanceX =
+      event.clientX - fortuneSceneSwipeStartX;
+    const distanceY =
+      event.clientY - fortuneSceneSwipeStartY;
+
+    const horizontalDistance = Math.abs(distanceX);
+    const verticalDistance = Math.abs(distanceY);
+
+    resetFortuneSceneSwipe();
+
+    if (typeof page.releasePointerCapture === 'function') {
+      try {
+        page.releasePointerCapture(pointerId);
+      } catch (error) {
+        // 浏览器可能已经自动释放 Pointer Capture。
+      }
+    }
+
+    if (
+      horizontalDistance
+        < FORTUNE_SCENE_SWIPE_MIN_DISTANCE_PX
+      || horizontalDistance
+        <= verticalDistance * FORTUNE_SCENE_SWIPE_AXIS_RATIO
+    ) {
+      return;
+    }
+
+    if (typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+
+    /*
+     * 左滑进入下一个神仙；
+     * 右滑返回上一个神仙。
+     */
+    switchIntegratedFortuneCharacter(
+      distanceX < 0 ? 1 : -1
+    );
+  }
+
+  function handleFortuneSceneSwipePointerCancel(event) {
+    if (
+      fortuneSceneSwipePointerId === null
+      || (
+        event
+        && event.pointerId !== fortuneSceneSwipePointerId
+      )
+    ) {
+      return;
+    }
+
+    resetFortuneSceneSwipe();
+  }
 
   function prefersReducedMotion() {
     return typeof window.matchMedia === 'function'
@@ -1698,6 +1884,23 @@
       renderSpeechState();
     }
   }
+
+  page.addEventListener(
+    'pointerdown',
+    handleFortuneSceneSwipePointerDown
+  );
+  page.addEventListener(
+    'pointerup',
+    handleFortuneSceneSwipePointerEnd
+  );
+  page.addEventListener(
+    'pointercancel',
+    handleFortuneSceneSwipePointerCancel
+  );
+  page.addEventListener(
+    'lostpointercapture',
+    handleFortuneSceneSwipePointerCancel
+  );
 
   speakControlButton.addEventListener(
     'pointerdown',
