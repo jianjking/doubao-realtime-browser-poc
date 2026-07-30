@@ -2089,6 +2089,10 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
+    /data-wish-offering-stage aria-hidden="true" hidden[\s\S]*?data-wish-furnace[\s\S]*?data-wish-furnace-mouth[\s\S]*?data-flying-wish-paper[\s\S]*?data-flying-wish-paper-text/
+  );
+  assert.match(
+    fortuneHtml,
     /<button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>诚心求一签<\/button>/
   );
   assert.match(
@@ -2143,6 +2147,10 @@ function verifyFeatureChoiceAndFortuneEntry() {
   assert.match(
     entryCss,
     /\.fortune-interpretation-audio-button\s*\{[\s\S]*?min-height:\s*54px;/
+  );
+  assert.match(
+    entryCss,
+    /\.wish-offering-stage\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?pointer-events:\s*none;/
   );
 }
 

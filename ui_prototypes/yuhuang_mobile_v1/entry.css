@@ -876,24 +876,432 @@ a {
   opacity: 0.64;
 }
 
-.is-wish-offering .wish-paper {
-  animation: wish-paper-offering 3s cubic-bezier(0.42, 0, 0.3, 1) forwards;
+.wish-offering-stage[hidden] {
+  display: none;
 }
 
-.is-wish-offering .wish-paper::after {
-  animation: wish-paper-edge-glow 2.2s ease-in-out forwards;
+.wish-offering-stage {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.is-wish-offering .incense-smoke {
-  opacity: 0.94;
-  filter: blur(2.2px);
-  animation-duration: 2.8s;
+.wish-offering-stage::before {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      circle at 50% 74%,
+      rgba(129, 45, 28, 0.26),
+      transparent 33%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(26, 8, 12, 0.08),
+      rgba(24, 7, 10, 0.38)
+    );
+  content: "";
+  opacity: 0;
 }
 
-.is-wish-offering .incense-ember {
+.wish-offering-stage-caption {
+  position: absolute;
+  z-index: 8;
+  top: max(26px, calc(env(safe-area-inset-top, 0px) + 18px));
+  left: 50%;
+  width: min(84vw, 340px);
+  margin: 0;
+  color: #fff2ce;
+  filter: drop-shadow(0 2px 6px rgba(31, 7, 10, 0.72));
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1.45;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+.wish-offering-stage-caption span {
+  position: absolute;
+  inset: 0;
+  display: block;
+  opacity: 0;
+}
+
+.wish-furnace {
+  position: absolute;
+  z-index: 4;
+  bottom: clamp(62px, 8.5vh, 94px);
+  left: 50%;
+  width: clamp(188px, 54vw, 238px);
+  height: clamp(218px, 27vh, 258px);
+  filter: drop-shadow(0 18px 18px rgba(19, 4, 6, 0.46));
+  opacity: 0;
+  transform: translate3d(-50%, 0, 0) scale(1);
+  transform-origin: 50% 100%;
+}
+
+.wish-furnace-lid {
+  position: absolute;
+  z-index: 6;
+  top: 25px;
+  left: 50%;
+  width: 58%;
+  height: 34px;
+  border: 3px solid #c9934e;
+  border-radius: 50% 50% 32% 32%;
+  background:
+    linear-gradient(180deg, #a34d35, #64231f 68%, #3e1718);
   box-shadow:
-    0 0 0 3px rgba(143, 49, 30, 0.82),
-    0 0 22px 10px rgba(255, 174, 76, 0.64);
+    inset 0 4px 7px rgba(255, 206, 115, 0.28),
+    0 5px 8px rgba(28, 5, 8, 0.34);
+  transform: translateX(-50%);
+}
+
+.wish-furnace-lid-knob {
+  position: absolute;
+  bottom: calc(100% - 4px);
+  left: 50%;
+  width: 30px;
+  height: 24px;
+  border: 3px solid #d3a45d;
+  border-bottom: 0;
+  border-radius: 18px 18px 5px 5px;
+  background: linear-gradient(90deg, #5b201e, #a95034, #5b201e);
+  transform: translateX(-50%);
+}
+
+.wish-furnace-neck {
+  position: absolute;
+  z-index: 7;
+  top: 54px;
+  left: 50%;
+  width: 52%;
+  height: 58px;
+  border: 3px solid #bd8241;
+  border-radius: 16px 16px 36% 36%;
+  background: linear-gradient(90deg, #401619, #8f372b 50%, #401619);
+  box-shadow: inset 0 0 15px rgba(27, 5, 8, 0.56);
+  transform: translateX(-50%);
+}
+
+.wish-furnace-mouth {
+  position: absolute;
+  z-index: 9;
+  top: 10px;
+  left: 50%;
+  width: 78%;
+  height: 31px;
+  overflow: hidden;
+  border: 3px solid #daa25a;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 50% 72%, #ff7a31 0 8%, #8a241c 32%, #21070a 70%);
+  box-shadow:
+    inset 0 5px 13px rgba(10, 1, 3, 0.92),
+    0 0 9px rgba(241, 137, 54, 0.34);
+  transform: translateX(-50%);
+}
+
+.wish-furnace-fire {
+  position: absolute;
+  right: 14%;
+  bottom: -10px;
+  left: 14%;
+  height: 26px;
+  border-radius: 50% 50% 42% 42%;
+  background:
+    radial-gradient(ellipse at 50% 100%, #fff3a1 0 8%, #ff9a35 28%, #d23f24 52%, transparent 73%);
+  filter: blur(1px);
+  opacity: 0.36;
+  transform: scale(0.72);
+}
+
+.wish-furnace-body {
+  position: absolute;
+  z-index: 4;
+  bottom: 30px;
+  left: 50%;
+  width: 76%;
+  height: 56%;
+  border: 4px solid #bd8241;
+  border-radius: 35% 35% 26% 26% / 25% 25% 38% 38%;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(209, 81, 40, 0.48), transparent 28%),
+    linear-gradient(90deg, #421619, #8d342a 28%, #a44530 50%, #792a25 72%, #351217);
+  box-shadow:
+    inset 15px 0 18px rgba(29, 5, 8, 0.38),
+    inset -15px 0 18px rgba(29, 5, 8, 0.38),
+    inset 0 -14px 20px rgba(27, 5, 8, 0.46),
+    0 8px 14px rgba(25, 4, 7, 0.38);
+  transform: translateX(-50%);
+}
+
+.wish-furnace-inner-glow {
+  position: absolute;
+  inset: 17% 16% 14%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 129, 45, 0.72), transparent 66%);
+  filter: blur(7px);
+  opacity: 0.2;
+}
+
+.wish-furnace-plaque {
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  padding: 3px 10px 4px;
+  border: 2px solid #d5a45c;
+  border-radius: 5px;
+  color: #f5d58e;
+  background: rgba(71, 21, 20, 0.82);
+  box-shadow: inset 0 0 6px rgba(245, 202, 113, 0.2);
+  font-size: clamp(15px, 4vw, 18px);
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.wish-furnace-handle {
+  position: absolute;
+  z-index: 2;
+  top: 42%;
+  width: 26%;
+  height: 30%;
+  border: 7px solid #b97c3e;
+  border-radius: 50%;
+  background: rgba(75, 22, 22, 0.72);
+  box-shadow:
+    inset 0 0 0 4px #4b181a,
+    0 5px 9px rgba(29, 5, 8, 0.36);
+}
+
+.wish-furnace-handle-left {
+  left: 1%;
+  transform: rotate(-12deg);
+}
+
+.wish-furnace-handle-right {
+  right: 1%;
+  transform: rotate(12deg);
+}
+
+.wish-furnace-leg {
+  position: absolute;
+  z-index: 3;
+  bottom: 5px;
+  width: 22%;
+  height: 54px;
+  border: 3px solid #ad713a;
+  border-radius: 10px 10px 48% 48%;
+  background: linear-gradient(90deg, #3b1417, #7e2d27, #3b1417);
+  transform-origin: 50% 0;
+}
+
+.wish-furnace-leg-left {
+  left: 23%;
+  transform: rotate(13deg);
+}
+
+.wish-furnace-leg-center {
+  left: 50%;
+  height: 50px;
+  transform: translateX(-50%);
+}
+
+.wish-furnace-leg-right {
+  right: 23%;
+  transform: rotate(-13deg);
+}
+
+.wish-furnace-smoke {
+  position: absolute;
+  z-index: 3;
+  top: -36px;
+  left: 50%;
+  width: 92px;
+  height: 94px;
+  opacity: 0;
+  transform: translateX(-50%);
+}
+
+.wish-furnace-smoke span {
+  position: absolute;
+  bottom: 0;
+  width: 34px;
+  height: 82px;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse, rgba(240, 222, 187, 0.72), rgba(170, 151, 137, 0.28) 52%, transparent 72%);
+  filter: blur(5px);
+}
+
+.wish-furnace-smoke-one {
+  left: 13px;
+}
+
+.wish-furnace-smoke-two {
+  right: 11px;
+}
+
+.wish-furnace-spark {
+  position: absolute;
+  z-index: 10;
+  top: 66px;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffd176;
+  box-shadow: 0 0 7px 3px rgba(255, 113, 42, 0.72);
+  opacity: 0;
+}
+
+.wish-furnace-spark-one {
+  margin-left: -27px;
+}
+
+.wish-furnace-spark-two {
+  margin-left: 5px;
+}
+
+.wish-furnace-spark-three {
+  margin-left: 30px;
+}
+
+.flying-wish-paper {
+  position: fixed;
+  z-index: 7;
+  top: var(--wish-paper-start-y, 34vh);
+  left: var(--wish-paper-start-x, 20px);
+  display: grid;
+  width: var(--wish-paper-width, calc(100vw - 40px));
+  height: var(--wish-paper-height, 160px);
+  max-width: calc(100vw - 24px);
+  max-height: 178px;
+  place-content: center;
+  padding: 15px 18px;
+  overflow: hidden;
+  border: 1px solid rgba(137, 91, 51, 0.62);
+  border-radius: 10px 18px 12px 17px;
+  color: #4e2522;
+  background:
+    linear-gradient(90deg, rgba(126, 76, 37, 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(126, 76, 37, 0.045) 1px, transparent 1px),
+    #f6ecd1;
+  background-size: 23px 23px;
+  box-shadow:
+    inset 0 0 20px rgba(113, 72, 36, 0.14),
+    0 11px 24px rgba(30, 7, 9, 0.28);
+  opacity: 0;
+  text-align: left;
+  transform-origin: 50% 42%;
+}
+
+.flying-wish-paper::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 84%, rgba(255, 182, 68, 0.92), transparent 34%),
+    linear-gradient(180deg, transparent 40%, rgba(86, 25, 20, 0.82));
+  content: "";
+  opacity: 0;
+}
+
+.flying-wish-paper-seal {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border: 2px solid rgba(132, 42, 37, 0.72);
+  color: #782c2c;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 26px;
+  text-align: center;
+}
+
+.flying-wish-paper-text {
+  display: -webkit-box;
+  max-height: 6.4em;
+  overflow: hidden;
+  font-size: clamp(15px, 4.2vw, 19px);
+  font-weight: 700;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.is-wish-offering .wish-paper {
+  visibility: hidden;
+}
+
+.wish-offering-stage.is-active {
+  animation: wish-offering-stage-sequence 3.1s linear forwards;
+}
+
+.wish-offering-stage.is-active::before {
+  animation: wish-offering-backdrop 3.1s ease-in-out forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace {
+  animation: wish-furnace-sequence 3.1s ease-in-out forwards;
+}
+
+.wish-offering-stage.is-active .flying-wish-paper {
+  animation: wish-paper-flight 2.45s cubic-bezier(0.42, 0, 0.24, 1) 0.32s forwards;
+}
+
+.wish-offering-stage.is-active .flying-wish-paper::after {
+  animation: wish-paper-burn 0.74s ease-in 2.02s forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace-fire {
+  animation: wish-furnace-fire-flare 1.28s ease-in-out 1.72s forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace-inner-glow {
+  animation: wish-furnace-inner-flare 1.24s ease-in-out 1.76s forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace-smoke {
+  animation: wish-furnace-smoke-show 1.32s ease-out 1.72s forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace-smoke-one {
+  animation: wish-furnace-smoke-rise-left 1.28s ease-out 1.72s forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace-smoke-two {
+  animation: wish-furnace-smoke-rise-right 1.34s ease-out 1.78s forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace-spark {
+  animation: wish-furnace-spark-rise 0.92s ease-out 1.78s forwards;
+}
+
+.wish-offering-stage.is-active .wish-furnace-spark-two {
+  animation-delay: 1.9s;
+}
+
+.wish-offering-stage.is-active .wish-furnace-spark-three {
+  animation-delay: 2.04s;
+}
+
+.wish-offering-stage.is-active .wish-offering-stage-caption span:first-child {
+  animation: wish-caption-flight 1.65s ease-in-out 0.12s forwards;
+}
+
+.wish-offering-stage.is-active .wish-offering-stage-caption span:last-child {
+  animation: wish-caption-burn 1.24s ease-in-out 1.66s forwards;
 }
 
 .wish-offering-complete {
@@ -1172,55 +1580,283 @@ a {
   }
 }
 
-@keyframes wish-paper-offering {
+@keyframes wish-offering-stage-sequence {
   0% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0;
   }
 
-  44% {
+  8%,
+  88% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes wish-offering-backdrop {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  12%,
+  84% {
+    opacity: 1;
+  }
+}
+
+@keyframes wish-furnace-sequence {
+  0% {
+    opacity: 0;
+    transform: translate3d(-50%, 38px, 0) scale(0.84);
+  }
+
+  13%,
+  86% {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(-50%, 18px, 0) scale(0.96);
+  }
+}
+
+@keyframes wish-paper-flight {
+  0% {
+    opacity: 0;
+    filter: none;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+
+  4% {
+    opacity: 1;
+  }
+
+  18% {
+    opacity: 1;
+    transform:
+      translate3d(var(--wish-lift-x), var(--wish-lift-y), 0)
+      rotate(-2deg)
+      scale(0.94);
+  }
+
+  56% {
+    opacity: 1;
+    transform:
+      translate3d(var(--wish-approach-x), var(--wish-approach-y), 0)
+      rotate(3deg)
+      scale(0.52);
+  }
+
+  68% {
+    opacity: 1;
+    filter: none;
+    transform:
+      translate3d(var(--wish-flight-x), var(--wish-flight-y), 0)
+      rotate(-5deg)
+      scale(0.34);
+  }
+
+  82% {
+    opacity: 0.84;
+    filter: sepia(0.72) brightness(0.74);
+    transform:
+      translate3d(var(--wish-flight-x), var(--wish-enter-y), 0)
+      rotate(8deg)
+      scale(0.2, 0.28);
+  }
+
+  100% {
+    opacity: 0;
+    filter: sepia(1) brightness(0.42);
+    transform:
+      translate3d(var(--wish-flight-x), var(--wish-enter-y), 0)
+      rotate(12deg)
+      scale(0.06, 0.12);
+  }
+}
+
+@keyframes wish-paper-burn {
+  0%,
+  18% {
+    opacity: 0;
+  }
+
+  52% {
     opacity: 0.92;
-    transform: translate3d(0, -58px, 0) scale(0.84);
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes wish-furnace-fire-flare {
+  0% {
+    opacity: 0.36;
+    transform: scale(0.72);
+  }
+
+  42% {
+    opacity: 1;
+    transform: scale(1.24, 1.52);
   }
 
   72% {
-    opacity: 0.62;
-    transform: translate3d(0, -118px, 0) scale(0.66);
+    opacity: 0.86;
+    transform: scale(1.08, 1.28);
+  }
+
+  100% {
+    opacity: 0.42;
+    transform: scale(0.8);
+  }
+}
+
+@keyframes wish-furnace-inner-flare {
+  0% {
+    opacity: 0.2;
+    transform: scale(0.82);
+  }
+
+  48% {
+    opacity: 0.92;
+    transform: scale(1.18);
+  }
+
+  100% {
+    opacity: 0.28;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes wish-furnace-smoke-show {
+  0% {
+    opacity: 0;
+  }
+
+  24%,
+  72% {
+    opacity: 0.88;
   }
 
   100% {
     opacity: 0;
-    transform: translate3d(0, -172px, 0) scale(0.46);
   }
 }
 
-@keyframes wish-paper-edge-glow {
-  0%,
-  20% {
+@keyframes wish-furnace-smoke-rise-left {
+  0% {
     opacity: 0;
-    transform: scaleX(0.72);
+    transform: translate3d(0, 18px, 0) scale(0.68);
   }
 
-  58% {
+  38% {
+    opacity: 0.78;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(-15px, -48px, 0) scale(1.18);
+  }
+}
+
+@keyframes wish-furnace-smoke-rise-right {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 20px, 0) scale(0.62);
+  }
+
+  34% {
+    opacity: 0.72;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(16px, -56px, 0) scale(1.24);
+  }
+}
+
+@keyframes wish-furnace-spark-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0) scale(0.6);
+  }
+
+  24% {
     opacity: 0.9;
-    transform: scaleX(1);
   }
 
   100% {
     opacity: 0;
-    transform: scaleX(0.52);
+    transform: translate3d(-8px, -64px, 0) scale(0.2);
   }
 }
 
-@keyframes wish-paper-offering-reduced {
-  from {
-    opacity: 1;
-    transform: scale(1);
+@keyframes wish-caption-flight {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(5px);
   }
 
-  to {
+  18%,
+  74% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wish-caption-burn {
+  0%,
+  100% {
     opacity: 0;
-    transform: scale(0.98);
+    transform: translateY(5px);
+  }
+
+  22%,
+  76% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wish-offering-stage-sequence-reduced {
+  0% {
+    opacity: 0;
+  }
+
+  14%,
+  82% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes wish-paper-flight-reduced {
+  0% {
+    opacity: 1;
+    transform: translate3d(
+      var(--wish-approach-x),
+      var(--wish-approach-y),
+      0
+    ) scale(0.42);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(
+      var(--wish-flight-x),
+      var(--wish-enter-y),
+      0
+    ) scale(0.16);
   }
 }
 
@@ -1286,12 +1922,39 @@ a {
     animation: none !important;
   }
 
-  .is-wish-offering .wish-paper {
-    animation-name: wish-paper-offering-reduced;
+  .wish-offering-stage.is-active {
+    animation-name: wish-offering-stage-sequence-reduced;
+    animation-duration: 140ms !important;
   }
 
-  .is-wish-offering .wish-paper::after {
+  .wish-offering-stage.is-active::before {
     animation: none !important;
-    opacity: 0.2;
+    opacity: 0.46;
+  }
+
+  .wish-offering-stage.is-active .wish-furnace {
+    animation: wish-furnace-sequence 140ms ease-out forwards !important;
+  }
+
+  .wish-offering-stage.is-active .flying-wish-paper {
+    animation:
+      wish-paper-flight-reduced 105ms ease-in 18ms forwards !important;
+  }
+
+  .wish-offering-stage.is-active .wish-furnace-fire,
+  .wish-offering-stage.is-active .wish-furnace-inner-glow {
+    animation-duration: 92ms !important;
+    animation-delay: 28ms !important;
+  }
+
+  .wish-offering-stage.is-active .wish-furnace-smoke,
+  .wish-offering-stage.is-active .wish-furnace-smoke span,
+  .wish-offering-stage.is-active .wish-furnace-spark {
+    animation: none !important;
+    opacity: 0.34;
+  }
+
+  .wish-offering-stage.is-active .wish-offering-stage-caption {
+    display: none;
   }
 }

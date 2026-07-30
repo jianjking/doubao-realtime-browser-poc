@@ -3,7 +3,7 @@
 (() => {
   const OFFERING_DURATION_MS = 1800;
   const WISH_OFFERING_FALLBACK_MS = 3400;
-  const REDUCED_WISH_OFFERING_FALLBACK_MS = 60;
+  const REDUCED_WISH_OFFERING_FALLBACK_MS = 180;
   const FORTUNE_SESSION_API_URL = '/api/fortune-sessions';
   const FORTUNE_DEITY_KEY = 'yuhuang';
   const INTERACTION_STATES = Object.freeze({
@@ -58,6 +58,18 @@
     '[data-transcript-text]'
   );
   const wishPaper = document.querySelector('[data-wish-paper]');
+  const wishOfferingStage = document.querySelector(
+    '[data-wish-offering-stage]'
+  );
+  const wishFurnaceMouth = document.querySelector(
+    '[data-wish-furnace-mouth]'
+  );
+  const flyingWishPaper = document.querySelector(
+    '[data-flying-wish-paper]'
+  );
+  const flyingWishPaperText = document.querySelector(
+    '[data-flying-wish-paper-text]'
+  );
   const wishOfferingComplete = document.querySelector(
     '[data-wish-offering-complete]'
   );
@@ -111,6 +123,10 @@
     || !transcriptStatus
     || !transcriptText
     || !wishPaper
+    || !wishOfferingStage
+    || !wishFurnaceMouth
+    || !flyingWishPaper
+    || !flyingWishPaperText
     || !wishOfferingComplete
     || !drawFortuneButton
     || !fortuneError
@@ -169,13 +185,101 @@
       wishOfferingTimer = null;
     }
     if (wishOfferingAnimationHandler !== null) {
-      wishPaper.removeEventListener(
+      wishOfferingStage.removeEventListener(
         'animationend',
         wishOfferingAnimationHandler
       );
       wishOfferingAnimationHandler = null;
     }
+    wishOfferingStage.classList.remove('is-active');
+    wishOfferingStage.hidden = true;
+    flyingWishPaperText.textContent = '';
+    for (const propertyName of [
+      '--wish-paper-start-x',
+      '--wish-paper-start-y',
+      '--wish-paper-width',
+      '--wish-paper-height',
+      '--wish-lift-x',
+      '--wish-lift-y',
+      '--wish-approach-x',
+      '--wish-approach-y',
+      '--wish-flight-x',
+      '--wish-flight-y',
+      '--wish-enter-y',
+    ]) {
+      flyingWishPaper.style.removeProperty(propertyName);
+    }
     page.classList.remove('is-wish-offering');
+  }
+
+  function formatPixelValue(value) {
+    return `${Math.round(value * 100) / 100}px`;
+  }
+
+  function prepareWishOfferingVisual() {
+    wishOfferingStage.classList.remove('is-active');
+    wishOfferingStage.hidden = false;
+    flyingWishPaperText.textContent = currentTranscript;
+
+    const sourceRect = wishPaper.getBoundingClientRect();
+    const mouthRect = wishFurnaceMouth.getBoundingClientRect();
+    const viewportWidth = Number.isFinite(window.innerWidth)
+      ? window.innerWidth
+      : 430;
+    const viewportHeight = Number.isFinite(window.innerHeight)
+      ? window.innerHeight
+      : 932;
+    const sourceWidth = sourceRect.width > 0
+      ? sourceRect.width
+      : Math.max(160, viewportWidth - 40);
+    const sourceHeight = sourceRect.height > 0
+      ? sourceRect.height
+      : 180;
+    const paperWidth = Math.min(sourceWidth, 360);
+    const paperHeight = Math.min(Math.max(sourceHeight, 120), 178);
+    const sourceLeft = Number.isFinite(sourceRect.left)
+      ? sourceRect.left
+      : (viewportWidth - sourceWidth) / 2;
+    const sourceTop = Number.isFinite(sourceRect.top)
+      ? sourceRect.top
+      : viewportHeight * 0.34;
+    const mouthLeft = Number.isFinite(mouthRect.left)
+      ? mouthRect.left
+      : viewportWidth / 2 - 42;
+    const mouthTop = Number.isFinite(mouthRect.top)
+      ? mouthRect.top
+      : viewportHeight * 0.68;
+    const mouthWidth = mouthRect.width > 0 ? mouthRect.width : 84;
+    const mouthHeight = mouthRect.height > 0 ? mouthRect.height : 30;
+    const startX = sourceLeft + (sourceWidth - paperWidth) / 2;
+    const startY = sourceTop;
+    const startCenterX = startX + paperWidth / 2;
+    const startCenterY = startY + paperHeight * 0.42;
+    const mouthCenterX = mouthLeft + mouthWidth / 2;
+    const mouthCenterY = mouthTop + mouthHeight * 0.45;
+    const flightX = mouthCenterX - startCenterX;
+    const flightY = mouthCenterY - startCenterY;
+    const liftHeight = Math.min(52, Math.max(28, paperHeight * 0.22));
+
+    const variables = {
+      '--wish-paper-start-x': startX,
+      '--wish-paper-start-y': startY,
+      '--wish-paper-width': paperWidth,
+      '--wish-paper-height': paperHeight,
+      '--wish-lift-x': flightX * 0.14,
+      '--wish-lift-y': -liftHeight,
+      '--wish-approach-x': flightX * 0.82,
+      '--wish-approach-y': flightY - Math.max(24, mouthHeight * 0.8),
+      '--wish-flight-x': flightX,
+      '--wish-flight-y': flightY,
+      '--wish-enter-y': flightY + Math.max(24, mouthHeight * 0.65),
+    };
+    for (const [propertyName, value] of Object.entries(variables)) {
+      flyingWishPaper.style.setProperty(
+        propertyName,
+        formatPixelValue(value)
+      );
+    }
   }
 
   function renderInterpretationAudioState() {
@@ -348,8 +452,10 @@
     if (interactionState === INTERACTION_STATES.WISH_OFFERING) {
       page.classList.add('is-wish-offering');
       speechTitle.textContent = '心愿已记下';
-      speechMessage.textContent = '心愿已记下，正在敬呈……';
-      speechDetail.textContent = '请稍候，心愿纸正在殿前化作轻烟。';
+      speechMessage.textContent =
+        '心愿已记下，正在投入焚愿炉……';
+      speechDetail.textContent =
+        '心愿纸进入炉口后，将焚化为轻烟敬呈。';
       speakControlButton.textContent = '正在呈愿';
       speakControlButton.disabled = true;
       speakControlButton.hidden = true;
@@ -1005,23 +1111,23 @@
     transcriptText.textContent = currentTranscript;
     wishOfferingGeneration = generation;
     interactionState = INTERACTION_STATES.WISH_OFFERING;
+    prepareWishOfferingVisual();
     renderSpeechState();
+    wishOfferingStage.classList.add('is-active');
     const animationHandler = (event) => {
-      if (event && event.target !== wishPaper) {
+      if (!event || event.target !== wishOfferingStage) {
         return;
       }
       if (
-        event
-        && event.animationName
-        && event.animationName !== 'wish-paper-offering'
-        && event.animationName !== 'wish-paper-offering-reduced'
+        event.animationName !== 'wish-offering-stage-sequence'
+        && event.animationName !== 'wish-offering-stage-sequence-reduced'
       ) {
         return;
       }
       completeWishOffering(generation);
     };
     wishOfferingAnimationHandler = animationHandler;
-    wishPaper.addEventListener(
+    wishOfferingStage.addEventListener(
       'animationend',
       animationHandler
     );

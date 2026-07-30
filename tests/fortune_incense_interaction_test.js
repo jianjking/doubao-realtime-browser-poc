@@ -45,6 +45,26 @@ class FakeClassList {
   }
 }
 
+class FakeStyle {
+  constructor() {
+    this.properties = new Map();
+  }
+
+  getPropertyValue(name) {
+    return this.properties.get(name) || '';
+  }
+
+  removeProperty(name) {
+    const previousValue = this.getPropertyValue(name);
+    this.properties.delete(name);
+    return previousValue;
+  }
+
+  setProperty(name, value) {
+    this.properties.set(name, String(value));
+  }
+}
+
 class FakeElement {
   constructor(options = {}) {
     this.classList = new FakeClassList(options.classes);
@@ -55,7 +75,18 @@ class FakeElement {
       Object.entries(options.attributes || {})
     );
     this.focusCallCount = 0;
+    this.getBoundingClientRectCallCount = 0;
     this.listeners = new Map();
+    this.rect = {
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 0,
+      ...(options.rect || {}),
+    };
+    this.style = new FakeStyle();
   }
 
   addEventListener(eventName, handler) {
@@ -95,6 +126,11 @@ class FakeElement {
 
   focus() {
     this.focusCallCount += 1;
+  }
+
+  getBoundingClientRect() {
+    this.getBoundingClientRectCallCount += 1;
+    return { ...this.rect };
   }
 }
 
@@ -162,7 +198,30 @@ function loadFortuneRuntime(options = {}) {
   });
   const wishPaper = new FakeElement({
     attributes: { 'aria-busy': 'false' },
+    rect: {
+      bottom: 590,
+      height: 180,
+      left: 24,
+      right: 406,
+      top: 410,
+      width: 382,
+    },
   });
+  const wishOfferingStage = new FakeElement({
+    hidden: true,
+  });
+  const wishFurnaceMouth = new FakeElement({
+    rect: {
+      bottom: 699,
+      height: 34,
+      left: 173,
+      right: 257,
+      top: 665,
+      width: 84,
+    },
+  });
+  const flyingWishPaper = new FakeElement();
+  const flyingWishPaperText = new FakeElement();
   const wishOfferingComplete = new FakeElement({ hidden: true });
   const drawFortuneButton = new FakeElement({
     disabled: true,
@@ -210,6 +269,10 @@ function loadFortuneRuntime(options = {}) {
     ['[data-transcript-status]', transcriptStatus],
     ['[data-transcript-text]', transcriptText],
     ['[data-wish-paper]', wishPaper],
+    ['[data-wish-offering-stage]', wishOfferingStage],
+    ['[data-wish-furnace-mouth]', wishFurnaceMouth],
+    ['[data-flying-wish-paper]', flyingWishPaper],
+    ['[data-flying-wish-paper-text]', flyingWishPaperText],
     ['[data-wish-offering-complete]', wishOfferingComplete],
     ['[data-draw-fortune]', drawFortuneButton],
     ['[data-fortune-error]', fortuneError],
@@ -383,6 +446,8 @@ function loadFortuneRuntime(options = {}) {
         },
       },
     window: {
+      innerHeight: 932,
+      innerWidth: 430,
       addEventListener(eventName, handler) {
         if (!windowListeners.has(eventName)) {
           windowListeners.set(eventName, []);
@@ -463,6 +528,8 @@ function loadFortuneRuntime(options = {}) {
     fetchRequests,
     fortuneError,
     fortuneResult,
+    flyingWishPaper,
+    flyingWishPaperText,
     interpretFortuneButton,
     interpretationAudio,
     interpretationAudioControl,
@@ -494,7 +561,9 @@ function loadFortuneRuntime(options = {}) {
       }
     },
     waitingState,
+    wishFurnaceMouth,
     wishOfferingComplete,
+    wishOfferingStage,
     wishPaper,
     windowListeners,
     abortControllers,
@@ -636,6 +705,26 @@ function verifyStaticSceneAndSafety() {
     html,
     /data-transcript-text>您的话会写在这里。<\/p>/
   );
+  assert.match(
+    html,
+    /class="wish-offering-stage" data-wish-offering-stage aria-hidden="true" hidden/
+  );
+  assert.match(
+    html,
+    /class="wish-furnace" data-wish-furnace[\s\S]*?class="wish-furnace-mouth" data-wish-furnace-mouth[\s\S]*?class="wish-furnace-body"/
+  );
+  assert.match(
+    html,
+    /wish-furnace-handle-left[\s\S]*?wish-furnace-handle-right[\s\S]*?wish-furnace-leg-left[\s\S]*?wish-furnace-leg-center[\s\S]*?wish-furnace-leg-right/
+  );
+  assert.match(
+    html,
+    /class="wish-furnace-smoke"[\s\S]*?class="wish-furnace-fire"[\s\S]*?焚愿炉/
+  );
+  assert.match(
+    html,
+    /class="flying-wish-paper" data-flying-wish-paper[\s\S]*?data-flying-wish-paper-text/
+  );
   assert.doesNotMatch(
     html,
     /data-(?:transcript-actions|confirm-transcript|retry-transcript|wish-next-step|offer-wish)|就是这个意思|重新说一遍|奉入香炉/
@@ -721,11 +810,30 @@ function verifyStaticSceneAndSafety() {
     css,
     /\.fortune-interpretation-audio-button\s*\{[\s\S]*?min-height:\s*54px;/
   );
-  assert.match(css, /@keyframes wish-paper-offering\s*\{/);
-  assert.match(css, /@keyframes wish-paper-offering-reduced\s*\{/);
   assert.match(
     css,
-    /\.is-wish-offering \.incense-smoke\s*\{[\s\S]*?opacity:\s*0\.94;/
+    /\.wish-offering-stage\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?overflow:\s*hidden;[\s\S]*?pointer-events:\s*none;/
+  );
+  assert.match(
+    css,
+    /\.wish-furnace\s*\{[\s\S]*?bottom:\s*clamp\([\s\S]*?width:\s*clamp\([\s\S]*?height:\s*clamp\(/
+  );
+  assert.match(css, /@keyframes wish-offering-stage-sequence\s*\{/);
+  assert.match(css, /@keyframes wish-paper-flight\s*\{/);
+  assert.match(css, /@keyframes wish-furnace-fire-flare\s*\{/);
+  assert.match(css, /@keyframes wish-furnace-smoke-rise-left\s*\{/);
+  assert.match(css, /@keyframes wish-offering-stage-sequence-reduced\s*\{/);
+  assert.match(
+    js,
+    /wishPaper\.getBoundingClientRect\(\)[\s\S]*?wishFurnaceMouth\.getBoundingClientRect\(\)/
+  );
+  assert.match(
+    js,
+    /flyingWishPaperText\.textContent = currentTranscript;/
+  );
+  assert.match(
+    js,
+    /flyingWishPaper\.style\.setProperty\([\s\S]*?formatPixelValue\(value\)/
   );
 
   assert.doesNotMatch(
@@ -921,10 +1029,13 @@ async function verifyMicrophoneStartStopAndConcurrency() {
     [1, 1, 1]
   );
   assert.equal(runtime.speechTitle.textContent, '心愿已记下');
-  assert.equal(runtime.speechMessage.textContent, '心愿已记下，正在敬呈……');
+  assert.equal(
+    runtime.speechMessage.textContent,
+    '心愿已记下，正在投入焚愿炉……'
+  );
   assert.equal(
     runtime.speechDetail.textContent,
-    '请稍候，心愿纸正在殿前化作轻烟。'
+    '心愿纸进入炉口后，将焚化为轻烟敬呈。'
   );
   assert.equal(runtime.speakControlButton.hidden, true);
   assert.equal(runtime.transcriptStatus.textContent, '正在呈愿');
@@ -1498,13 +1609,19 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
   assert.equal(runtime.speechMessage.textContent, '正在整理您的话……');
   createdSessions[0].callbacks.onTranscriptReady();
   createdSessions[0].callbacks.onTranscriptReady();
-  assert.equal(runtime.speechMessage.textContent, '心愿已记下，正在敬呈……');
+  assert.equal(
+    runtime.speechMessage.textContent,
+    '心愿已记下，正在投入焚愿炉……'
+  );
 
   createdSessions[0].callbacks.onError({
     kind: 'asr',
     message: '语音识别暂时不可用，请重新诉说。',
   });
-  assert.equal(runtime.speechMessage.textContent, '心愿已记下，正在敬呈……');
+  assert.equal(
+    runtime.speechMessage.textContent,
+    '心愿已记下，正在投入焚愿炉……'
+  );
 
   const workletErrorRuntime = loadFortuneRuntime({
     createSession(callbacks) {
@@ -1672,7 +1789,7 @@ async function verifyWishPaperAutomaticAdoptionAndErrors() {
   assert.equal(runtime.speechTitle.textContent, '心愿已记下');
   assert.equal(
     runtime.speechMessage.textContent,
-    '心愿已记下，正在敬呈……'
+    '心愿已记下，正在投入焚愿炉……'
   );
   assert.equal(
     runtime.page.classList.contains('is-wish-offering'),
@@ -1685,8 +1802,23 @@ async function verifyWishPaperAutomaticAdoptionAndErrors() {
     1
   );
   assert.equal(
-    runtime.wishPaper.listeners.get('animationend').length,
+    runtime.wishOfferingStage.listeners.get('animationend').length,
     1
+  );
+  assert.equal(runtime.wishOfferingStage.hidden, false);
+  assert.equal(
+    runtime.wishOfferingStage.classList.contains('is-active'),
+    true
+  );
+  assert.equal(
+    runtime.flyingWishPaperText.textContent,
+    '希望家人平安，自己也能安心一些。'
+  );
+  assert.equal(runtime.wishPaper.getBoundingClientRectCallCount, 1);
+  assert.equal(runtime.wishFurnaceMouth.getBoundingClientRectCallCount, 1);
+  assert.notEqual(
+    runtime.flyingWishPaper.style.getPropertyValue('--wish-flight-y'),
+    ''
   );
 
   sessions[0].callbacks.onFinal('重复 final', true);
@@ -1695,9 +1827,11 @@ async function verifyWishPaperAutomaticAdoptionAndErrors() {
     1
   );
   assert.equal(
-    runtime.wishPaper.listeners.get('animationend').length,
+    runtime.wishOfferingStage.listeners.get('animationend').length,
     1
   );
+  assert.equal(runtime.wishPaper.getBoundingClientRectCallCount, 1);
+  assert.equal(runtime.wishFurnaceMouth.getBoundingClientRectCallCount, 1);
   assert.equal(
     runtime.transcriptText.textContent,
     '希望家人平安，自己也能安心一些。'
@@ -1787,6 +1921,22 @@ async function verifyWishOfferingAnimationAndCleanup() {
   assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'true');
   assert.equal(runtime.wishPaper.getAttribute('aria-hidden'), 'true');
   assert.equal(runtime.wishOfferingComplete.hidden, true);
+  assert.equal(runtime.wishOfferingStage.hidden, false);
+  assert.equal(
+    runtime.wishOfferingStage.classList.contains('is-active'),
+    true
+  );
+  assert.equal(runtime.flyingWishPaperText.textContent, lockedText);
+  assert.equal(
+    runtime.flyingWishPaper.style.getPropertyValue(
+      '--wish-paper-start-x'
+    ),
+    '35px'
+  );
+  assert.notEqual(
+    runtime.flyingWishPaper.style.getPropertyValue('--wish-flight-y'),
+    ''
+  );
   assert.equal(runtime.microphoneRequests.length, microphoneRequestCount);
   assert.equal(runtime.asrSessions.length, asrSessionCount);
   const animationTimer = runtime.timers.find(
@@ -1794,7 +1944,7 @@ async function verifyWishOfferingAnimationAndCleanup() {
   );
   assert.ok(animationTimer);
   assert.equal(
-    runtime.wishPaper.listeners.get('animationend').length,
+    runtime.wishOfferingStage.listeners.get('animationend').length,
     1
   );
 
@@ -1802,18 +1952,36 @@ async function verifyWishOfferingAnimationAndCleanup() {
   runtime.asrSessions[0].callbacks.onFinal('迟到 final', true);
   assert.equal(runtime.transcriptText.textContent, lockedText);
 
-  runtime.wishPaper.trigger('animationend', {
-    animationName: 'wish-paper-edge-glow',
-    target: runtime.wishPaper,
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-furnace-smoke-show',
+    target: runtime.wishFurnaceMouth,
   });
   assert.equal(
     runtime.page.classList.contains('is-wish-offering'),
     true
   );
 
-  runtime.wishPaper.trigger('animationend', {
-    animationName: 'wish-paper-offering',
-    target: runtime.wishPaper,
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-paper-flight',
+    target: runtime.flyingWishPaper,
+  });
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    true
+  );
+
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-furnace-fire-flare',
+    target: runtime.wishOfferingStage,
+  });
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    true
+  );
+
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: runtime.wishOfferingStage,
   });
   assert.equal(
     runtime.page.classList.contains('is-wish-offering'),
@@ -1826,6 +1994,16 @@ async function verifyWishOfferingAnimationAndCleanup() {
   assert.equal(animationTimer.active, false);
   assert.equal(runtime.wishPaper.hidden, true);
   assert.equal(runtime.wishOfferingComplete.hidden, false);
+  assert.equal(runtime.wishOfferingStage.hidden, true);
+  assert.equal(
+    runtime.wishOfferingStage.classList.contains('is-active'),
+    false
+  );
+  assert.equal(runtime.flyingWishPaperText.textContent, '');
+  assert.equal(
+    runtime.flyingWishPaper.style.getPropertyValue('--wish-flight-y'),
+    ''
+  );
   assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
   assert.equal(
     runtime.speechMessage.textContent,
@@ -1838,9 +2016,9 @@ async function verifyWishOfferingAnimationAndCleanup() {
   );
 
   animationTimer.callback();
-  runtime.wishPaper.trigger('animationend', {
-    animationName: 'wish-paper-offering',
-    target: runtime.wishPaper,
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: runtime.wishOfferingStage,
   });
   assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
   assert.equal(runtime.wishPaper.hidden, true);
@@ -1854,10 +2032,11 @@ async function verifyWishOfferingAnimationAndCleanup() {
   fallbackTimer.callback();
   assert.equal(fallbackRuntime.wishPaper.hidden, true);
   assert.equal(fallbackRuntime.wishOfferingComplete.hidden, false);
+  assert.equal(fallbackRuntime.wishOfferingStage.hidden, true);
   assert.equal(fallbackRuntime.wishOfferingComplete.focusCallCount, 1);
-  fallbackRuntime.wishPaper.trigger('animationend', {
-    animationName: 'wish-paper-offering',
-    target: fallbackRuntime.wishPaper,
+  fallbackRuntime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: fallbackRuntime.wishOfferingStage,
   });
   assert.equal(fallbackRuntime.wishOfferingComplete.focusCallCount, 1);
 
@@ -1866,10 +2045,14 @@ async function verifyWishOfferingAnimationAndCleanup() {
   });
   await reachAutomaticWishOffering(reducedRuntime);
   const reducedTimer = reducedRuntime.timers.find(
-    (timer) => timer.delay === 60
+    (timer) => timer.delay === 180
   );
   assert.ok(reducedTimer);
-  reducedTimer.callback();
+  reducedRuntime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence-reduced',
+    target: reducedRuntime.wishOfferingStage,
+  });
+  assert.equal(reducedTimer.active, false);
   assert.equal(reducedRuntime.wishPaper.hidden, true);
   assert.equal(reducedRuntime.wishOfferingComplete.hidden, false);
 
@@ -1887,9 +2070,11 @@ async function verifyWishOfferingAnimationAndCleanup() {
       false
     );
     assert.equal(
-      exitRuntime.wishPaper.listeners.get('animationend').length,
+      exitRuntime.wishOfferingStage.listeners.get('animationend').length,
       0
     );
+    assert.equal(exitRuntime.wishOfferingStage.hidden, true);
+    assert.equal(exitRuntime.flyingWishPaperText.textContent, '');
     exitTimer.callback();
     assert.equal(exitRuntime.wishOfferingComplete.hidden, true);
     exitRuntime.triggerWindow('pageshow');
@@ -1902,31 +2087,31 @@ async function verifyWishOfferingAnimationAndCleanup() {
 
   const staleAnimationRuntime = loadFortuneRuntime();
   await reachAutomaticWishOffering(staleAnimationRuntime);
-  const staleHandler = staleAnimationRuntime.wishPaper.listeners
+  const staleHandler = staleAnimationRuntime.wishOfferingStage.listeners
     .get('animationend')[0];
   staleAnimationRuntime.triggerWindow('pagehide');
   staleAnimationRuntime.triggerWindow('pageshow');
   await reachAutomaticWishOffering(staleAnimationRuntime);
   staleHandler({
-    animationName: 'wish-paper-offering',
-    target: staleAnimationRuntime.wishPaper,
+    animationName: 'wish-offering-stage-sequence',
+    target: staleAnimationRuntime.wishOfferingStage,
   });
   assert.equal(
     staleAnimationRuntime.page.classList.contains('is-wish-offering'),
     true
   );
-  staleAnimationRuntime.wishPaper.trigger('animationend', {
-    animationName: 'wish-paper-offering',
-    target: staleAnimationRuntime.wishPaper,
+  staleAnimationRuntime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: staleAnimationRuntime.wishOfferingStage,
   });
   assert.equal(staleAnimationRuntime.wishOfferingComplete.hidden, false);
 }
 
 async function reachOfferedWish(runtime) {
   await reachAutomaticWishOffering(runtime);
-  runtime.wishPaper.trigger('animationend', {
-    animationName: 'wish-paper-offering',
-    target: runtime.wishPaper,
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: runtime.wishOfferingStage,
   });
   assert.equal(runtime.wishOfferingComplete.hidden, false);
   assert.equal(runtime.drawFortuneButton.disabled, false);
