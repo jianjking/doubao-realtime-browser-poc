@@ -2264,3 +2264,711 @@ a {
     display: none;
   }
 }
+
+/* Fortune ritual: one shrine scene whose visible controls change by stage. */
+.fortune-page {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.fortune-page .shrine-scene-background {
+  inset: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.fortune-page .shrine-deity-visual {
+  object-position: 50% 43%;
+  transform: scale(1.02);
+}
+
+.fortune-heading {
+  position: absolute;
+  z-index: 8;
+  top: max(20px, calc(env(safe-area-inset-top, 0px) + 12px));
+  right: 54px;
+  left: 54px;
+  padding: 0;
+}
+
+.fortune-heading .entry-kicker {
+  margin-bottom: 2px;
+  font-size: 13px;
+}
+
+.fortune-heading h1 {
+  font-size: 32px;
+  line-height: 1.15;
+}
+
+.fortune-heading .fortune-introduction {
+  margin-top: 4px;
+  font-size: 15px !important;
+  line-height: 1.4;
+}
+
+.temple-scene.shrine-character-layer {
+  position: absolute;
+  z-index: 4;
+  inset: 0 0 72px;
+  min-height: 0;
+  pointer-events: none;
+}
+
+.acolyte-figure {
+  top: clamp(216px, 26dvh, 246px);
+  right: 8px;
+  bottom: auto;
+  width: clamp(132px, 35vw, 154px);
+  height: clamp(220px, 29dvh, 252px);
+  border-radius: 48% 48% 40% 42%;
+  opacity: 0.98;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 13%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 13%,
+    #000 88%,
+    transparent 100%
+  );
+}
+
+.acolyte-character {
+  object-position: 50% 42%;
+}
+
+.acolyte-guide {
+  top: clamp(132px, 16dvh, 154px);
+  bottom: auto;
+  left: 18px;
+  width: min(56vw, 222px);
+  padding: 9px 12px;
+  border-color: rgba(244, 213, 151, 0.38);
+  background: rgba(53, 16, 20, 0.7);
+  box-shadow: 0 8px 18px rgba(20, 4, 7, 0.24);
+}
+
+.acolyte-copy h2 {
+  font-size: 16px;
+}
+
+.acolyte-copy p {
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.shrine-foreground {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  display: block;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      transparent 50%,
+      rgba(45, 14, 17, 0.1) 62%,
+      rgba(35, 10, 14, 0.86) 94%
+    );
+}
+
+.offering-stage {
+  position: absolute;
+  right: 0;
+  bottom: 116px;
+  left: 0;
+  height: 224px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.incense-table {
+  position: absolute;
+  right: 7%;
+  bottom: 0;
+  left: 7%;
+  height: 218px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.incense-table::before {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 7px;
+  left: 0;
+  height: 25px;
+  border-top: 2px solid rgba(230, 187, 106, 0.72);
+  border-radius: 50% 50% 8px 8px;
+  background:
+    linear-gradient(180deg, #7b3b31, #3d151a 72%, #260c10);
+  box-shadow:
+    0 10px 16px rgba(18, 4, 7, 0.38),
+    inset 0 3px 0 rgba(255, 219, 151, 0.11);
+  content: "";
+}
+
+.incense-table::after {
+  position: absolute;
+  z-index: 0;
+  right: 8%;
+  bottom: -22px;
+  left: 8%;
+  height: 31px;
+  border: 1px solid rgba(214, 161, 81, 0.34);
+  border-top: 0;
+  background:
+    linear-gradient(90deg, #2b0d11, #5d2526 48%, #2b0d11);
+  box-shadow: 0 9px 18px rgba(18, 4, 7, 0.42);
+  content: "";
+}
+
+.incense-stick {
+  bottom: 67px;
+  width: 4px;
+  height: 92px;
+  background: linear-gradient(90deg, #743027, #d48b5b, #743027);
+}
+
+.incense-stick-left {
+  left: 44%;
+  transform: translateX(-50%) rotate(-1.2deg);
+}
+
+.incense-stick-center {
+  left: 50%;
+  height: 99px;
+  transform: translateX(-50%);
+}
+
+.incense-stick-right {
+  left: 56%;
+  transform: translateX(-50%) rotate(1.2deg);
+}
+
+.incense-ember,
+.has-offered-incense .incense-ember {
+  width: 8px;
+  height: 8px;
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px rgba(128, 42, 27, 0.82),
+    0 0 10px 4px rgba(255, 154, 58, 0.42);
+  transform: translateX(-50%) scale(1);
+}
+
+.incense-smoke,
+.has-offered-incense .incense-smoke {
+  top: -59px;
+  width: 22px;
+  height: 65px;
+  border-left-width: 2px;
+  opacity: 0.26;
+  animation-duration: 7.2s;
+  animation-play-state: running;
+}
+
+.incense-stick-left .incense-smoke {
+  animation-delay: -4.6s;
+}
+
+.incense-stick-center .incense-smoke {
+  animation-delay: -2.3s;
+}
+
+.incense-burner {
+  bottom: 27px;
+  width: 108px;
+  height: 70px;
+}
+
+.incense-state {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.ritual-stage.waiting-to-speak {
+  position: absolute;
+  z-index: 12;
+  right: 18px;
+  bottom: 70px;
+  left: 18px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--cream);
+  background: none;
+  box-shadow: none;
+  pointer-events: auto;
+  backdrop-filter: none;
+}
+
+.speech-state-heading {
+  display: none;
+}
+
+.ritual-stage h2 {
+  color: #fff0c8;
+  font-size: 17px;
+  text-shadow: 0 2px 7px rgba(20, 4, 7, 0.92);
+}
+
+.ritual-stage .ritual-status {
+  display: none;
+}
+
+.speak-control-button,
+.draw-fortune-preview-button,
+.fortune-retry-button,
+.fortune-interpret-button,
+.fortune-interpretation-retry-button,
+.fortune-interpretation-audio-button {
+  min-height: 56px;
+  margin: 0;
+  border: 1px solid rgba(239, 202, 126, 0.9);
+  border-radius: 999px;
+  color: #fff8e9;
+  background:
+    linear-gradient(180deg, rgba(139, 54, 57, 0.98), rgba(78, 24, 29, 0.98));
+  box-shadow:
+    0 8px 18px rgba(24, 5, 8, 0.34),
+    inset 0 1px 0 rgba(255, 244, 210, 0.14);
+  touch-action: none;
+}
+
+.is-listening .speak-control-button {
+  border-color: rgba(184, 225, 185, 0.84);
+  background:
+    linear-gradient(180deg, rgba(66, 109, 76, 0.98), rgba(37, 63, 46, 0.98));
+}
+
+.wish-paper {
+  position: fixed;
+  z-index: 18;
+  right: 28px;
+  bottom: 148px;
+  left: 28px;
+  max-height: 214px;
+  margin: 0;
+  padding: 14px 16px 15px;
+  overflow: hidden;
+  border-radius: 8px 15px 10px 14px;
+}
+
+.wish-paper[hidden],
+.fortune-draw-animation[hidden] {
+  display: none;
+}
+
+.wish-paper h3 {
+  font-size: 18px;
+}
+
+.wish-paper .wish-paper-status {
+  margin-top: 3px;
+  font-size: 14px;
+}
+
+.wish-paper .wish-paper-text {
+  min-height: 62px;
+  max-height: 126px;
+  margin-top: 7px;
+  overflow: hidden;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.wish-offering-complete {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.wish-offering-complete p {
+  margin: 0 0 6px;
+  color: #fff0c8;
+  font-size: 15px;
+  text-shadow: 0 2px 7px rgba(20, 4, 7, 0.92);
+}
+
+.fortune-draw-animation {
+  position: fixed;
+  z-index: 18;
+  right: 0;
+  bottom: 112px;
+  left: 0;
+  height: 282px;
+  pointer-events: none;
+}
+
+.fortune-draw-animation > p {
+  position: absolute;
+  right: 0;
+  bottom: 4px;
+  left: 0;
+  margin: 0;
+  color: #ffeab7;
+  font-size: 16px;
+  text-shadow: 0 2px 8px rgba(20, 4, 7, 0.9);
+}
+
+.lot-cylinder {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  width: 94px;
+  height: 150px;
+  border: 3px solid #d4a45d;
+  border-radius: 15px 15px 28px 28px;
+  background:
+    linear-gradient(90deg, #441619, #963d31 50%, #441619);
+  box-shadow:
+    inset 12px 0 14px rgba(31, 7, 10, 0.34),
+    inset -12px 0 14px rgba(31, 7, 10, 0.34),
+    0 16px 22px rgba(18, 4, 7, 0.42);
+  transform: translateX(-50%);
+  transform-origin: 50% 100%;
+}
+
+.lot-cylinder-rim {
+  position: absolute;
+  z-index: 4;
+  top: -12px;
+  right: -8px;
+  left: -8px;
+  height: 29px;
+  border: 3px solid #e0b66a;
+  border-radius: 50%;
+  background: #361115;
+  box-shadow: inset 0 6px 8px rgba(8, 2, 3, 0.8);
+}
+
+.lot-draw-stick {
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  left: 50%;
+  width: 8px;
+  height: 134px;
+  border-radius: 4px 4px 1px 1px;
+  background: linear-gradient(90deg, #8f4a26, #e0ae62, #8f4a26);
+  opacity: 0;
+  transform: translateX(-50%) translateY(55px);
+}
+
+.lot-draw-slip {
+  position: absolute;
+  z-index: 6;
+  top: -70px;
+  left: 50%;
+  display: grid;
+  width: 62px;
+  height: 86px;
+  place-items: center;
+  border: 1px solid rgba(126, 76, 37, 0.48);
+  color: #6a2a2c;
+  background:
+    linear-gradient(90deg, rgba(126, 76, 37, 0.06) 1px, transparent 1px),
+    #f3e4be;
+  background-size: 18px 18px;
+  box-shadow: 0 8px 18px rgba(21, 5, 7, 0.32);
+  font-family: "STKaiti", "KaiTi", serif;
+  font-size: 30px;
+  font-weight: 900;
+  opacity: 0;
+  transform: translateX(-50%) translateY(40px) scale(0.82);
+}
+
+.fortune-draw-animation.is-shaking .lot-cylinder {
+  animation: lot-cylinder-shake 1.05s ease-in-out 1;
+}
+
+.fortune-draw-animation.is-waiting .lot-cylinder {
+  animation: lot-cylinder-wait 2.8s ease-in-out infinite;
+}
+
+.fortune-draw-animation.is-revealing .lot-draw-stick {
+  animation: lot-stick-rise 0.78s ease-out forwards;
+}
+
+.fortune-draw-animation.is-revealing .lot-draw-slip {
+  animation: lot-slip-reveal 1.05s cubic-bezier(0.2, 0.72, 0.28, 1) 0.38s forwards;
+}
+
+.fortune-draw-error {
+  margin: 0;
+  padding: 14px;
+}
+
+.fortune-lot-result {
+  position: fixed;
+  z-index: 22;
+  top: max(122px, calc(env(safe-area-inset-top, 0px) + 110px));
+  right: 18px;
+  bottom: 72px;
+  left: 18px;
+  margin: 0;
+  padding: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 14px 8px 14px 8px;
+  background: linear-gradient(180deg, #fff8e2, #ecd7ac);
+}
+
+.fortune-lot-result .fortune-lot-meta {
+  color: #592c2b;
+  font-size: 17px;
+}
+
+.fortune-lot-meta strong {
+  font-size: 21px;
+}
+
+.fortune-lot-result h3 {
+  margin-top: 8px;
+  font-size: 22px;
+}
+
+.fortune-lot-verses {
+  margin-top: 8px;
+  font-size: 19px;
+  line-height: 1.7;
+}
+
+.fortune-interpret-button,
+.fortune-interpretation-retry-button {
+  margin-top: 12px;
+}
+
+.fortune-interpretation-result,
+.fortune-interpretation-error {
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.fortune-interpretation-result p,
+.fortune-interpretation-error p {
+  margin-top: 5px;
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.fortune-interpretation-audio {
+  gap: 6px;
+  margin-top: 9px;
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid rgba(107, 41, 45, 0.22);
+  border-radius: 0;
+  background: none;
+  text-align: center;
+}
+
+.fortune-interpretation-audio p {
+  color: #70463e;
+  font-size: 14px;
+}
+
+.fortune-interpretation-audio-button {
+  width: auto;
+  min-width: 112px;
+  min-height: 40px;
+  margin: 5px auto 0;
+  padding: 6px 18px;
+  font-size: 15px;
+}
+
+.is-reading-interpretation .acolyte-figure {
+  filter: drop-shadow(0 0 16px rgba(255, 220, 145, 0.42));
+  animation: acolyte-reading-glow 4.8s ease-in-out infinite;
+}
+
+.page-footnotes {
+  position: absolute;
+  z-index: 30;
+  right: 12px;
+  bottom: max(6px, env(safe-area-inset-bottom, 0px));
+  left: 12px;
+  display: grid;
+  gap: 1px;
+  padding: 0;
+  background: none;
+  pointer-events: none;
+}
+
+.page-footnotes .return-choice-button {
+  position: fixed;
+  z-index: 31;
+  top: max(12px, calc(env(safe-area-inset-top, 0px) + 8px));
+  left: 12px;
+  display: grid;
+  width: 42px;
+  min-height: 38px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(244, 213, 151, 0.5);
+  border-radius: 999px;
+  background: rgba(53, 16, 20, 0.64);
+  box-shadow: 0 4px 10px rgba(20, 4, 7, 0.2);
+  font-size: 14px;
+  pointer-events: auto;
+  backdrop-filter: blur(7px);
+}
+
+.page-footnotes .fortune-prototype-notice,
+.page-footnotes .fortune-experience-disclaimer {
+  margin: 0;
+  color: rgba(255, 237, 199, 0.7);
+  font-size: 11px;
+  line-height: 1.35;
+  text-shadow: 0 2px 5px rgba(20, 4, 7, 0.9);
+}
+
+@keyframes lot-cylinder-shake {
+  0%,
+  100% {
+    transform: translateX(-50%) rotate(0deg);
+  }
+
+  18% {
+    transform: translateX(-50%) rotate(-3deg);
+  }
+
+  38% {
+    transform: translateX(-50%) rotate(2.5deg);
+  }
+
+  60% {
+    transform: translateX(-50%) rotate(-2deg);
+  }
+
+  80% {
+    transform: translateX(-50%) rotate(1deg);
+  }
+}
+
+@keyframes lot-cylinder-wait {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  50% {
+    transform: translateX(-50%) translateY(-2px);
+  }
+}
+
+@keyframes lot-stick-rise {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(55px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-76px);
+  }
+}
+
+@keyframes lot-slip-reveal {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(40px) scale(0.82);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-16px) scale(1);
+  }
+}
+
+@keyframes acolyte-reading-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 10px rgba(255, 220, 145, 0.24));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 18px rgba(255, 220, 145, 0.48));
+  }
+}
+
+@media (max-height: 760px) {
+  .fortune-heading {
+    top: 14px;
+  }
+
+  .fortune-introduction,
+  .acolyte-guide {
+    display: none;
+  }
+
+  .acolyte-figure {
+    top: 150px;
+    height: 208px;
+  }
+
+  .offering-stage {
+    bottom: 106px;
+    height: 204px;
+  }
+
+  .incense-table {
+    height: 196px;
+  }
+}
+
+@media (min-width: 600px) {
+  .fortune-page {
+    width: min(430px, 100%);
+    height: min(932px, calc(100dvh - 32px));
+    min-height: min(760px, calc(100dvh - 32px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fortune-draw-animation.is-shaking .lot-cylinder,
+  .fortune-draw-animation.is-waiting .lot-cylinder {
+    animation: none !important;
+  }
+
+  .fortune-draw-animation.is-revealing .lot-draw-stick {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-76px);
+  }
+
+  .fortune-draw-animation.is-revealing .lot-draw-slip {
+    animation-duration: 110ms !important;
+    animation-delay: 0ms !important;
+  }
+}

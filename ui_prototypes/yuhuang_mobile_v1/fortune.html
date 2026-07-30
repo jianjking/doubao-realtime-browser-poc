@@ -31,7 +31,7 @@
     <header class="entry-heading fortune-heading">
       <p class="entry-kicker">静心入殿</p>
       <h1 id="fortune-title">上香求签</h1>
-      <p class="fortune-introduction">神明高坐庙堂，道童在殿前引导求签。</p>
+      <p class="fortune-introduction">三炷清香已燃，请向神明诉说心愿。</p>
     </header>
 
     <section class="temple-scene shrine-character-layer" aria-labelledby="temple-scene-title">
@@ -48,7 +48,7 @@
       <section class="acolyte-guide" aria-labelledby="acolyte-guide-title">
         <div class="acolyte-copy">
           <h2 id="acolyte-guide-title">道童引导</h2>
-          <p data-acolyte-guidance aria-live="polite" aria-atomic="true">善信请静心，先敬上一炷香。</p>
+          <p data-acolyte-guidance aria-live="polite" aria-atomic="true">按住下方按钮，慢慢诉说您的心愿。</p>
         </div>
       </section>
       <p
@@ -61,12 +61,19 @@
 
     <div class="shrine-foreground">
       <section class="offering-stage" aria-labelledby="offering-stage-title">
-        <h2 id="offering-stage-title">殿前香案</h2>
-        <div class="incense-table" aria-label="香炉与一炷未点燃的香">
-          <div class="incense-stick" aria-hidden="true">
+        <h2 id="offering-stage-title" class="visually-hidden">殿前香案</h2>
+        <div class="incense-table" aria-label="香炉与三柱已经点燃的香">
+          <div class="incense-stick incense-stick-left" aria-hidden="true">
             <span class="incense-ember"></span>
-            <span class="incense-smoke incense-smoke-one"></span>
-            <span class="incense-smoke incense-smoke-two"></span>
+            <span class="incense-smoke"></span>
+          </div>
+          <div class="incense-stick incense-stick-center" aria-hidden="true">
+            <span class="incense-ember"></span>
+            <span class="incense-smoke"></span>
+          </div>
+          <div class="incense-stick incense-stick-right" aria-hidden="true">
+            <span class="incense-ember"></span>
+            <span class="incense-smoke"></span>
           </div>
           <div class="incense-burner" aria-hidden="true">
             <span class="burner-rim"></span>
@@ -75,30 +82,34 @@
             <span class="burner-foot burner-foot-right"></span>
           </div>
         </div>
-        <p class="incense-state" data-incense-state aria-live="polite">香尚未点燃</p>
+        <p class="incense-state" data-incense-state aria-live="polite">三柱清香已燃</p>
       </section>
 
-      <button class="offer-incense-button" type="button" data-offer-incense>敬上一炷香</button>
-
-      <section class="waiting-to-speak" data-waiting-state aria-labelledby="waiting-to-speak-title" hidden>
+      <section class="ritual-stage waiting-to-speak" data-waiting-state aria-labelledby="waiting-to-speak-title">
         <div class="speech-state-heading">
-          <h2 id="waiting-to-speak-title" data-speech-title>等待诉说</h2>
+          <h2 id="waiting-to-speak-title" data-speech-title>静心诉说</h2>
           <span class="microphone-use-indicator" aria-hidden="true">麦克风使用中</span>
         </div>
-        <p data-speech-message role="status" aria-live="polite" aria-atomic="true">请慢慢说，道童会在殿前听您诉说。</p>
-        <button class="speak-control-button" type="button" data-speak-control>开始诉说</button>
-        <small data-speech-detail>语音只用于当前识别，不会录制为音频文件。</small>
-        <section class="wish-paper" data-wish-paper aria-labelledby="wish-paper-title" aria-busy="false">
-          <h3 id="wish-paper-title">道童代您写下</h3>
-          <p class="wish-paper-status" data-transcript-status>等待诉说</p>
-          <p class="wish-paper-text" data-transcript-text>您的话会写在这里。</p>
+        <p class="ritual-status" data-speech-message role="status" aria-live="polite" aria-atomic="true">按住诉说，松开后心愿将自动敬呈。</p>
+        <button class="speak-control-button" type="button" data-speak-control>按住诉说</button>
+        <small class="visually-hidden" data-speech-detail>按住时使用麦克风实时识别，松开即停止采集。</small>
+        <section class="wish-paper" data-wish-paper aria-labelledby="wish-paper-title" aria-busy="false" hidden>
+          <h3 id="wish-paper-title">心愿纸</h3>
+          <p class="wish-paper-status" data-transcript-status>正在聆听</p>
+          <p class="wish-paper-text" data-transcript-text></p>
         </section>
         <div class="fortune-result-layer">
           <section class="wish-offering-complete" data-wish-offering-complete tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
-            <h3>心愿已呈</h3>
-            <p>心意已达殿前，请静候求签。</p>
-            <small>心愿呈送完成后，便可诚心求取一签。</small>
-            <button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>诚心求一签</button>
+            <p>心愿已呈，静心求签。</p>
+            <button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>开始抽签</button>
+          </section>
+          <section class="fortune-draw-animation" data-fortune-draw-animation aria-label="正在抽签" aria-live="polite" hidden>
+            <p>正在为您请签……</p>
+            <div class="lot-cylinder" aria-hidden="true">
+              <span class="lot-cylinder-rim"></span>
+              <span class="lot-draw-stick"></span>
+              <span class="lot-draw-slip">签</span>
+            </div>
           </section>
           <section class="fortune-draw-error" data-fortune-error tabindex="-1" role="alert" hidden>
             <h3>求签未成</h3>
@@ -128,14 +139,14 @@
                 aria-atomic="true"
                 hidden
               >
-                <h4>语音解签</h4>
-                <p data-interpretation-audio-status>需要时，可请道童为您读出这份解签。</p>
+                <p data-interpretation-audio-status>道童正在准备朗读。</p>
                 <button
                   class="fortune-interpretation-audio-button"
                   type="button"
                   data-interpretation-audio-control
+                  hidden
                 >
-                  听道童解签
+                  点击朗读
                 </button>
               </section>
             </section>
@@ -145,7 +156,7 @@
     </div>
 
     <footer class="page-footnotes">
-      <a class="return-choice-button" href="./choice.html">返回功能选择</a>
+      <a class="return-choice-button" href="./choice.html">返回</a>
       <p class="fortune-prototype-notice">当前为项目原型签文，正式签谱后续校订。</p>
       <p class="fortune-experience-disclaimer">
         签文与解读仅作传统文化体验及情绪陪伴参考。

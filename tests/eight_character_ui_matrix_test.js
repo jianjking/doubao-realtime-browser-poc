@@ -2193,10 +2193,125 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
 }
 
+function verifyFeatureChoiceAndStagedFortuneEntry() {
+  const choiceHtml = fs.readFileSync(CHOICE_HTML_PATH, 'utf8');
+  const fortuneHtml = fs.readFileSync(FORTUNE_HTML_PATH, 'utf8');
+  const fortuneJs = fs.readFileSync(FORTUNE_JS_PATH, 'utf8');
+  const entryCss = fs.readFileSync(ENTRY_CSS_PATH, 'utf8');
+  const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
+
+  assert.equal(
+    (choiceHtml.match(/<a class="feature-card /g) || []).length,
+    2
+  );
+  assert.match(
+    choiceHtml,
+    /href="\.\/home\.html"[\s\S]*?<strong>与神仙通话<\/strong>/
+  );
+  assert.match(
+    choiceHtml,
+    /href="\.\/fortune\.html"[\s\S]*?<strong>上香求签<\/strong>/
+  );
+  assert.match(
+    homeHtml,
+    /href="\.\/choice\.html" aria-label="返回功能选择"/
+  );
+  assert.match(fortuneHtml, /<h1 id="fortune-title">上香求签<\/h1>/);
+  assert.match(
+    fortuneHtml,
+    /三炷清香已燃，请向神明诉说心愿。/
+  );
+  assert.match(
+    fortuneHtml,
+    /class="shrine-scene-background"[\s\S]*?data-fortune-character-image/
+  );
+  assert.equal(
+    (
+      fortuneHtml.match(
+        /src="\.\/assets\/fortune\/daotong-guide-v1\.png"/g
+      ) || []
+    ).length,
+    1
+  );
+  assert.equal(
+    (
+      fortuneHtml.match(
+        /class="incense-stick incense-stick-(?:left|center|right)"/g
+      ) || []
+    ).length,
+    3
+  );
+  assert.equal(
+    (fortuneHtml.match(/class="incense-ember"/g) || []).length,
+    3
+  );
+  assert.match(
+    fortuneHtml,
+    /data-speak-control>按住诉说<\/button>/
+  );
+  assert.doesNotMatch(
+    fortuneHtml,
+    /data-offer-incense|香火已敬|开始诉说|听道童解签/
+  );
+  assert.match(fortuneHtml, /data-wish-paper[^>]*hidden/);
+  assert.match(
+    fortuneHtml,
+    /data-draw-fortune disabled>开始抽签<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
+    /data-fortune-draw-animation[^>]*hidden[\s\S]*?lot-cylinder[\s\S]*?lot-draw-stick[\s\S]*?lot-draw-slip/
+  );
+  assert.match(
+    fortuneHtml,
+    /data-interpret-fortune>请道童解签<\/button>/
+  );
+  assert.match(
+    fortuneHtml,
+    /data-interpretation-audio-control[\s\S]*?hidden[\s\S]*?>\s*点击朗读/
+  );
+  assert.match(
+    fortuneHtml,
+    /签文与解读仅作传统文化体验及情绪陪伴参考。/
+  );
+  assert.doesNotMatch(
+    fortuneHtml,
+    /<(?:input|textarea)\b|contenteditable=|神仙亲自解签/
+  );
+  assert.match(
+    fortuneJs,
+    /new URLSearchParams\(window\.location\.search\)[\s\S]*?get\('characterKey'\)/
+  );
+  assert.match(
+    fortuneJs,
+    /const version = characterKey === 'sunwukong' \? 'v2' : 'v1';/
+  );
+  assert.equal((fortuneJs.match(/assets\/characters/g) || []).length, 1);
+  assert.match(
+    fortuneJs,
+    /speakControlButton\.setPointerCapture\(pointerId\)/
+  );
+  assert.doesNotMatch(fortuneJs, /touchstart|touchend|pointermove/);
+  assert.match(
+    fortuneJs,
+    /await requestInterpretationAudio\(true\)/
+  );
+  assert.equal(fs.existsSync(DAOTONG_ASSET_PATH), true);
+  assert.match(
+    entryCss,
+    /\.fortune-page\s*\{[\s\S]*?height:\s*100dvh;[\s\S]*?overflow:\s*hidden;/
+  );
+  assert.match(entryCss, /@keyframes lot-cylinder-shake\s*\{/);
+  assert.match(entryCss, /@keyframes lot-cylinder-wait\s*\{/);
+  assert.match(entryCss, /@keyframes lot-stick-rise\s*\{/);
+  assert.match(entryCss, /@keyframes lot-slip-reveal\s*\{/);
+  assert.match(entryCss, /width:\s*min\(430px,\s*100%\);/);
+}
+
 async function main() {
   verifyBrowserLifecycleBoundary();
   verifyStaticSafetyAndCurrentUi();
-  verifyFeatureChoiceAndFortuneEntry();
+  verifyFeatureChoiceAndStagedFortuneEntry();
   await verifyRolePricingDetails();
   await verifyAuthGateAndRechargeRegression();
   await verifyHomeConfigurationAndPreloading();

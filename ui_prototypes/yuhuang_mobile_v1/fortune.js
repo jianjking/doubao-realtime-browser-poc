@@ -1,9 +1,11 @@
 'use strict';
 
 (() => {
-  const OFFERING_DURATION_MS = 1800;
   const WISH_OFFERING_FALLBACK_MS = 3400;
   const REDUCED_WISH_OFFERING_FALLBACK_MS = 180;
+  const DRAW_SHAKE_DURATION_MS = 1100;
+  const DRAW_REVEAL_DURATION_MS = 1250;
+  const REDUCED_DRAW_DURATION_MS = 120;
   const FORTUNE_SESSION_API_URL = '/api/fortune-sessions';
   const FORTUNE_DEITY_KEY = 'yuhuang';
   const DEFAULT_FORTUNE_CHARACTER_KEY = 'yuhuang';
@@ -18,15 +20,13 @@
     'tangseng',
   ]);
   const INTERACTION_STATES = Object.freeze({
-    IDLE: 'idle',
-    OFFERING_INCENSE: 'offering-incense',
-    WAITING_TO_SPEAK: 'waiting-to-speak',
+    READY_TO_SPEAK: 'ready-to-speak',
     REQUESTING_MICROPHONE: 'requesting-microphone',
     CONNECTING_ASR: 'connecting-asr',
-    SPEAKING: 'speaking',
+    LISTENING: 'listening',
     FINISHING_ASR: 'finishing-asr',
-    WISH_OFFERING: 'wish-offering',
-    WISH_OFFERED: 'wish-offered',
+    OFFERING_WISH: 'offering-wish',
+    DRAW_READY: 'draw-ready',
     DRAWING_LOT: 'drawing-lot',
     LOT_DRAWN: 'lot-drawn',
     LOT_ERROR: 'lot-error',
@@ -53,9 +53,6 @@
   );
   const fortuneCharacterUnavailable = document.querySelector(
     '[data-fortune-character-unavailable]'
-  );
-  const offerIncenseButton = document.querySelector(
-    '[data-offer-incense]'
   );
   const incenseState = document.querySelector('[data-incense-state]');
   const acolyteGuidance = document.querySelector(
@@ -92,6 +89,9 @@
   );
   const drawFortuneButton = document.querySelector(
     '[data-draw-fortune]'
+  );
+  const fortuneDrawAnimation = document.querySelector(
+    '[data-fortune-draw-animation]'
   );
   const fortuneError = document.querySelector('[data-fortune-error]');
   const retryFortuneButton = document.querySelector(
@@ -131,7 +131,6 @@
     !page
     || !fortuneCharacterImage
     || !fortuneCharacterUnavailable
-    || !offerIncenseButton
     || !incenseState
     || !acolyteGuidance
     || !waitingState
@@ -148,6 +147,7 @@
     || !flyingWishPaperText
     || !wishOfferingComplete
     || !drawFortuneButton
+    || !fortuneDrawAnimation
     || !fortuneError
     || !retryFortuneButton
     || !fortuneResult
@@ -167,8 +167,11 @@
     return;
   }
 
-  let interactionState = INTERACTION_STATES.IDLE;
+  let interactionState = INTERACTION_STATES.READY_TO_SPEAK;
   let activeAsrSession = null;
+  let activePointerId = null;
+  let keyboardPressActive = false;
+  let finishRequested = false;
   let sessionGeneration = 0;
   let currentTranscript = '';
   let transcriptIsFinal = false;
@@ -178,6 +181,10 @@
   let wishOfferingGeneration = null;
   let fortuneRequestController = null;
   let fortuneRequestGeneration = 0;
+  let drawAnimationTimer = null;
+  let drawAnimationHandler = null;
+  let drawShakeComplete = false;
+  let drawRevealComplete = false;
   let publicFortuneSession = null;
   let interpretationRequestController = null;
   let interpretationRequestGeneration = 0;
@@ -188,6 +195,7 @@
   let interpretationAudioSessionId = null;
   let interpretationAudioRequestController = null;
   let interpretationAudioRequestGeneration = 0;
+  let interpretationAudioAutoPlayAttemptCount = 0;
 
   function resolveRequestedCharacterKey() {
     const searchParams = new URLSearchParams(window.location.search);
@@ -351,53 +359,52 @@
   }
 
   function renderInterpretationAudioState() {
+    page.classList.remove('is-reading-interpretation');
+    interpretationAudioControl.hidden = true;
     interpretationAudioControl.disabled = false;
     if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.LOADING) {
       interpretationAudioStatus.textContent =
-        '正在准备解签语音，请稍候。';
-      interpretationAudioControl.textContent = '正在准备语音……';
-      interpretationAudioControl.disabled = true;
+        '道童正在准备朗读。';
       return;
     }
     if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.READY) {
       interpretationAudioStatus.textContent =
-        '语音已准备好，请点击播放。';
-      interpretationAudioControl.textContent = '播放解签语音';
+        '解签语音已经准备好。';
       return;
     }
     if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.STARTING) {
       interpretationAudioStatus.textContent =
-        '正在开始播放解签语音。';
-      interpretationAudioControl.textContent = '正在播放……';
-      interpretationAudioControl.disabled = true;
+        '道童正在开始朗读。';
       return;
     }
     if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.PLAYING) {
-      interpretationAudioStatus.textContent = '正在播放解签语音。';
-      interpretationAudioControl.textContent = '暂停解签语音';
+      interpretationAudioStatus.textContent = '道童正在解签。';
+      page.classList.add('is-reading-interpretation');
       return;
     }
     if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.PAUSED) {
-      interpretationAudioStatus.textContent = '已暂停，可继续播放。';
-      interpretationAudioControl.textContent = '继续播放';
+      interpretationAudioStatus.textContent = '朗读已暂停。';
+      interpretationAudioControl.textContent = '点击朗读';
+      interpretationAudioControl.hidden = false;
       return;
     }
     if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.ENDED) {
-      interpretationAudioStatus.textContent = '播放完毕，可重新播放。';
-      interpretationAudioControl.textContent = '重新播放';
+      interpretationAudioStatus.textContent = '道童朗读完毕。';
       return;
     }
     if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.ERROR) {
-      interpretationAudioStatus.textContent =
-        '解签语音暂时无法播放，请稍后重试。';
-      interpretationAudioControl.textContent = interpretationAudioElement
-        ? '再次播放'
-        : '重新获取解签语音';
+      if (interpretationAudioElement) {
+        interpretationAudioStatus.textContent =
+          '浏览器未能自动播放，请点击朗读。';
+        interpretationAudioControl.textContent = '点击朗读';
+        interpretationAudioControl.hidden = false;
+      } else {
+        interpretationAudioStatus.textContent =
+          '朗读暂时不可用，文字解签仍可正常阅读。';
+      }
       return;
     }
-    interpretationAudioStatus.textContent =
-      '需要时，可请道童为您读出这份解签。';
-    interpretationAudioControl.textContent = '听道童解签';
+    interpretationAudioStatus.textContent = '道童正在准备朗读。';
   }
 
   function releaseInterpretationAudio() {
@@ -413,6 +420,7 @@
     interpretationAudioObjectUrl = null;
     interpretationAudioSessionId = null;
     interpretationAudioState = INTERPRETATION_AUDIO_STATES.IDLE;
+    page.classList.remove('is-reading-interpretation');
 
     if (audioElement) {
       audioElement.pause();
@@ -430,19 +438,149 @@
     }
   }
 
+  function clearDrawAnimation() {
+    if (drawAnimationTimer !== null) {
+      window.clearTimeout(drawAnimationTimer);
+      drawAnimationTimer = null;
+    }
+    if (drawAnimationHandler !== null) {
+      fortuneDrawAnimation.removeEventListener(
+        'animationend',
+        drawAnimationHandler
+      );
+      drawAnimationHandler = null;
+    }
+    fortuneDrawAnimation.classList.remove(
+      'is-shaking',
+      'is-waiting',
+      'is-revealing'
+    );
+    fortuneDrawAnimation.hidden = true;
+  }
+
+  function completeFortuneReveal(generation) {
+    if (
+      !pageIsActive
+      || generation !== fortuneRequestGeneration
+      || interactionState !== INTERACTION_STATES.DRAWING_LOT
+      || !publicFortuneSession
+    ) {
+      return false;
+    }
+    drawRevealComplete = true;
+    clearDrawAnimation();
+    interactionState = INTERACTION_STATES.LOT_DRAWN;
+    renderSpeechState();
+    if (typeof fortuneResult.focus === 'function') {
+      fortuneResult.focus();
+    }
+    return true;
+  }
+
+  function startFortuneReveal(generation) {
+    if (
+      !pageIsActive
+      || generation !== fortuneRequestGeneration
+      || interactionState !== INTERACTION_STATES.DRAWING_LOT
+      || !drawShakeComplete
+      || drawRevealComplete
+      || !publicFortuneSession
+    ) {
+      return false;
+    }
+    if (drawAnimationTimer !== null) {
+      window.clearTimeout(drawAnimationTimer);
+      drawAnimationTimer = null;
+    }
+    fortuneDrawAnimation.classList.remove('is-shaking', 'is-waiting');
+    fortuneDrawAnimation.classList.add('is-revealing');
+    const animationHandler = (event) => {
+      if (event && event.animationName === 'lot-slip-reveal') {
+        completeFortuneReveal(generation);
+      }
+    };
+    drawAnimationHandler = animationHandler;
+    fortuneDrawAnimation.addEventListener('animationend', animationHandler);
+    drawAnimationTimer = window.setTimeout(
+      () => completeFortuneReveal(generation),
+      prefersReducedMotion()
+        ? REDUCED_DRAW_DURATION_MS
+        : DRAW_REVEAL_DURATION_MS
+    );
+    return true;
+  }
+
+  function completeFortuneShake(generation) {
+    if (
+      !pageIsActive
+      || generation !== fortuneRequestGeneration
+      || interactionState !== INTERACTION_STATES.DRAWING_LOT
+      || drawShakeComplete
+    ) {
+      return false;
+    }
+    if (drawAnimationTimer !== null) {
+      window.clearTimeout(drawAnimationTimer);
+      drawAnimationTimer = null;
+    }
+    if (drawAnimationHandler !== null) {
+      fortuneDrawAnimation.removeEventListener(
+        'animationend',
+        drawAnimationHandler
+      );
+      drawAnimationHandler = null;
+    }
+    drawShakeComplete = true;
+    fortuneDrawAnimation.classList.remove('is-shaking');
+    fortuneDrawAnimation.classList.add('is-waiting');
+    if (publicFortuneSession) {
+      startFortuneReveal(generation);
+    }
+    return true;
+  }
+
+  function startFortuneDrawAnimation(generation) {
+    clearDrawAnimation();
+    drawShakeComplete = false;
+    drawRevealComplete = false;
+    fortuneDrawAnimation.hidden = false;
+    fortuneDrawAnimation.classList.add('is-shaking');
+    const animationHandler = (event) => {
+      if (event && event.animationName === 'lot-cylinder-shake') {
+        completeFortuneShake(generation);
+      }
+    };
+    drawAnimationHandler = animationHandler;
+    fortuneDrawAnimation.addEventListener('animationend', animationHandler);
+    drawAnimationTimer = window.setTimeout(
+      () => completeFortuneShake(generation),
+      prefersReducedMotion()
+        ? REDUCED_DRAW_DURATION_MS
+        : DRAW_SHAKE_DURATION_MS
+    );
+  }
+
   function renderSpeechState() {
     page.classList.remove(
       'is-listening',
       'has-microphone-error',
       'has-asr-error',
-      'has-offered-wish'
+      'has-offered-wish',
+      'is-drawing-lot',
+      'has-lot-result',
+      'is-reading-interpretation'
     );
-    speakControlButton.hidden = false;
+    page.dataset.fortuneState = interactionState;
+    waitingState.hidden = false;
+    speechTitle.hidden = true;
+    speechMessage.hidden = true;
+    speakControlButton.hidden = true;
     wishOfferingComplete.hidden = true;
+    fortuneDrawAnimation.hidden = true;
     fortuneError.hidden = true;
     fortuneResult.hidden = true;
     drawFortuneButton.disabled = true;
-    drawFortuneButton.textContent = '诚心求一签';
+    drawFortuneButton.textContent = '开始抽签';
     retryFortuneButton.disabled = true;
     interpretFortuneButton.hidden = true;
     interpretFortuneButton.disabled = true;
@@ -451,16 +589,19 @@
     retryInterpretationButton.disabled = true;
     interpretationResult.hidden = true;
     interpretationAudio.hidden = true;
-    wishPaper.hidden = false;
-    wishPaper.removeAttribute('aria-hidden');
+    wishPaper.hidden = true;
+    wishPaper.setAttribute('aria-hidden', 'true');
 
-    if (interactionState === INTERACTION_STATES.WAITING_TO_SPEAK) {
-      speechTitle.textContent = '等待诉说';
+    if (interactionState === INTERACTION_STATES.READY_TO_SPEAK) {
+      speechTitle.hidden = false;
+      speechMessage.hidden = false;
+      speakControlButton.hidden = false;
+      speechTitle.textContent = '静心诉说';
       speechMessage.textContent =
-        '请慢慢说，道童会在殿前听您诉说。';
+        '按住诉说，松开后心愿将自动敬呈。';
       speechDetail.textContent =
-        '语音只用于当前识别，不会录制为音频文件。';
-      speakControlButton.textContent = '开始诉说';
+        '按住时使用麦克风实时识别，松开即停止采集。';
+      speakControlButton.textContent = '按住诉说';
       speakControlButton.disabled = false;
       setWishPaperBusy(false);
       return;
@@ -469,81 +610,74 @@
     if (
       interactionState === INTERACTION_STATES.REQUESTING_MICROPHONE
     ) {
+      speechTitle.hidden = false;
+      speechMessage.hidden = false;
+      speakControlButton.hidden = false;
       speechTitle.textContent = '请求麦克风权限';
       speechMessage.textContent = '请允许使用麦克风。';
-      speechDetail.textContent =
-        '授权后将连接语音识别服务。';
-      speakControlButton.textContent = '正在打开麦克风……';
-      speakControlButton.disabled = true;
+      speakControlButton.textContent = '松开结束';
+      speakControlButton.disabled = false;
+      wishPaper.hidden = false;
+      wishPaper.removeAttribute('aria-hidden');
       setWishPaperBusy(false);
       return;
     }
 
     if (interactionState === INTERACTION_STATES.CONNECTING_ASR) {
+      speechTitle.hidden = false;
+      speechMessage.hidden = false;
+      speakControlButton.hidden = false;
       speechTitle.textContent = '正在准备聆听';
       speechMessage.textContent = '正在准备聆听，请稍候……';
-      speechDetail.textContent =
-        '连接完成后再开始诉说，以免遗漏开头。';
-      speakControlButton.textContent = '正在准备……';
-      speakControlButton.disabled = true;
+      speakControlButton.textContent = '松开结束';
+      speakControlButton.disabled = false;
       transcriptStatus.textContent = '准备代您记录';
+      wishPaper.hidden = false;
+      wishPaper.removeAttribute('aria-hidden');
       setWishPaperBusy(true);
       return;
     }
 
-    if (interactionState === INTERACTION_STATES.SPEAKING) {
+    if (interactionState === INTERACTION_STATES.LISTENING) {
       page.classList.add('is-listening');
+      speechTitle.hidden = false;
+      speechMessage.hidden = false;
+      speakControlButton.hidden = false;
       speechTitle.textContent = '道童正在聆听';
-      speechMessage.textContent = '道童正在聆听，请慢慢说。';
-      speechDetail.textContent =
-        '语音正用于实时识别，不会录制为音频文件。';
-      speakControlButton.textContent = '我说完了';
+      speechMessage.textContent = '请慢慢说，松开即结束。';
+      speakControlButton.textContent = '松开结束';
       speakControlButton.disabled = false;
       if (currentTranscript === '') {
         transcriptStatus.textContent = '道童正在代您记下……';
       }
+      wishPaper.hidden = false;
+      wishPaper.removeAttribute('aria-hidden');
       setWishPaperBusy(true);
       return;
     }
 
     if (interactionState === INTERACTION_STATES.FINISHING_ASR) {
-      speechTitle.textContent = '正在整理您的话';
-      speechMessage.textContent = '正在整理您的话……';
-      speechDetail.textContent = '请稍候，正在等待最终识别结果。';
-      speakControlButton.textContent = '正在识别……';
-      speakControlButton.disabled = true;
+      speechTitle.hidden = false;
+      speechMessage.hidden = false;
+      speechTitle.textContent = '正在整理心愿';
+      speechMessage.textContent = '请稍候，正在写定心愿。';
       transcriptStatus.textContent = '正在整理您的话……';
+      wishPaper.hidden = false;
+      wishPaper.removeAttribute('aria-hidden');
       setWishPaperBusy(true);
       return;
     }
 
-    if (interactionState === INTERACTION_STATES.WISH_OFFERING) {
+    if (interactionState === INTERACTION_STATES.OFFERING_WISH) {
       page.classList.add('is-wish-offering');
-      speechTitle.textContent = '心愿已记下';
-      speechMessage.textContent =
-        '心愿已记下，正在投入焚愿炉……';
-      speechDetail.textContent =
-        '心愿纸进入炉口后，将焚化为轻烟敬呈。';
-      speakControlButton.textContent = '正在呈愿';
-      speakControlButton.disabled = true;
-      speakControlButton.hidden = true;
-      transcriptStatus.textContent = '正在呈愿';
       setWishPaperBusy(true);
       wishPaper.setAttribute('aria-hidden', 'true');
       return;
     }
 
-    if (interactionState === INTERACTION_STATES.WISH_OFFERED) {
+    if (interactionState === INTERACTION_STATES.DRAW_READY) {
       page.classList.add('has-offered-wish');
-      speechTitle.textContent = '心愿已呈';
-      speechMessage.textContent = '呈愿完成，可以求签。';
-      speechDetail.textContent = '下一步将为您诚心求取一签。';
-      speakControlButton.textContent = '心愿已呈';
-      speakControlButton.disabled = true;
-      speakControlButton.hidden = true;
       setWishPaperBusy(false);
-      wishPaper.setAttribute('aria-hidden', 'true');
-      wishPaper.hidden = true;
       wishOfferingComplete.hidden = false;
       drawFortuneButton.disabled = (
         !transcriptIsFinal
@@ -553,12 +687,8 @@
     }
 
     if (interactionState === INTERACTION_STATES.DRAWING_LOT) {
-      page.classList.add('has-offered-wish');
-      wishPaper.hidden = true;
-      wishPaper.setAttribute('aria-hidden', 'true');
-      wishOfferingComplete.hidden = false;
-      drawFortuneButton.disabled = true;
-      drawFortuneButton.textContent = '正在请签……';
+      page.classList.add('has-offered-wish', 'is-drawing-lot');
+      fortuneDrawAnimation.hidden = false;
       return;
     }
 
@@ -580,9 +710,7 @@
       )
       && publicFortuneSession
     ) {
-      page.classList.add('has-offered-wish');
-      wishPaper.hidden = true;
-      wishPaper.setAttribute('aria-hidden', 'true');
+      page.classList.add('has-offered-wish', 'has-lot-result');
       fortuneResult.hidden = false;
       lotNumber.textContent = String(publicFortuneSession.lot.number);
       lotLevel.textContent = publicFortuneSession.lot.level;
@@ -624,17 +752,19 @@
   function resetWishPaper() {
     releaseInterpretationAudio();
     clearWishOfferingResources();
+    clearDrawAnimation();
     wishOfferingGeneration = null;
+    finishRequested = false;
     currentTranscript = '';
     transcriptIsFinal = false;
     publicFortuneSession = null;
     publicInterpretation = null;
-    transcriptStatus.textContent = '等待诉说';
-    transcriptText.textContent = '您的话会写在这里。';
+    transcriptStatus.textContent = '正在聆听';
+    transcriptText.textContent = '';
     setWishPaperBusy(false);
     wishOfferingComplete.hidden = true;
-    wishPaper.hidden = false;
-    wishPaper.removeAttribute('aria-hidden');
+    wishPaper.hidden = true;
+    wishPaper.setAttribute('aria-hidden', 'true');
     page.classList.remove('has-offered-wish');
   }
 
@@ -749,7 +879,52 @@
     });
   }
 
-  async function requestInterpretationAudio() {
+  async function playInterpretationAudio(
+    audioElement,
+    sessionId,
+    isAutomatic
+  ) {
+    if (
+      interpretationAudioElement !== audioElement
+      || interpretationAudioSessionId !== sessionId
+      || !publicFortuneSession
+      || publicFortuneSession.id !== sessionId
+    ) {
+      return false;
+    }
+    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.ENDED) {
+      audioElement.currentTime = 0;
+    }
+    interpretationAudioState = INTERPRETATION_AUDIO_STATES.STARTING;
+    renderInterpretationAudioState();
+    if (isAutomatic) {
+      interpretationAudioAutoPlayAttemptCount += 1;
+    }
+    try {
+      const playResult = audioElement.play();
+      if (playResult && typeof playResult.then === 'function') {
+        await playResult;
+      }
+      if (
+        interpretationAudioElement === audioElement
+        && interpretationAudioSessionId === sessionId
+        && interpretationAudioState === INTERPRETATION_AUDIO_STATES.STARTING
+      ) {
+        interpretationAudioState = INTERPRETATION_AUDIO_STATES.PLAYING;
+        renderInterpretationAudioState();
+      }
+      return true;
+    } catch (error) {
+      if (interpretationAudioElement !== audioElement) {
+        return false;
+      }
+      interpretationAudioState = INTERPRETATION_AUDIO_STATES.ERROR;
+      renderInterpretationAudioState();
+      return false;
+    }
+  }
+
+  async function requestInterpretationAudio(autoPlay) {
     if (
       interactionState !== INTERACTION_STATES.LOT_INTERPRETED
       || !publicFortuneSession
@@ -822,6 +997,9 @@
       bindInterpretationAudioEvents(audioElement, sessionId);
       interpretationAudioState = INTERPRETATION_AUDIO_STATES.READY;
       renderInterpretationAudioState();
+      if (autoPlay) {
+        await playInterpretationAudio(audioElement, sessionId, true);
+      }
     } catch (error) {
       if (
         !pageIsActive
@@ -853,7 +1031,7 @@
       !interpretationAudioElement
       || interpretationAudioSessionId !== publicFortuneSession.id
     ) {
-      await requestInterpretationAudio();
+      await requestInterpretationAudio(false);
       return;
     }
 
@@ -869,32 +1047,11 @@
       }
       return;
     }
-    if (interpretationAudioState === INTERPRETATION_AUDIO_STATES.ENDED) {
-      audioElement.currentTime = 0;
-    }
-
-    interpretationAudioState = INTERPRETATION_AUDIO_STATES.STARTING;
-    renderInterpretationAudioState();
-    try {
-      const playResult = audioElement.play();
-      if (playResult && typeof playResult.then === 'function') {
-        await playResult;
-      }
-      if (
-        interpretationAudioElement === audioElement
-        && interpretationAudioSessionId === publicFortuneSession.id
-        && interpretationAudioState === INTERPRETATION_AUDIO_STATES.STARTING
-      ) {
-        interpretationAudioState = INTERPRETATION_AUDIO_STATES.PLAYING;
-        renderInterpretationAudioState();
-      }
-    } catch (error) {
-      if (interpretationAudioElement !== audioElement) {
-        return;
-      }
-      interpretationAudioState = INTERPRETATION_AUDIO_STATES.ERROR;
-      renderInterpretationAudioState();
-    }
+    await playInterpretationAudio(
+      audioElement,
+      publicFortuneSession.id,
+      false
+    );
   }
 
   function updateWishPaper(text, isFinal) {
@@ -916,6 +1073,7 @@
   }
 
   function renderInteractionError(kind, message) {
+    page.dataset.fortuneState = interactionState;
     page.classList.remove('is-listening');
     page.classList.remove('has-microphone-error', 'has-asr-error');
     if (kind === 'microphone') {
@@ -934,50 +1092,13 @@
       speechDetail.textContent =
         '请确认语音识别服务已启动后再试。';
     }
+    speechTitle.hidden = false;
+    speechMessage.hidden = false;
     speechMessage.textContent = message;
-    speakControlButton.textContent = '重新诉说';
+    speakControlButton.textContent = '按住重新诉说';
     speakControlButton.disabled = false;
     speakControlButton.hidden = false;
     setWishPaperBusy(false);
-  }
-
-  function completeIncenseOffering() {
-    if (interactionState !== INTERACTION_STATES.OFFERING_INCENSE) {
-      return;
-    }
-
-    interactionState = INTERACTION_STATES.WAITING_TO_SPEAK;
-    page.classList.remove('is-offering-incense');
-    page.classList.add('has-offered-incense');
-    offerIncenseButton.disabled = true;
-    offerIncenseButton.textContent = '香火已敬';
-    incenseState.textContent = '香火已起';
-    acolyteGuidance.textContent =
-      '香火已起，请慢慢说说您的处境。';
-    waitingState.hidden = false;
-    renderSpeechState();
-  }
-
-  function handleIncenseOffering() {
-    if (interactionState !== INTERACTION_STATES.IDLE) {
-      return;
-    }
-
-    interactionState = INTERACTION_STATES.OFFERING_INCENSE;
-    offerIncenseButton.disabled = true;
-    offerIncenseButton.textContent = '正在敬香……';
-    incenseState.textContent = '香火正在点亮';
-    page.classList.add('is-offering-incense');
-
-    if (prefersReducedMotion()) {
-      completeIncenseOffering();
-      return;
-    }
-
-    window.setTimeout(
-      completeIncenseOffering,
-      OFFERING_DURATION_MS
-    );
   }
 
   function closeActiveAsrSession() {
@@ -990,6 +1111,16 @@
 
   function startSpeakingSession() {
     if (
+      activeAsrSession
+      || (
+        interactionState !== INTERACTION_STATES.READY_TO_SPEAK
+        && interactionState !== INTERACTION_STATES.MICROPHONE_ERROR
+        && interactionState !== INTERACTION_STATES.ASR_ERROR
+      )
+    ) {
+      return false;
+    }
+    if (
       !window.FortuneAsrBrowser
       || typeof window.FortuneAsrBrowser.createSession !== 'function'
     ) {
@@ -998,11 +1129,12 @@
         'asr',
         '当前页面暂时无法启动语音识别，请重新诉说。'
       );
-      return;
+      return false;
     }
 
     closeActiveAsrSession();
     resetWishPaper();
+    finishRequested = false;
     interactionState = INTERACTION_STATES.REQUESTING_MICROPHONE;
     renderSpeechState();
     const generation = ++sessionGeneration;
@@ -1026,14 +1158,17 @@
         if (!isCurrentSession()) {
           return;
         }
-        interactionState = INTERACTION_STATES.SPEAKING;
+        interactionState = INTERACTION_STATES.LISTENING;
         renderSpeechState();
+        if (finishRequested) {
+          finishSpeaking();
+        }
       },
       onPartial(text) {
         if (
           !isCurrentSession()
           || (
-            interactionState !== INTERACTION_STATES.SPEAKING
+            interactionState !== INTERACTION_STATES.LISTENING
             && interactionState !== INTERACTION_STATES.FINISHING_ASR
           )
         ) {
@@ -1045,7 +1180,7 @@
         if (
           !isCurrentSession()
           || (
-            interactionState !== INTERACTION_STATES.SPEAKING
+            interactionState !== INTERACTION_STATES.LISTENING
             && interactionState !== INTERACTION_STATES.FINISHING_ASR
           )
         ) {
@@ -1054,10 +1189,16 @@
         const finalUpdated = updateWishPaper(text, true);
         if (completesSession && finalUpdated) {
           startAutomaticWishOffering(generation, session);
+        } else if (completesSession && !finalUpdated) {
+          recoverFromInvalidTranscript(generation, session);
         }
       },
       onTranscriptReady() {
-        if (!isCurrentSession() || !transcriptIsFinal) {
+        if (!isCurrentSession()) {
+          return;
+        }
+        if (!transcriptIsFinal || currentTranscript.trim() === '') {
+          recoverFromInvalidTranscript(generation, session);
           return;
         }
         startAutomaticWishOffering(generation, session);
@@ -1075,13 +1216,16 @@
           || (
             interactionState !== INTERACTION_STATES.REQUESTING_MICROPHONE
             && interactionState !== INTERACTION_STATES.CONNECTING_ASR
-            && interactionState !== INTERACTION_STATES.SPEAKING
+            && interactionState !== INTERACTION_STATES.LISTENING
             && interactionState !== INTERACTION_STATES.FINISHING_ASR
           )
         ) {
           return;
         }
         activeAsrSession = null;
+        finishRequested = false;
+        activePointerId = null;
+        keyboardPressActive = false;
         resetWishPaper();
         const microphoneError = error.kind === 'microphone';
         const workletError = error.kind === 'worklet';
@@ -1119,29 +1263,145 @@
         '暂时无法连接语音识别服务，请确认服务已启动后重试。'
       );
     });
+    return true;
   }
 
   function finishSpeaking() {
     if (
-      interactionState !== INTERACTION_STATES.SPEAKING
+      interactionState !== INTERACTION_STATES.LISTENING
       || !activeAsrSession
     ) {
-      return;
+      return false;
     }
-    activeAsrSession.finish();
+    return activeAsrSession.finish();
   }
 
-  function handleSpeakControl() {
+  function recoverFromInvalidTranscript(generation, session) {
     if (
-      interactionState === INTERACTION_STATES.WAITING_TO_SPEAK
-      || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
-      || interactionState === INTERACTION_STATES.ASR_ERROR
+      generation !== sessionGeneration
+      || activeAsrSession !== session
     ) {
-      startSpeakingSession();
+      return false;
+    }
+    closeActiveAsrSession();
+    resetWishPaper();
+    interactionState = INTERACTION_STATES.READY_TO_SPEAK;
+    renderSpeechState();
+    speechMessage.textContent = '没有听清，请按住重新诉说。';
+    return true;
+  }
+
+  function requestFinishAfterRelease() {
+    finishRequested = true;
+    if (interactionState === INTERACTION_STATES.LISTENING) {
+      finishSpeaking();
+    }
+  }
+
+  function handleSpeakPointerDown(event) {
+    if (
+      activePointerId !== null
+      || keyboardPressActive
+      || (event && event.isPrimary === false)
+      || (event && Number.isFinite(event.button) && event.button !== 0)
+    ) {
       return;
     }
-    if (interactionState === INTERACTION_STATES.SPEAKING) {
-      finishSpeaking();
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    const pointerId = event && Number.isFinite(event.pointerId)
+      ? event.pointerId
+      : 1;
+    activePointerId = pointerId;
+    if (typeof speakControlButton.setPointerCapture === 'function') {
+      try {
+        speakControlButton.setPointerCapture(pointerId);
+      } catch (error) {
+        activePointerId = null;
+        return;
+      }
+    }
+    if (!startSpeakingSession()) {
+      activePointerId = null;
+    }
+  }
+
+  function handleSpeakPointerEnd(event) {
+    if (
+      activePointerId === null
+      || (
+        event
+        && Number.isFinite(event.pointerId)
+        && event.pointerId !== activePointerId
+      )
+    ) {
+      return;
+    }
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    const pointerId = activePointerId;
+    activePointerId = null;
+    requestFinishAfterRelease();
+    if (
+      event
+      && event.type !== 'lostpointercapture'
+      && typeof speakControlButton.releasePointerCapture === 'function'
+    ) {
+      try {
+        speakControlButton.releasePointerCapture(pointerId);
+      } catch (error) {
+        // The capture may already have been released by the browser.
+      }
+    }
+  }
+
+  function isSpeakKey(event) {
+    return event && (event.key === ' ' || event.key === 'Enter');
+  }
+
+  function handleSpeakKeyDown(event) {
+    if (
+      !isSpeakKey(event)
+      || event.repeat
+      || keyboardPressActive
+      || activePointerId !== null
+    ) {
+      return;
+    }
+    event.preventDefault();
+    keyboardPressActive = true;
+    if (!startSpeakingSession()) {
+      keyboardPressActive = false;
+    }
+  }
+
+  function handleSpeakKeyUp(event) {
+    if (!isSpeakKey(event) || !keyboardPressActive) {
+      return;
+    }
+    event.preventDefault();
+    keyboardPressActive = false;
+    requestFinishAfterRelease();
+  }
+
+  function handleSpeakBlur() {
+    if (activePointerId !== null) {
+      const pointerId = activePointerId;
+      activePointerId = null;
+      requestFinishAfterRelease();
+      if (typeof speakControlButton.releasePointerCapture === 'function') {
+        try {
+          speakControlButton.releasePointerCapture(pointerId);
+        } catch (error) {
+          // The browser may have released capture while losing focus.
+        }
+      }
+    }
+    if (keyboardPressActive) {
+      keyboardPressActive = false;
+      requestFinishAfterRelease();
     }
   }
 
@@ -1150,12 +1410,12 @@
       !pageIsActive
       || generation !== sessionGeneration
       || generation !== wishOfferingGeneration
-      || interactionState !== INTERACTION_STATES.WISH_OFFERING
+      || interactionState !== INTERACTION_STATES.OFFERING_WISH
     ) {
       return false;
     }
     clearWishOfferingResources();
-    interactionState = INTERACTION_STATES.WISH_OFFERED;
+    interactionState = INTERACTION_STATES.DRAW_READY;
     renderSpeechState();
     if (typeof wishOfferingComplete.focus === 'function') {
       wishOfferingComplete.focus();
@@ -1178,7 +1438,7 @@
     currentTranscript = currentTranscript.trim();
     transcriptText.textContent = currentTranscript;
     wishOfferingGeneration = generation;
-    interactionState = INTERACTION_STATES.WISH_OFFERING;
+    interactionState = INTERACTION_STATES.OFFERING_WISH;
     prepareWishOfferingVisual();
     renderSpeechState();
     wishOfferingStage.classList.add('is-active');
@@ -1220,7 +1480,7 @@
   async function handleFortuneDraw() {
     if (
       (
-        interactionState !== INTERACTION_STATES.WISH_OFFERED
+        interactionState !== INTERACTION_STATES.DRAW_READY
         && interactionState !== INTERACTION_STATES.LOT_ERROR
       )
       || !transcriptIsFinal
@@ -1233,9 +1493,10 @@
     interactionState = INTERACTION_STATES.DRAWING_LOT;
     releaseInterpretationAudio();
     publicFortuneSession = null;
-    renderSpeechState();
     fortuneRequestGeneration += 1;
     const requestGeneration = fortuneRequestGeneration;
+    renderSpeechState();
+    startFortuneDrawAnimation(requestGeneration);
     fortuneRequestController = typeof window.AbortController === 'function'
       ? new window.AbortController()
       : { signal: undefined, abort() {} };
@@ -1269,10 +1530,8 @@
       }
 
       publicFortuneSession = responseBody.fortuneSession;
-      interactionState = INTERACTION_STATES.LOT_DRAWN;
-      renderSpeechState();
-      if (typeof fortuneResult.focus === 'function') {
-        fortuneResult.focus();
+      if (drawShakeComplete) {
+        startFortuneReveal(requestGeneration);
       }
     } catch (error) {
       if (
@@ -1282,6 +1541,7 @@
       ) {
         return;
       }
+      clearDrawAnimation();
       interactionState = INTERACTION_STATES.LOT_ERROR;
       renderSpeechState();
       if (typeof fortuneError.focus === 'function') {
@@ -1352,6 +1612,7 @@
       if (typeof interpretationResult.focus === 'function') {
         interpretationResult.focus();
       }
+      await requestInterpretationAudio(true);
     } catch (error) {
       if (
         !pageIsActive
@@ -1388,39 +1649,36 @@
     releaseInterpretationAudio();
     closeActiveAsrSession();
     clearWishOfferingResources();
-    if (
-      interactionState === INTERACTION_STATES.REQUESTING_MICROPHONE
-      || interactionState === INTERACTION_STATES.CONNECTING_ASR
-      || interactionState === INTERACTION_STATES.SPEAKING
-      || interactionState === INTERACTION_STATES.FINISHING_ASR
-      || interactionState === INTERACTION_STATES.WISH_OFFERING
-      || interactionState === INTERACTION_STATES.WISH_OFFERED
-      || interactionState === INTERACTION_STATES.DRAWING_LOT
-      || interactionState === INTERACTION_STATES.LOT_DRAWN
-      || interactionState === INTERACTION_STATES.LOT_ERROR
-      || interactionState === INTERACTION_STATES.INTERPRETING_LOT
-      || interactionState === INTERACTION_STATES.LOT_INTERPRETED
-      || interactionState === INTERACTION_STATES.INTERPRETATION_ERROR
-      || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
-      || interactionState === INTERACTION_STATES.ASR_ERROR
-    ) {
-      interactionState = INTERACTION_STATES.WAITING_TO_SPEAK;
-    }
+    clearDrawAnimation();
+    activePointerId = null;
+    keyboardPressActive = false;
+    finishRequested = false;
+    interactionState = INTERACTION_STATES.READY_TO_SPEAK;
   }
 
   function handlePageShow() {
     pageIsActive = true;
-    if (interactionState === INTERACTION_STATES.WAITING_TO_SPEAK) {
+    if (interactionState === INTERACTION_STATES.READY_TO_SPEAK) {
       resetWishPaper();
       renderSpeechState();
     }
   }
 
-  offerIncenseButton.addEventListener(
-    'click',
-    handleIncenseOffering
+  speakControlButton.addEventListener(
+    'pointerdown',
+    handleSpeakPointerDown
   );
-  speakControlButton.addEventListener('click', handleSpeakControl);
+  speakControlButton.addEventListener('pointerup', handleSpeakPointerEnd);
+  speakControlButton.addEventListener(
+    'pointercancel',
+    handleSpeakPointerEnd
+  );
+  speakControlButton.addEventListener(
+    'lostpointercapture',
+    handleSpeakPointerEnd
+  );
+  speakControlButton.addEventListener('keydown', handleSpeakKeyDown);
+  speakControlButton.addEventListener('keyup', handleSpeakKeyUp);
   drawFortuneButton.addEventListener('click', handleFortuneDraw);
   retryFortuneButton.addEventListener('click', handleFortuneDraw);
   interpretFortuneButton.addEventListener(
@@ -1435,6 +1693,12 @@
     'click',
     handleInterpretationAudioControl
   );
+  page.classList.add('has-offered-incense');
+  incenseState.textContent = '三柱清香已燃';
+  acolyteGuidance.textContent = '按住下方按钮，慢慢诉说您的心愿。';
+  resetWishPaper();
+  renderSpeechState();
+  window.addEventListener('blur', handleSpeakBlur);
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
   window.addEventListener('pageshow', handlePageShow);

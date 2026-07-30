@@ -81,6 +81,9 @@ class FakeElement {
     );
     this.focusCallCount = 0;
     this.getBoundingClientRectCallCount = 0;
+    this.pointerCaptureCalls = [];
+    this.pointerReleaseCalls = [];
+    this.capturedPointers = new Set();
     this.listeners = new Map();
     this.rect = {
       bottom: 0,
@@ -133,6 +136,16 @@ class FakeElement {
     this.focusCallCount += 1;
   }
 
+  setPointerCapture(pointerId) {
+    this.pointerCaptureCalls.push(pointerId);
+    this.capturedPointers.add(pointerId);
+  }
+
+  releasePointerCapture(pointerId) {
+    this.pointerReleaseCalls.push(pointerId);
+    this.capturedPointers.delete(pointerId);
+  }
+
   getBoundingClientRect() {
     this.getBoundingClientRectCallCount += 1;
     return { ...this.rect };
@@ -171,6 +184,31 @@ function flushPromises() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+function pointerEvent(type, pointerId = 1) {
+  return {
+    button: 0,
+    isPrimary: true,
+    pointerId,
+    preventDefaultCallCount: 0,
+    preventDefault() {
+      this.preventDefaultCallCount += 1;
+    },
+    type,
+  };
+}
+
+function startSpeakPress(runtime, pointerId = 1) {
+  const event = pointerEvent('pointerdown', pointerId);
+  runtime.speakControlButton.trigger('pointerdown', event);
+  return event;
+}
+
+function endSpeakPress(runtime, pointerId = 1, type = 'pointerup') {
+  const event = pointerEvent(type, pointerId);
+  runtime.speakControlButton.trigger(type, event);
+  return event;
+}
+
 function loadFortuneRuntime(options = {}) {
   const page = new FakeElement({
     classes: ['fortune-page'],
@@ -184,16 +222,14 @@ function loadFortuneRuntime(options = {}) {
     dataset: { fortuneCharacterImage: '' },
   });
   const fortuneCharacterUnavailable = new FakeElement({ hidden: true });
-  const offerButton = new FakeElement({
-    textContent: '敬上一炷香',
-  });
+  const offerButton = new FakeElement({ hidden: true });
   const incenseState = new FakeElement({
-    textContent: '香尚未点燃',
+    textContent: '三柱清香已燃',
   });
   const acolyteGuidance = new FakeElement({
-    textContent: '善信请静心，先敬上一炷香。',
+    textContent: '按住下方按钮，慢慢诉说您的心愿。',
   });
-  const waitingState = new FakeElement({ hidden: true });
+  const waitingState = new FakeElement();
   const speechTitle = new FakeElement({
     textContent: '等待诉说',
   });
@@ -204,15 +240,16 @@ function loadFortuneRuntime(options = {}) {
     textContent: '语音只用于当前识别，不会录制为音频文件。',
   });
   const speakControlButton = new FakeElement({
-    textContent: '开始诉说',
+    textContent: '按住诉说',
   });
   const transcriptStatus = new FakeElement({
-    textContent: '等待诉说',
+    textContent: '正在聆听',
   });
   const transcriptText = new FakeElement({
-    textContent: '您的话会写在这里。',
+    textContent: '',
   });
   const wishPaper = new FakeElement({
+    hidden: true,
     attributes: { 'aria-busy': 'false' },
     rect: {
       bottom: 590,
@@ -241,8 +278,9 @@ function loadFortuneRuntime(options = {}) {
   const wishOfferingComplete = new FakeElement({ hidden: true });
   const drawFortuneButton = new FakeElement({
     disabled: true,
-    textContent: '诚心求一签',
+    textContent: '开始抽签',
   });
+  const fortuneDrawAnimation = new FakeElement({ hidden: true });
   const fortuneError = new FakeElement({ hidden: true });
   const retryFortuneButton = new FakeElement({
     disabled: true,
@@ -296,6 +334,7 @@ function loadFortuneRuntime(options = {}) {
     ['[data-flying-wish-paper-text]', flyingWishPaperText],
     ['[data-wish-offering-complete]', wishOfferingComplete],
     ['[data-draw-fortune]', drawFortuneButton],
+    ['[data-fortune-draw-animation]', fortuneDrawAnimation],
     ['[data-fortune-error]', fortuneError],
     ['[data-retry-fortune]', retryFortuneButton],
     ['[data-fortune-result]', fortuneResult],
@@ -552,6 +591,7 @@ function loadFortuneRuntime(options = {}) {
     drawFortuneButton,
     fetchRequests,
     fortuneError,
+    fortuneDrawAnimation,
     fortuneResult,
     fortuneCharacterImage,
     fortuneCharacterUnavailable,
@@ -2846,38 +2886,469 @@ async function verifyModulePageExitAndFailureBoundaries() {
   );
 }
 
+function verifyStagedRitualStaticContract() {
+  const html = fs.readFileSync(FORTUNE_HTML_PATH, 'utf8');
+  const css = fs.readFileSync(ENTRY_CSS_PATH, 'utf8');
+  const js = fs.readFileSync(FORTUNE_JS_PATH, 'utf8');
+  const incenseSticks = html.match(
+    /class="incense-stick incense-stick-(?:left|center|right)"/g
+  ) || [];
+
+  assert.equal(incenseSticks.length, 3);
+  assert.equal(
+    (html.match(/class="incense-ember"/g) || []).length,
+    3
+  );
+  assert.match(html, /aria-label="香炉与三柱已经点燃的香"/);
+  assert.match(html, /data-incense-state aria-live="polite">三柱清香已燃/);
+  assert.doesNotMatch(html, /data-offer-incense|香火已敬|敬上一炷香/);
+  assert.equal(
+    (html.match(/data-speak-control>按住诉说<\/button>/g) || []).length,
+    1
+  );
+  assert.match(html, /data-wish-paper[^>]*hidden/);
+  assert.match(
+    html,
+    /data-wish-offering-complete[^>]*hidden[\s\S]*?data-draw-fortune disabled>开始抽签/
+  );
+  assert.match(
+    html,
+    /data-fortune-draw-animation[^>]*hidden[\s\S]*?lot-cylinder[\s\S]*?lot-draw-stick[\s\S]*?lot-draw-slip/
+  );
+  assert.match(html, /data-fortune-result[^>]*hidden/);
+  assert.match(html, /data-interpret-fortune>请道童解签/);
+  assert.match(
+    html,
+    /data-interpretation-audio-control[\s\S]*?hidden[\s\S]*?>\s*点击朗读/
+  );
+  assert.equal(
+    (
+      html.match(
+        /src="\.\/assets\/fortune\/daotong-guide-v1\.png"/g
+      ) || []
+    ).length,
+    1
+  );
+  assert.doesNotMatch(
+    html,
+    /<(?:input|textarea)\b|contenteditable=|听道童解签|下载语音/
+  );
+  assert.match(
+    css,
+    /\.fortune-page\s*\{[\s\S]*?height:\s*100dvh;[\s\S]*?overflow:\s*hidden;/
+  );
+  assert.match(
+    css,
+    /\.offering-stage\s*\{[\s\S]*?border:\s*0;[\s\S]*?background:\s*none;/
+  );
+  assert.match(css, /@keyframes lot-cylinder-shake\s*\{/);
+  assert.match(css, /@keyframes lot-cylinder-wait\s*\{/);
+  assert.match(css, /@keyframes lot-stick-rise\s*\{/);
+  assert.match(css, /@keyframes lot-slip-reveal\s*\{/);
+  assert.match(
+    js,
+    /wishPaper\.getBoundingClientRect\(\)[\s\S]*?wishFurnaceMouth\.getBoundingClientRect\(\)/
+  );
+  for (const eventName of [
+    'pointerdown',
+    'pointerup',
+    'pointercancel',
+    'lostpointercapture',
+  ]) {
+    assert.match(
+      js,
+      new RegExp(`addEventListener\\(\\s*'${eventName}'`)
+    );
+  }
+  assert.match(js, /speakControlButton\.setPointerCapture\(pointerId\)/);
+  assert.doesNotMatch(js, /touchstart|touchend|pointermove/);
+  assert.match(
+    js,
+    /startFortuneDrawAnimation\(requestGeneration\)[\s\S]*?window\.fetch\(FORTUNE_SESSION_API_URL/
+  );
+  assert.match(
+    js,
+    /drawShakeComplete[\s\S]*?startFortuneReveal\(requestGeneration\)/
+  );
+  assert.match(js, /await requestInterpretationAudio\(true\)/);
+  assert.match(
+    js,
+    /interpretationAudioAutoPlayAttemptCount \+= 1/
+  );
+  assert.doesNotMatch(
+    js,
+    /localStorage|sessionStorage|document\.cookie|innerHTML/
+  );
+}
+
+function verifyInitialReadyState() {
+  const runtime = loadFortuneRuntime();
+  assert.equal(runtime.page.dataset.fortuneState, 'ready-to-speak');
+  assert.equal(runtime.waitingState.hidden, false);
+  assert.equal(runtime.speakControlButton.hidden, false);
+  assert.equal(runtime.speakControlButton.textContent, '按住诉说');
+  assert.equal(runtime.speakControlButton.disabled, false);
+  assert.equal(runtime.wishPaper.hidden, true);
+  assert.equal(runtime.wishOfferingComplete.hidden, true);
+  assert.equal(runtime.fortuneDrawAnimation.hidden, true);
+  assert.equal(runtime.fortuneResult.hidden, true);
+  assert.equal(runtime.interpretationAudio.hidden, true);
+  assert.equal(runtime.fetchRequests.length, 0);
+  assert.equal(runtime.audioElements.length, 0);
+  assert.equal(
+    runtime.speakControlButton.listeners.get('pointerdown').length,
+    1
+  );
+  assert.equal(
+    runtime.speakControlButton.listeners.get('pointerup').length,
+    1
+  );
+  assert.equal(
+    runtime.speakControlButton.listeners.get('pointercancel').length,
+    1
+  );
+  assert.equal(
+    runtime.speakControlButton.listeners.get('lostpointercapture').length,
+    1
+  );
+  assert.equal(runtime.speakControlButton.listeners.has('click'), false);
+}
+
+async function reachStagedDrawnLot(runtime) {
+  const downEvent = startSpeakPress(runtime, 17);
+  assert.equal(downEvent.preventDefaultCallCount, 1);
+  assert.deepEqual(runtime.speakControlButton.pointerCaptureCalls, [17]);
+  startSpeakPress(runtime, 17);
+  assert.equal(runtime.asrSessions.length, 1);
+  await flushPromises();
+  assert.equal(runtime.page.dataset.fortuneState, 'listening');
+  assert.equal(runtime.speakControlButton.textContent, '松开结束');
+  assert.equal(runtime.wishPaper.hidden, false);
+  runtime.asrSessions[0].callbacks.onPartial('愿家人平安');
+  runtime.asrSessions[0].callbacks.onPartial('愿家人平安');
+  assert.equal(runtime.transcriptText.textContent, '愿家人平安');
+
+  const upEvent = endSpeakPress(runtime, 17);
+  assert.equal(upEvent.preventDefaultCallCount, 1);
+  assert.deepEqual(runtime.speakControlButton.pointerReleaseCalls, [17]);
+  assert.equal(runtime.asrSessions[0].finishCallCount, 1);
+  assert.equal(runtime.page.dataset.fortuneState, 'offering-wish');
+  assert.equal(runtime.transcriptText.textContent, '测试识别结果');
+  assert.equal(runtime.fetchRequests.length, 0);
+  assert.equal(runtime.wishPaper.getBoundingClientRectCallCount, 1);
+  assert.equal(runtime.wishFurnaceMouth.getBoundingClientRectCallCount, 1);
+
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: runtime.wishOfferingStage,
+  });
+  assert.equal(runtime.page.dataset.fortuneState, 'draw-ready');
+  assert.equal(runtime.drawFortuneButton.hidden, false);
+  assert.equal(runtime.drawFortuneButton.disabled, false);
+  assert.equal(runtime.drawFortuneButton.textContent, '开始抽签');
+
+  runtime.drawFortuneButton.trigger('click');
+  runtime.drawFortuneButton.trigger('click');
+  assert.equal(runtime.fetchRequests.length, 1);
+  assert.equal(runtime.page.dataset.fortuneState, 'drawing-lot');
+  assert.equal(runtime.fortuneDrawAnimation.hidden, false);
+  assert.equal(
+    runtime.fortuneDrawAnimation.classList.contains('is-shaking'),
+    true
+  );
+  await flushPromises();
+  assert.equal(runtime.fortuneResult.hidden, true);
+  runtime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-cylinder-shake',
+    target: runtime.fortuneDrawAnimation,
+  });
+  assert.equal(
+    runtime.fortuneDrawAnimation.classList.contains('is-revealing'),
+    true
+  );
+  assert.equal(runtime.fortuneResult.hidden, true);
+  runtime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-slip-reveal',
+    target: runtime.fortuneDrawAnimation,
+  });
+  assert.equal(runtime.page.dataset.fortuneState, 'lot-drawn');
+  assert.equal(runtime.fortuneResult.hidden, false);
+  assert.equal(runtime.interpretFortuneButton.hidden, false);
+  assert.equal(runtime.interpretFortuneButton.textContent, '请道童解签');
+  assert.equal(runtime.audioElements.length, 0);
+  return runtime;
+}
+
+async function verifyPointerKeyboardAndStagedFlow() {
+  const runtime = await reachStagedDrawnLot(loadFortuneRuntime());
+  runtime.interpretFortuneButton.trigger('click');
+  runtime.interpretFortuneButton.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  assert.equal(runtime.fetchRequests.length, 3);
+  assert.equal(
+    runtime.fetchRequests[1].pathname,
+    '/api/fortune-sessions/fortune-ui-test/interpretation'
+  );
+  assert.equal(
+    runtime.fetchRequests[2].pathname,
+    '/api/fortune-sessions/fortune-ui-test/interpretation-audio'
+  );
+  assert.equal(Object.hasOwn(runtime.fetchRequests[2], 'body'), false);
+  assert.equal(runtime.page.dataset.fortuneState, 'lot-interpreted');
+  assert.equal(runtime.interpretationResult.hidden, false);
+  assert.match(runtime.interpretationText.textContent, /先稳住心绪/);
+  assert.equal(runtime.audioElements.length, 1);
+  assert.equal(runtime.audioElements[0].playCallCount, 1);
+  assert.equal(runtime.interpretationAudioControl.hidden, true);
+
+  runtime.triggerWindow('pagehide');
+  assert.equal(runtime.audioElements[0].pauseCallCount, 1);
+  assert.deepEqual(runtime.revokedObjectUrls, ['blob:fortune-audio-1']);
+
+  const keyboardRuntime = loadFortuneRuntime();
+  const keyDown = {
+    key: ' ',
+    repeat: false,
+    preventDefaultCallCount: 0,
+    preventDefault() {
+      this.preventDefaultCallCount += 1;
+    },
+  };
+  keyboardRuntime.speakControlButton.trigger('keydown', keyDown);
+  keyboardRuntime.speakControlButton.trigger('keydown', {
+    ...keyDown,
+    repeat: true,
+  });
+  await flushPromises();
+  assert.equal(keyboardRuntime.asrSessions.length, 1);
+  keyboardRuntime.speakControlButton.trigger('keyup', {
+    key: ' ',
+    preventDefault() {},
+  });
+  assert.equal(keyboardRuntime.asrSessions[0].finishCallCount, 1);
+
+  const cancelRuntime = loadFortuneRuntime();
+  startSpeakPress(cancelRuntime, 23);
+  await flushPromises();
+  endSpeakPress(cancelRuntime, 23, 'pointercancel');
+  assert.equal(cancelRuntime.asrSessions[0].finishCallCount, 1);
+
+  const lostRuntime = loadFortuneRuntime();
+  startSpeakPress(lostRuntime, 29);
+  await flushPromises();
+  endSpeakPress(lostRuntime, 29, 'lostpointercapture');
+  assert.equal(lostRuntime.asrSessions[0].finishCallCount, 1);
+}
+
+async function verifyAutoplayRejectionFallback() {
+  const runtime = await reachStagedDrawnLot(loadFortuneRuntime({
+    audioPlayImpl() {
+      const error = new Error('play() failed because autoplay is blocked');
+      error.name = 'NotAllowedError';
+      return Promise.reject(error);
+    },
+  }));
+  runtime.interpretFortuneButton.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  assert.match(runtime.interpretationText.textContent, /先稳住心绪/);
+  assert.equal(runtime.audioElements[0].playCallCount, 1);
+  assert.equal(runtime.interpretationAudioControl.hidden, false);
+  assert.equal(runtime.interpretationAudioControl.textContent, '点击朗读');
+  assert.match(
+    runtime.interpretationAudioStatus.textContent,
+    /浏览器未能自动播放/
+  );
+}
+
+async function reachDrawReady(runtime) {
+  startSpeakPress(runtime, 41);
+  await flushPromises();
+  endSpeakPress(runtime, 41);
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: runtime.wishOfferingStage,
+  });
+  assert.equal(runtime.page.dataset.fortuneState, 'draw-ready');
+  return runtime;
+}
+
+async function verifyDrawWaitingFailureAndInvalidFinal() {
+  const responseDeferred = createDeferred();
+  const waitingRuntime = await reachDrawReady(loadFortuneRuntime({
+    fetchImpl() {
+      return responseDeferred.promise;
+    },
+  }));
+  waitingRuntime.drawFortuneButton.trigger('click');
+  waitingRuntime.drawFortuneButton.trigger('click');
+  assert.equal(waitingRuntime.fetchRequests.length, 1);
+  waitingRuntime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-cylinder-shake',
+    target: waitingRuntime.fortuneDrawAnimation,
+  });
+  assert.equal(
+    waitingRuntime.fortuneDrawAnimation.classList.contains('is-waiting'),
+    true
+  );
+  assert.equal(
+    waitingRuntime.fortuneDrawAnimation.classList.contains('is-shaking'),
+    false
+  );
+  responseDeferred.resolve(createFortuneResponse());
+  await flushPromises();
+  assert.equal(
+    waitingRuntime.fortuneDrawAnimation.classList.contains('is-revealing'),
+    true
+  );
+
+  const failureRuntime = await reachDrawReady(loadFortuneRuntime({
+    fetchImpl: async () => ({
+      ok: false,
+      async json() {
+        return {};
+      },
+    }),
+  }));
+  failureRuntime.drawFortuneButton.trigger('click');
+  await flushPromises();
+  assert.equal(failureRuntime.page.dataset.fortuneState, 'lot-error');
+  assert.equal(failureRuntime.fortuneDrawAnimation.hidden, true);
+  assert.equal(failureRuntime.fortuneResult.hidden, true);
+  assert.equal(failureRuntime.retryFortuneButton.disabled, false);
+
+  const invalidSessions = [];
+  const invalidRuntime = loadFortuneRuntime({
+    createSession(callbacks) {
+      const session = {
+        callbacks,
+        closeCallCount: 0,
+        finishCallCount: 0,
+        async start() {
+          callbacks.onConnecting();
+          callbacks.onStarted();
+          return true;
+        },
+        finish() {
+          this.finishCallCount += 1;
+          callbacks.onFinishing();
+          callbacks.onFinal('   ', true);
+          return true;
+        },
+        close() {
+          this.closeCallCount += 1;
+          callbacks.onClosed();
+          return true;
+        },
+      };
+      invalidSessions.push(session);
+      return session;
+    },
+  });
+  startSpeakPress(invalidRuntime, 53);
+  await flushPromises();
+  endSpeakPress(invalidRuntime, 53);
+  assert.equal(invalidSessions[0].finishCallCount, 1);
+  assert.equal(invalidRuntime.page.dataset.fortuneState, 'ready-to-speak');
+  assert.equal(invalidRuntime.wishOfferingStage.hidden, true);
+  assert.equal(invalidRuntime.wishPaper.hidden, true);
+  assert.match(invalidRuntime.speechMessage.textContent, /没有听清/);
+  assert.equal(invalidRuntime.fetchRequests.length, 0);
+}
+
+async function verifyTtsFailureAndPendingRequestCleanup() {
+  const ttsFailureRuntime = await reachStagedDrawnLot(loadFortuneRuntime({
+    fetchImpl(pathname) {
+      if (pathname.endsWith('/interpretation-audio')) {
+        return Promise.resolve(createAudioResponse({ ok: false }));
+      }
+      if (pathname.endsWith('/interpretation')) {
+        return Promise.resolve(createInterpretationResponse());
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
+  }));
+  ttsFailureRuntime.interpretFortuneButton.trigger('click');
+  await flushPromises();
+  await flushPromises();
+  assert.match(ttsFailureRuntime.interpretationText.textContent, /先稳住心绪/);
+  assert.equal(ttsFailureRuntime.audioElements.length, 0);
+  assert.match(
+    ttsFailureRuntime.interpretationAudioStatus.textContent,
+    /朗读暂时不可用/
+  );
+
+  const interpretationDeferred = createDeferred();
+  const pendingInterpretationRuntime = await reachStagedDrawnLot(
+    loadFortuneRuntime({
+      fetchImpl(pathname) {
+        if (pathname.endsWith('/interpretation')) {
+          return interpretationDeferred.promise;
+        }
+        return Promise.resolve(createFortuneResponse());
+      },
+    })
+  );
+  pendingInterpretationRuntime.interpretFortuneButton.trigger('click');
+  const interpretationController =
+    pendingInterpretationRuntime.abortControllers.at(-1);
+  pendingInterpretationRuntime.triggerWindow('pagehide');
+  assert.equal(interpretationController.abortCallCount, 1);
+  interpretationDeferred.resolve(createInterpretationResponse());
+  await flushPromises();
+  assert.equal(pendingInterpretationRuntime.interpretationResult.hidden, true);
+
+  const audioDeferred = createDeferred();
+  const pendingAudioRuntime = await reachStagedDrawnLot(loadFortuneRuntime({
+    fetchImpl(pathname) {
+      if (pathname.endsWith('/interpretation-audio')) {
+        return audioDeferred.promise;
+      }
+      if (pathname.endsWith('/interpretation')) {
+        return Promise.resolve(createInterpretationResponse());
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
+  }));
+  pendingAudioRuntime.interpretFortuneButton.trigger('click');
+  await flushPromises();
+  assert.match(pendingAudioRuntime.interpretationText.textContent, /先稳住心绪/);
+  const audioController = pendingAudioRuntime.abortControllers.at(-1);
+  pendingAudioRuntime.triggerWindow('pagehide');
+  assert.equal(audioController.abortCallCount, 1);
+  audioDeferred.resolve(createAudioResponse());
+  await flushPromises();
+  assert.equal(pendingAudioRuntime.audioElements.length, 0);
+}
+
 async function main() {
-  verifyStaticSceneAndSafety();
+  verifyStagedRitualStaticContract();
+  verifyInitialReadyState();
   verifyCharacterVisualSelection();
-  verifySingleOfferingFlow();
-  verifyReducedMotionAndRefreshReset();
-  await verifyMicrophoneStartStopAndConcurrency();
-  await verifyMicrophoneErrorsAndRetry();
-  await verifyPageExitCleanup();
+  await verifyPointerKeyboardAndStagedFlow();
+  await verifyAutoplayRejectionFallback();
+  await verifyDrawWaitingFailureAndInvalidFinal();
+  await verifyTtsFailureAndPendingRequestCleanup();
   verifyRelayUrlAndInitialPrivacy();
   await verifyStartProtocolAndRealSampleRate();
   await verifyTailFinishFinalAndCleanup();
-  await verifyPartialFinalPreviewAndStaleRetry();
-  await verifyWishPaperAutomaticAdoptionAndErrors();
-  await verifyWishOfferingAnimationAndCleanup();
-  await verifyFortuneDrawFlowAndRetry();
-  await verifyFortuneInterpretationFlowAndSafety();
-  await verifyInterpretationAudioLifecycle();
   await verifyAsrErrorsTimeoutAndIdempotentClose();
   await verifyModulePageExitAndFailureBoundaries();
 
   process.stdout.write('fortune_incense_interaction_test: PASS\n');
   process.stdout.write(
-    'verified=temple-scene,incense-offering,reduced-motion,'
+    'verified=single-shrine-scene,three-incense-sticks,pointer-only-hold,'
+      + 'pointer-capture,cancel-lost-capture,keyboard-hold,'
       + 'microphone-user-gesture,single-request,start-stop,'
-      + 'all-tracks-stopped,permission-error,retry,unsupported-api,'
-      + 'pagehide-beforeunload,late-stream-cleanup,no-recording-upload,'
+      + 'all-tracks-stopped,pagehide-beforeunload,no-recording-upload,'
       + 'relay-url,start-started,real-sample-rate,resample-pcm16-le,'
-      + 'binary-chunks,tail-before-finish,partial-final-preview,'
+      + 'binary-chunks,tail-before-finish,partial-final-wish-paper,'
       + 'wish-paper-auto-adoption,wish-offering-animation,'
-      + 'fixed-fortune-draw,manual-fortune-retry,'
+      + 'finite-draw-shake,low-frequency-wait,response-gated-reveal,'
       + 'fortune-interpretation,interpretation-safe-render,'
-      + 'interpretation-audio,manual-audio-playback,blob-url-cleanup,'
+      + 'interpretation-audio,automatic-audio-attempt,autoplay-fallback,'
+      + 'blob-url-cleanup,'
       + 'final-timeout,asr-error,'
       + 'abnormal-close,stale-session\n'
   );
