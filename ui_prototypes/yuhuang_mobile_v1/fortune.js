@@ -14,8 +14,6 @@
     CONNECTING_ASR: 'connecting-asr',
     SPEAKING: 'speaking',
     FINISHING_ASR: 'finishing-asr',
-    TRANSCRIPT_READY: 'transcript-ready',
-    TRANSCRIPT_CONFIRMED: 'transcript-confirmed',
     WISH_OFFERING: 'wish-offering',
     WISH_OFFERED: 'wish-offered',
     DRAWING_LOT: 'drawing-lot',
@@ -60,21 +58,6 @@
     '[data-transcript-text]'
   );
   const wishPaper = document.querySelector('[data-wish-paper]');
-  const transcriptActions = document.querySelector(
-    '[data-transcript-actions]'
-  );
-  const confirmTranscriptButton = document.querySelector(
-    '[data-confirm-transcript]'
-  );
-  const retryTranscriptButton = document.querySelector(
-    '[data-retry-transcript]'
-  );
-  const wishNextStep = document.querySelector(
-    '[data-wish-next-step]'
-  );
-  const offerWishButton = document.querySelector(
-    '[data-offer-wish]'
-  );
   const wishOfferingComplete = document.querySelector(
     '[data-wish-offering-complete]'
   );
@@ -128,11 +111,6 @@
     || !transcriptStatus
     || !transcriptText
     || !wishPaper
-    || !transcriptActions
-    || !confirmTranscriptButton
-    || !retryTranscriptButton
-    || !wishNextStep
-    || !offerWishButton
     || !wishOfferingComplete
     || !drawFortuneButton
     || !fortuneError
@@ -161,6 +139,8 @@
   let transcriptIsFinal = false;
   let pageIsActive = true;
   let wishOfferingTimer = null;
+  let wishOfferingAnimationHandler = null;
+  let wishOfferingGeneration = null;
   let fortuneRequestController = null;
   let fortuneRequestGeneration = 0;
   let publicFortuneSession = null;
@@ -183,21 +163,18 @@
     wishPaper.setAttribute('aria-busy', isBusy ? 'true' : 'false');
   }
 
-  function hideTranscriptActions() {
-    transcriptActions.hidden = true;
-    confirmTranscriptButton.disabled = true;
-    retryTranscriptButton.disabled = true;
-  }
-
   function clearWishOfferingResources() {
     if (wishOfferingTimer !== null) {
       window.clearTimeout(wishOfferingTimer);
       wishOfferingTimer = null;
     }
-    wishPaper.removeEventListener(
-      'animationend',
-      handleWishOfferingAnimationEnd
-    );
+    if (wishOfferingAnimationHandler !== null) {
+      wishPaper.removeEventListener(
+        'animationend',
+        wishOfferingAnimationHandler
+      );
+      wishOfferingAnimationHandler = null;
+    }
     page.classList.remove('is-wish-offering');
   }
 
@@ -286,14 +263,9 @@
       'is-listening',
       'has-microphone-error',
       'has-asr-error',
-      'has-confirmed-wish',
       'has-offered-wish'
     );
     speakControlButton.hidden = false;
-    hideTranscriptActions();
-    wishNextStep.hidden = true;
-    offerWishButton.disabled = true;
-    offerWishButton.textContent = '奉入香炉';
     wishOfferingComplete.hidden = true;
     fortuneError.hidden = true;
     fortuneResult.hidden = true;
@@ -373,61 +345,24 @@
       return;
     }
 
-    if (interactionState === INTERACTION_STATES.TRANSCRIPT_READY) {
-      speechTitle.textContent = '识别完成';
-      speechMessage.textContent = '识别完成';
-      speechDetail.textContent =
-        '这些话仅保留在当前页面，请确认是否准确。';
-      speakControlButton.textContent = '识别完成';
-      speakControlButton.disabled = true;
-      speakControlButton.hidden = true;
-      transcriptStatus.textContent = '这些话，正是您想说的吗？';
-      setWishPaperBusy(false);
-      transcriptActions.hidden = false;
-      confirmTranscriptButton.disabled = false;
-      retryTranscriptButton.disabled = false;
-      return;
-    }
-
-    if (
-      interactionState === INTERACTION_STATES.TRANSCRIPT_CONFIRMED
-    ) {
-      page.classList.add('has-confirmed-wish');
-      speechTitle.textContent = '心愿已确认';
-      speechMessage.textContent =
-        '心愿已确认，下一步将敬呈殿前。';
-      speechDetail.textContent = '这些话仅保留在当前页面。';
-      speakControlButton.textContent = '心愿已确认';
-      speakControlButton.disabled = true;
-      speakControlButton.hidden = true;
-      transcriptStatus.textContent = '心愿已确认';
-      setWishPaperBusy(false);
-      wishNextStep.hidden = false;
-      offerWishButton.disabled = false;
-      return;
-    }
-
     if (interactionState === INTERACTION_STATES.WISH_OFFERING) {
       page.classList.add('is-wish-offering');
-      speechTitle.textContent = '正在奉入香炉';
-      speechMessage.textContent = '正在奉入香炉……';
+      speechTitle.textContent = '心愿已记下';
+      speechMessage.textContent = '心愿已记下，正在敬呈……';
       speechDetail.textContent = '请稍候，心愿纸正在殿前化作轻烟。';
       speakControlButton.textContent = '正在呈愿';
       speakControlButton.disabled = true;
       speakControlButton.hidden = true;
-      transcriptStatus.textContent = '正在奉入香炉……';
+      transcriptStatus.textContent = '正在呈愿';
       setWishPaperBusy(true);
       wishPaper.setAttribute('aria-hidden', 'true');
-      wishNextStep.hidden = false;
-      offerWishButton.disabled = true;
-      offerWishButton.textContent = '正在奉入香炉……';
       return;
     }
 
     if (interactionState === INTERACTION_STATES.WISH_OFFERED) {
       page.classList.add('has-offered-wish');
       speechTitle.textContent = '心愿已呈';
-      speechMessage.textContent = '心意已达殿前，请静候求签。';
+      speechMessage.textContent = '呈愿完成，可以求签。';
       speechDetail.textContent = '下一步将为您诚心求取一签。';
       speakControlButton.textContent = '心愿已呈';
       speakControlButton.disabled = true;
@@ -514,6 +449,8 @@
 
   function resetWishPaper() {
     releaseInterpretationAudio();
+    clearWishOfferingResources();
+    wishOfferingGeneration = null;
     currentTranscript = '';
     transcriptIsFinal = false;
     publicFortuneSession = null;
@@ -521,12 +458,9 @@
     transcriptStatus.textContent = '等待诉说';
     transcriptText.textContent = '您的话会写在这里。';
     setWishPaperBusy(false);
-    hideTranscriptActions();
-    wishNextStep.hidden = true;
     wishOfferingComplete.hidden = true;
     wishPaper.hidden = false;
     wishPaper.removeAttribute('aria-hidden');
-    page.classList.remove('has-confirmed-wish');
     page.classList.remove('has-offered-wish');
   }
 
@@ -793,15 +727,16 @@
     if (typeof text !== 'string' || text.trim() === '') {
       return false;
     }
-    if (!isFinal && text === currentTranscript) {
+    const nextText = isFinal ? text.trim() : text;
+    if (!isFinal && nextText === currentTranscript) {
       return false;
     }
-    currentTranscript = text;
+    currentTranscript = nextText;
     transcriptIsFinal = isFinal;
     transcriptStatus.textContent = isFinal
-      ? '这些话，正是您想说的吗？'
+      ? '心愿已记下'
       : '道童正在代您记下……';
-    transcriptText.textContent = text;
+    transcriptText.textContent = nextText;
     setWishPaperBusy(!isFinal);
     return true;
   }
@@ -830,8 +765,6 @@
     speakControlButton.disabled = false;
     speakControlButton.hidden = false;
     setWishPaperBusy(false);
-    hideTranscriptActions();
-    wishNextStep.hidden = true;
   }
 
   function completeIncenseOffering() {
@@ -946,16 +879,14 @@
         }
         const finalUpdated = updateWishPaper(text, true);
         if (completesSession && finalUpdated) {
-          interactionState = INTERACTION_STATES.TRANSCRIPT_READY;
-          renderSpeechState();
+          startAutomaticWishOffering(generation, session);
         }
       },
       onTranscriptReady() {
         if (!isCurrentSession() || !transcriptIsFinal) {
           return;
         }
-        interactionState = INTERACTION_STATES.TRANSCRIPT_READY;
-        renderSpeechState();
+        startAutomaticWishOffering(generation, session);
       },
       onFinishing() {
         if (!isCurrentSession()) {
@@ -967,7 +898,12 @@
       onError(error) {
         if (
           !isCurrentSession()
-          || interactionState === INTERACTION_STATES.TRANSCRIPT_READY
+          || (
+            interactionState !== INTERACTION_STATES.REQUESTING_MICROPHONE
+            && interactionState !== INTERACTION_STATES.CONNECTING_ASR
+            && interactionState !== INTERACTION_STATES.SPEAKING
+            && interactionState !== INTERACTION_STATES.FINISHING_ASR
+          )
         ) {
           return;
         }
@@ -1035,29 +971,14 @@
     }
   }
 
-  function handleTranscriptConfirm() {
+  function completeWishOffering(generation) {
     if (
-      interactionState !== INTERACTION_STATES.TRANSCRIPT_READY
-      || !transcriptIsFinal
-      || currentTranscript.trim() === ''
+      !pageIsActive
+      || generation !== sessionGeneration
+      || generation !== wishOfferingGeneration
+      || interactionState !== INTERACTION_STATES.WISH_OFFERING
     ) {
-      return;
-    }
-    interactionState = INTERACTION_STATES.TRANSCRIPT_CONFIRMED;
-    closeActiveAsrSession();
-    renderSpeechState();
-  }
-
-  function handleTranscriptRetry() {
-    if (interactionState !== INTERACTION_STATES.TRANSCRIPT_READY) {
-      return;
-    }
-    startSpeakingSession();
-  }
-
-  function completeWishOffering() {
-    if (interactionState !== INTERACTION_STATES.WISH_OFFERING) {
-      return;
+      return false;
     }
     clearWishOfferingResources();
     interactionState = INTERACTION_STATES.WISH_OFFERED;
@@ -1065,43 +986,61 @@
     if (typeof wishOfferingComplete.focus === 'function') {
       wishOfferingComplete.focus();
     }
+    return true;
   }
 
-  function handleWishOfferingAnimationEnd(event) {
-    if (event && event.target !== wishPaper) {
-      return;
-    }
+  function startAutomaticWishOffering(generation, session) {
     if (
-      event
-      && event.animationName
-      && event.animationName !== 'wish-paper-offering'
-      && event.animationName !== 'wish-paper-offering-reduced'
-    ) {
-      return;
-    }
-    completeWishOffering();
-  }
-
-  function handleWishOffering() {
-    if (
-      interactionState !== INTERACTION_STATES.TRANSCRIPT_CONFIRMED
+      !pageIsActive
+      || generation !== sessionGeneration
+      || activeAsrSession !== session
+      || interactionState !== INTERACTION_STATES.FINISHING_ASR
       || !transcriptIsFinal
       || currentTranscript.trim() === ''
+      || wishOfferingGeneration !== null
     ) {
-      return;
+      return false;
     }
+    currentTranscript = currentTranscript.trim();
+    transcriptText.textContent = currentTranscript;
+    wishOfferingGeneration = generation;
     interactionState = INTERACTION_STATES.WISH_OFFERING;
     renderSpeechState();
+    const animationHandler = (event) => {
+      if (event && event.target !== wishPaper) {
+        return;
+      }
+      if (
+        event
+        && event.animationName
+        && event.animationName !== 'wish-paper-offering'
+        && event.animationName !== 'wish-paper-offering-reduced'
+      ) {
+        return;
+      }
+      completeWishOffering(generation);
+    };
+    wishOfferingAnimationHandler = animationHandler;
     wishPaper.addEventListener(
       'animationend',
-      handleWishOfferingAnimationEnd
+      animationHandler
     );
     wishOfferingTimer = window.setTimeout(
-      completeWishOffering,
+      () => completeWishOffering(generation),
       prefersReducedMotion()
         ? REDUCED_WISH_OFFERING_FALLBACK_MS
         : WISH_OFFERING_FALLBACK_MS
     );
+    Promise.resolve().then(() => {
+      if (
+        pageIsActive
+        && generation === sessionGeneration
+        && activeAsrSession === session
+      ) {
+        closeActiveAsrSession();
+      }
+    });
+    return true;
   }
 
   async function handleFortuneDraw() {
@@ -1280,8 +1219,6 @@
       || interactionState === INTERACTION_STATES.CONNECTING_ASR
       || interactionState === INTERACTION_STATES.SPEAKING
       || interactionState === INTERACTION_STATES.FINISHING_ASR
-      || interactionState === INTERACTION_STATES.TRANSCRIPT_READY
-      || interactionState === INTERACTION_STATES.TRANSCRIPT_CONFIRMED
       || interactionState === INTERACTION_STATES.WISH_OFFERING
       || interactionState === INTERACTION_STATES.WISH_OFFERED
       || interactionState === INTERACTION_STATES.DRAWING_LOT
@@ -1310,15 +1247,6 @@
     handleIncenseOffering
   );
   speakControlButton.addEventListener('click', handleSpeakControl);
-  confirmTranscriptButton.addEventListener(
-    'click',
-    handleTranscriptConfirm
-  );
-  retryTranscriptButton.addEventListener(
-    'click',
-    handleTranscriptRetry
-  );
-  offerWishButton.addEventListener('click', handleWishOffering);
   drawFortuneButton.addEventListener('click', handleFortuneDraw);
   retryFortuneButton.addEventListener('click', handleFortuneDraw);
   interpretFortuneButton.addEventListener(

@@ -2083,17 +2083,9 @@ function verifyFeatureChoiceAndFortuneEntry() {
     fortuneHtml,
     /<section class="wish-paper" data-wish-paper[\s\S]*?道童代您写下/
   );
-  assert.match(
+  assert.doesNotMatch(
     fortuneHtml,
-    /<button class="wish-confirm-button" type="button" data-confirm-transcript>就是这个意思<\/button>/
-  );
-  assert.match(
-    fortuneHtml,
-    /<button class="wish-retry-button" type="button" data-retry-transcript>重新说一遍<\/button>/
-  );
-  assert.match(
-    fortuneHtml,
-    /<button class="wish-offer-button" type="button" data-offer-wish>奉入香炉<\/button>/
+    /data-(?:transcript-actions|confirm-transcript|retry-transcript|wish-next-step|offer-wish)|就是这个意思|重新说一遍|奉入香炉/
   );
   assert.match(
     fortuneHtml,

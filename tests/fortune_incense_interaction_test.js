@@ -163,22 +163,6 @@ function loadFortuneRuntime(options = {}) {
   const wishPaper = new FakeElement({
     attributes: { 'aria-busy': 'false' },
   });
-  const transcriptActions = new FakeElement({ hidden: true });
-  const confirmTranscriptButton = new FakeElement({
-    disabled: true,
-    hidden: false,
-    textContent: '就是这个意思',
-  });
-  const retryTranscriptButton = new FakeElement({
-    disabled: true,
-    hidden: false,
-    textContent: '重新说一遍',
-  });
-  const wishNextStep = new FakeElement({ hidden: true });
-  const offerWishButton = new FakeElement({
-    disabled: true,
-    textContent: '奉入香炉',
-  });
   const wishOfferingComplete = new FakeElement({ hidden: true });
   const drawFortuneButton = new FakeElement({
     disabled: true,
@@ -226,11 +210,6 @@ function loadFortuneRuntime(options = {}) {
     ['[data-transcript-status]', transcriptStatus],
     ['[data-transcript-text]', transcriptText],
     ['[data-wish-paper]', wishPaper],
-    ['[data-transcript-actions]', transcriptActions],
-    ['[data-confirm-transcript]', confirmTranscriptButton],
-    ['[data-retry-transcript]', retryTranscriptButton],
-    ['[data-wish-next-step]', wishNextStep],
-    ['[data-offer-wish]', offerWishButton],
     ['[data-wish-offering-complete]', wishOfferingComplete],
     ['[data-draw-fortune]', drawFortuneButton],
     ['[data-fortune-error]', fortuneError],
@@ -479,7 +458,6 @@ function loadFortuneRuntime(options = {}) {
 
   return {
     acolyteGuidance,
-    confirmTranscriptButton,
     defaultStream,
     drawFortuneButton,
     fetchRequests,
@@ -499,9 +477,7 @@ function loadFortuneRuntime(options = {}) {
     lotTitle,
     lotVerses,
     offerButton,
-    offerWishButton,
     page,
-    retryTranscriptButton,
     retryFortuneButton,
     retryInterpretationButton,
     speakControlButton,
@@ -511,7 +487,6 @@ function loadFortuneRuntime(options = {}) {
     timers,
     transcriptStatus,
     transcriptText,
-    transcriptActions,
     asrSessions,
     triggerWindow(eventName) {
       for (const handler of windowListeners.get(eventName) || []) {
@@ -519,7 +494,6 @@ function loadFortuneRuntime(options = {}) {
       }
     },
     waitingState,
-    wishNextStep,
     wishOfferingComplete,
     wishPaper,
     windowListeners,
@@ -656,23 +630,15 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     html,
-    /data-wish-paper[^>]*aria-live="polite"[^>]*aria-busy="false"/
+    /data-wish-paper[^>]*aria-busy="false"/
   );
   assert.match(
     html,
     /data-transcript-text>您的话会写在这里。<\/p>/
   );
-  assert.match(
+  assert.doesNotMatch(
     html,
-    /<button class="wish-confirm-button" type="button" data-confirm-transcript>就是这个意思<\/button>/
-  );
-  assert.match(
-    html,
-    /<button class="wish-retry-button" type="button" data-retry-transcript>重新说一遍<\/button>/
-  );
-  assert.match(
-    html,
-    /<button class="wish-offer-button" type="button" data-offer-wish>奉入香炉<\/button>/
+    /data-(?:transcript-actions|confirm-transcript|retry-transcript|wish-next-step|offer-wish)|就是这个意思|重新说一遍|奉入香炉/
   );
   assert.match(
     html,
@@ -749,7 +715,7 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     css,
-    /\.wish-confirm-button,[\s\S]*?min-height:\s*54px;/
+    /\.draw-fortune-preview-button,[\s\S]*?min-height:\s*54px;/
   );
   assert.match(
     css,
@@ -817,8 +783,9 @@ function verifyStaticSceneAndSafety() {
   );
   assert.doesNotMatch(
     `${html}\n${js}`,
-    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|神明已经收到|心愿已经永久保存|签文正在降下|解签结果/
+    /神仙为您解签|神仙正在听您说话|已经保存您的心愿|神明已经收到|心愿已经永久保存|签文正在降下|解签结果|心愿已确认|确认后呈愿|重新确认/
   );
+  assert.doesNotMatch(js, /\.click\(\)/);
   assert.doesNotMatch(
     js,
     /localStorage|sessionStorage|document\.cookie|indexedDB|innerHTML/
@@ -953,19 +920,19 @@ async function verifyMicrophoneStartStopAndConcurrency() {
     microphoneStream.tracks.map((track) => track.stopCallCount),
     [1, 1, 1]
   );
-  assert.equal(runtime.speechTitle.textContent, '识别完成');
-  assert.equal(runtime.speechMessage.textContent, '识别完成');
+  assert.equal(runtime.speechTitle.textContent, '心愿已记下');
+  assert.equal(runtime.speechMessage.textContent, '心愿已记下，正在敬呈……');
   assert.equal(
     runtime.speechDetail.textContent,
-    '这些话仅保留在当前页面，请确认是否准确。'
+    '请稍候，心愿纸正在殿前化作轻烟。'
   );
   assert.equal(runtime.speakControlButton.hidden, true);
-  assert.equal(
-    runtime.transcriptStatus.textContent,
-    '这些话，正是您想说的吗？'
-  );
+  assert.equal(runtime.transcriptStatus.textContent, '正在呈愿');
   assert.equal(runtime.transcriptText.textContent, '测试识别结果');
-  assert.equal(runtime.transcriptActions.hidden, false);
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    true
+  );
 
   runtime.triggerWindow('pagehide');
   assert.deepEqual(
@@ -1523,23 +1490,21 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
   );
   assert.equal(
     runtime.transcriptStatus.textContent,
-    '这些话，正是您想说的吗？'
+    '心愿已记下'
   );
 
   runtime.speakControlButton.trigger('click');
   assert.equal(createdSessions[0].finishCallCount, 1);
   assert.equal(runtime.speechMessage.textContent, '正在整理您的话……');
-  createdSessions[0].callbacks.onFinal(
-    '我最近总担心孩子的工作。',
-    true
-  );
-  assert.equal(runtime.speechMessage.textContent, '识别完成');
+  createdSessions[0].callbacks.onTranscriptReady();
+  createdSessions[0].callbacks.onTranscriptReady();
+  assert.equal(runtime.speechMessage.textContent, '心愿已记下，正在敬呈……');
 
   createdSessions[0].callbacks.onError({
     kind: 'asr',
     message: '语音识别暂时不可用，请重新诉说。',
   });
-  assert.equal(runtime.speechMessage.textContent, '识别完成');
+  assert.equal(runtime.speechMessage.textContent, '心愿已记下，正在敬呈……');
 
   const workletErrorRuntime = loadFortuneRuntime({
     createSession(callbacks) {
@@ -1627,7 +1592,7 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
   assert.notEqual(retryRuntime.transcriptText.textContent, '迟到的旧识别');
 }
 
-async function verifyWishPaperConfirmationRetryAndErrors() {
+async function verifyWishPaperAutomaticAdoptionAndErrors() {
   const sessions = [];
   const runtime = loadFortuneRuntime({
     createSession(callbacks) {
@@ -1656,9 +1621,6 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
   });
 
   assert.equal(runtime.transcriptText.textContent, '您的话会写在这里。');
-  assert.equal(runtime.transcriptActions.hidden, true);
-  assert.equal(runtime.wishNextStep.hidden, true);
-  assert.equal(runtime.offerWishButton.disabled, true);
   assert.equal(runtime.wishOfferingComplete.hidden, true);
   assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'false');
 
@@ -1666,7 +1628,6 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
   runtime.speakControlButton.trigger('click');
   await flushPromises();
   sessions[0].callbacks.onStarted({ inputSampleRate: 48000 });
-  assert.equal(runtime.transcriptActions.hidden, true);
   assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'true');
 
   sessions[0].callbacks.onPartial('我最近');
@@ -1678,48 +1639,80 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
     runtime.transcriptStatus.textContent,
     '道童正在代您记下……'
   );
-  assert.equal(runtime.transcriptActions.hidden, true);
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    false
+  );
+  assert.equal(runtime.fetchRequests.length, 0);
 
   runtime.speakControlButton.trigger('click');
+  runtime.speakControlButton.trigger('click');
+  assert.equal(sessions[0].finishCallCount, 1);
   sessions[0].callbacks.onFinal('', true);
-  assert.equal(runtime.transcriptActions.hidden, true);
   assert.equal(runtime.speechMessage.textContent, '正在整理您的话……');
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    false
+  );
+  sessions[0].callbacks.onFinal('   ', true);
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    false
+  );
 
   sessions[0].callbacks.onFinal(
-    '我最近总担心孩子的工作。晚上有些睡不安稳。',
+    '  希望家人平安，自己也能安心一些。  ',
     true
   );
   assert.equal(
     runtime.transcriptText.textContent,
-    '我最近总担心孩子的工作。晚上有些睡不安稳。'
+    '希望家人平安，自己也能安心一些。'
   );
-  assert.equal(runtime.transcriptActions.hidden, false);
-  assert.equal(runtime.confirmTranscriptButton.disabled, false);
-  assert.equal(runtime.retryTranscriptButton.disabled, false);
-  assert.equal(runtime.wishNextStep.hidden, true);
-  assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'false');
-
-  runtime.confirmTranscriptButton.trigger('click');
-  assert.equal(runtime.speechTitle.textContent, '心愿已确认');
+  assert.equal(runtime.transcriptStatus.textContent, '正在呈愿');
+  assert.equal(runtime.speechTitle.textContent, '心愿已记下');
   assert.equal(
     runtime.speechMessage.textContent,
-    '心愿已确认，下一步将敬呈殿前。'
+    '心愿已记下，正在敬呈……'
   );
-  assert.equal(runtime.transcriptActions.hidden, true);
-  assert.equal(runtime.wishNextStep.hidden, false);
-  assert.equal(runtime.offerWishButton.disabled, false);
+  assert.equal(
+    runtime.page.classList.contains('is-wish-offering'),
+    true
+  );
+  assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'true');
+  assert.equal(runtime.fetchRequests.length, 0);
+  assert.equal(
+    runtime.timers.filter((timer) => timer.delay === 3400).length,
+    1
+  );
+  assert.equal(
+    runtime.wishPaper.listeners.get('animationend').length,
+    1
+  );
+
+  sessions[0].callbacks.onFinal('重复 final', true);
+  assert.equal(
+    runtime.timers.filter((timer) => timer.delay === 3400).length,
+    1
+  );
+  assert.equal(
+    runtime.wishPaper.listeners.get('animationend').length,
+    1
+  );
+  assert.equal(
+    runtime.transcriptText.textContent,
+    '希望家人平安，自己也能安心一些。'
+  );
+  await flushPromises();
   assert.equal(sessions[0].closeCallCount, 1);
-  const confirmedText = runtime.transcriptText.textContent;
   sessions[0].callbacks.onPartial('迟到的旧 partial');
   sessions[0].callbacks.onFinal('迟到的旧 final', true);
-  runtime.confirmTranscriptButton.trigger('click');
-  runtime.retryTranscriptButton.trigger('click');
-  assert.equal(runtime.transcriptText.textContent, confirmedText);
-  assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].closeCallCount, 1);
+  assert.equal(
+    runtime.transcriptText.textContent,
+    '希望家人平安，自己也能安心一些。'
+  );
 
-  const retrySessions = [];
-  const retryRuntime = loadFortuneRuntime({
+  const errorSessions = [];
+  const errorRuntime = loadFortuneRuntime({
     createSession(callbacks) {
       const session = {
         callbacks,
@@ -1738,85 +1731,58 @@ async function verifyWishPaperConfirmationRetryAndErrors() {
           return Promise.resolve(true);
         },
       };
-      retrySessions.push(session);
+      errorSessions.push(session);
       return session;
     },
   });
-  completeIncenseOffering(retryRuntime);
-  retryRuntime.speakControlButton.trigger('click');
+  completeIncenseOffering(errorRuntime);
+  errorRuntime.speakControlButton.trigger('click');
   await flushPromises();
-  retrySessions[0].callbacks.onStarted({ inputSampleRate: 48000 });
-  retrySessions[0].callbacks.onPartial('旧心愿');
-  retryRuntime.speakControlButton.trigger('click');
-  retrySessions[0].callbacks.onFinal('旧心愿完整内容', true);
-  retryRuntime.retryTranscriptButton.trigger('click');
-  retryRuntime.retryTranscriptButton.trigger('click');
-  await flushPromises();
-
-  assert.equal(retrySessions.length, 2);
-  assert.equal(retrySessions[0].closeCallCount, 1);
-  assert.equal(retryRuntime.transcriptText.textContent, '您的话会写在这里。');
-  assert.equal(retryRuntime.transcriptActions.hidden, true);
-  retrySessions[0].callbacks.onPartial('旧会话迟到内容');
-  retrySessions[0].callbacks.onFinal('旧会话迟到 final', true);
-  assert.equal(retryRuntime.transcriptText.textContent, '您的话会写在这里。');
-  retrySessions[1].callbacks.onStarted({ inputSampleRate: 44100 });
-  retrySessions[1].callbacks.onPartial('新的心愿');
-  assert.equal(retryRuntime.transcriptText.textContent, '新的心愿');
-
-  retrySessions[1].callbacks.onError({
+  errorSessions[0].callbacks.onStarted({ inputSampleRate: 48000 });
+  errorSessions[0].callbacks.onPartial('旧心愿');
+  errorRuntime.speakControlButton.trigger('click');
+  errorSessions[0].callbacks.onError({
     kind: 'asr',
     message: '语音识别暂时不可用，请重新诉说。',
   });
-  assert.equal(retryRuntime.transcriptText.textContent, '您的话会写在这里。');
-  assert.equal(retryRuntime.transcriptActions.hidden, true);
-  assert.equal(retryRuntime.wishNextStep.hidden, true);
-
-  const microphoneRetryRuntime = loadFortuneRuntime();
-  completeIncenseOffering(microphoneRetryRuntime);
-  microphoneRetryRuntime.speakControlButton.trigger('click');
-  await flushPromises();
-  microphoneRetryRuntime.speakControlButton.trigger('click');
-  assert.equal(microphoneRetryRuntime.transcriptActions.hidden, false);
-  microphoneRetryRuntime.retryTranscriptButton.trigger('click');
-  await flushPromises();
-  assert.equal(microphoneRetryRuntime.microphoneRequests.length, 2);
-  assert.equal(microphoneRetryRuntime.asrSessions.length, 2);
   assert.equal(
-    microphoneRetryRuntime.asrSessions[0].closeCallCount,
-    1
+    errorRuntime.page.classList.contains('is-wish-offering'),
+    false
   );
+  assert.equal(errorRuntime.fetchRequests.length, 0);
+  assert.equal(errorRuntime.speakControlButton.textContent, '重新诉说');
+  errorRuntime.speakControlButton.trigger('click');
+  await flushPromises();
+  assert.equal(errorSessions.length, 2);
+  errorSessions[0].callbacks.onFinal('旧会话迟到 final', true);
+  assert.equal(errorRuntime.transcriptText.textContent, '您的话会写在这里。');
+  errorSessions[1].callbacks.onStarted({ inputSampleRate: 44100 });
+  errorSessions[1].callbacks.onPartial('新的心愿');
+  assert.equal(errorRuntime.transcriptText.textContent, '新的心愿');
 }
 
-async function reachConfirmedWish(runtime) {
+async function reachAutomaticWishOffering(runtime) {
   completeIncenseOffering(runtime);
   runtime.speakControlButton.trigger('click');
   await flushPromises();
   runtime.speakControlButton.trigger('click');
-  assert.equal(runtime.transcriptActions.hidden, false);
-  assert.equal(runtime.wishNextStep.hidden, true);
-  runtime.confirmTranscriptButton.trigger('click');
-  assert.equal(runtime.wishNextStep.hidden, false);
-  assert.equal(runtime.offerWishButton.disabled, false);
-}
-
-async function verifyWishOfferingAnimationAndCleanup() {
-  const runtime = loadFortuneRuntime();
-  await reachConfirmedWish(runtime);
-  const lockedText = runtime.transcriptText.textContent;
-  const microphoneRequestCount = runtime.microphoneRequests.length;
-  const asrSessionCount = runtime.asrSessions.length;
-
-  runtime.offerWishButton.trigger('click');
-  runtime.offerWishButton.trigger('click');
   assert.equal(
     runtime.page.classList.contains('is-wish-offering'),
     true
   );
-  assert.equal(runtime.offerWishButton.disabled, true);
+  assert.equal(runtime.fetchRequests.length, 0);
+}
+
+async function verifyWishOfferingAnimationAndCleanup() {
+  const runtime = loadFortuneRuntime();
+  await reachAutomaticWishOffering(runtime);
+  const lockedText = runtime.transcriptText.textContent;
+  const microphoneRequestCount = runtime.microphoneRequests.length;
+  const asrSessionCount = runtime.asrSessions.length;
+
   assert.equal(
-    runtime.offerWishButton.textContent,
-    '正在奉入香炉……'
+    runtime.page.classList.contains('is-wish-offering'),
+    true
   );
   assert.equal(runtime.wishPaper.getAttribute('aria-busy'), 'true');
   assert.equal(runtime.wishPaper.getAttribute('aria-hidden'), 'true');
@@ -1863,7 +1829,7 @@ async function verifyWishOfferingAnimationAndCleanup() {
   assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
   assert.equal(
     runtime.speechMessage.textContent,
-    '心意已达殿前，请静候求签。'
+    '呈愿完成，可以求签。'
   );
   assert.equal(runtime.drawFortuneButton.disabled, false);
   assert.equal(
@@ -1876,13 +1842,11 @@ async function verifyWishOfferingAnimationAndCleanup() {
     animationName: 'wish-paper-offering',
     target: runtime.wishPaper,
   });
-  runtime.offerWishButton.trigger('click');
   assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
   assert.equal(runtime.wishPaper.hidden, true);
 
   const fallbackRuntime = loadFortuneRuntime();
-  await reachConfirmedWish(fallbackRuntime);
-  fallbackRuntime.offerWishButton.trigger('click');
+  await reachAutomaticWishOffering(fallbackRuntime);
   const fallbackTimer = fallbackRuntime.timers.find(
     (timer) => timer.delay === 3400
   );
@@ -1900,8 +1864,7 @@ async function verifyWishOfferingAnimationAndCleanup() {
   const reducedRuntime = loadFortuneRuntime({
     reducedMotion: true,
   });
-  await reachConfirmedWish(reducedRuntime);
-  reducedRuntime.offerWishButton.trigger('click');
+  await reachAutomaticWishOffering(reducedRuntime);
   const reducedTimer = reducedRuntime.timers.find(
     (timer) => timer.delay === 60
   );
@@ -1912,8 +1875,7 @@ async function verifyWishOfferingAnimationAndCleanup() {
 
   for (const exitEvent of ['pagehide', 'beforeunload']) {
     const exitRuntime = loadFortuneRuntime();
-    await reachConfirmedWish(exitRuntime);
-    exitRuntime.offerWishButton.trigger('click');
+    await reachAutomaticWishOffering(exitRuntime);
     const exitTimer = exitRuntime.timers.find(
       (timer) => timer.delay === 3400
     );
@@ -1937,11 +1899,31 @@ async function verifyWishOfferingAnimationAndCleanup() {
       '您的话会写在这里。'
     );
   }
+
+  const staleAnimationRuntime = loadFortuneRuntime();
+  await reachAutomaticWishOffering(staleAnimationRuntime);
+  const staleHandler = staleAnimationRuntime.wishPaper.listeners
+    .get('animationend')[0];
+  staleAnimationRuntime.triggerWindow('pagehide');
+  staleAnimationRuntime.triggerWindow('pageshow');
+  await reachAutomaticWishOffering(staleAnimationRuntime);
+  staleHandler({
+    animationName: 'wish-paper-offering',
+    target: staleAnimationRuntime.wishPaper,
+  });
+  assert.equal(
+    staleAnimationRuntime.page.classList.contains('is-wish-offering'),
+    true
+  );
+  staleAnimationRuntime.wishPaper.trigger('animationend', {
+    animationName: 'wish-paper-offering',
+    target: staleAnimationRuntime.wishPaper,
+  });
+  assert.equal(staleAnimationRuntime.wishOfferingComplete.hidden, false);
 }
 
 async function reachOfferedWish(runtime) {
-  await reachConfirmedWish(runtime);
-  runtime.offerWishButton.trigger('click');
+  await reachAutomaticWishOffering(runtime);
   runtime.wishPaper.trigger('animationend', {
     animationName: 'wish-paper-offering',
     target: runtime.wishPaper,
@@ -2587,7 +2569,7 @@ async function main() {
   await verifyStartProtocolAndRealSampleRate();
   await verifyTailFinishFinalAndCleanup();
   await verifyPartialFinalPreviewAndStaleRetry();
-  await verifyWishPaperConfirmationRetryAndErrors();
+  await verifyWishPaperAutomaticAdoptionAndErrors();
   await verifyWishOfferingAnimationAndCleanup();
   await verifyFortuneDrawFlowAndRetry();
   await verifyFortuneInterpretationFlowAndSafety();
@@ -2603,7 +2585,7 @@ async function main() {
       + 'pagehide-beforeunload,late-stream-cleanup,no-recording-upload,'
       + 'relay-url,start-started,real-sample-rate,resample-pcm16-le,'
       + 'binary-chunks,tail-before-finish,partial-final-preview,'
-      + 'wish-paper-confirm-retry,wish-offering-animation,'
+      + 'wish-paper-auto-adoption,wish-offering-animation,'
       + 'fixed-fortune-draw,manual-fortune-retry,'
       + 'fortune-interpretation,interpretation-safe-render,'
       + 'interpretation-audio,manual-audio-playback,blob-url-cleanup,'

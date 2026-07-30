@@ -215,9 +215,6 @@ a {
 .return-choice-button:focus-visible,
 .offer-incense-button:focus-visible,
 .speak-control-button:focus-visible,
-.wish-confirm-button:focus-visible,
-.wish-retry-button:focus-visible,
-.wish-offer-button:focus-visible,
 .draw-fortune-preview-button:focus-visible,
 .fortune-retry-button:focus-visible,
 .fortune-interpret-button:focus-visible,
@@ -846,15 +843,6 @@ a {
   word-break: break-word;
 }
 
-.wish-paper-actions {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.wish-paper-actions[hidden],
-.wish-paper-next[hidden],
 .wish-offering-complete[hidden],
 .fortune-draw-error[hidden],
 .fortune-lot-result[hidden],
@@ -865,9 +853,6 @@ a {
   display: none;
 }
 
-.wish-confirm-button,
-.wish-retry-button,
-.wish-offer-button,
 .draw-fortune-preview-button,
 .fortune-retry-button,
 .fortune-interpret-button,
@@ -882,22 +867,6 @@ a {
   font-weight: 900;
 }
 
-.wish-confirm-button {
-  border: 2px solid #6b292d;
-  color: #fff8e9;
-  background: linear-gradient(180deg, #82373b, #5c2227);
-  box-shadow: 0 5px 13px rgba(68, 23, 27, 0.2);
-}
-
-.wish-retry-button {
-  border: 2px solid #8d6b43;
-  color: #5a3029;
-  background: rgba(255, 249, 232, 0.88);
-}
-
-.wish-confirm-button:disabled,
-.wish-retry-button:disabled,
-.wish-offer-button:disabled,
 .draw-fortune-preview-button:disabled,
 .fortune-retry-button:disabled,
 .fortune-interpret-button:disabled,
@@ -905,42 +874,6 @@ a {
 .fortune-interpretation-audio-button:disabled {
   cursor: not-allowed;
   opacity: 0.64;
-}
-
-.wish-paper-next {
-  display: grid;
-  gap: 5px;
-  margin-top: 15px;
-  padding: 12px;
-  border: 1px solid rgba(102, 44, 45, 0.38);
-  border-radius: 12px;
-  color: #5c2928;
-  background: rgba(255, 248, 226, 0.72);
-  text-align: center;
-}
-
-.wish-offer-button {
-  border: 2px solid #6b292d;
-  color: #fff8e9;
-  background: linear-gradient(180deg, #82373b, #5c2227);
-  box-shadow: 0 5px 13px rgba(68, 23, 27, 0.2);
-}
-
-.wish-paper-next strong {
-  font-size: 17px;
-}
-
-.wish-paper-next span {
-  color: #795c4e;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.has-confirmed-wish .wish-paper {
-  border-color: rgba(102, 44, 45, 0.7);
-  box-shadow:
-    inset 0 0 28px rgba(102, 44, 45, 0.08),
-    0 8px 18px rgba(68, 34, 20, 0.16);
 }
 
 .is-wish-offering .wish-paper {
