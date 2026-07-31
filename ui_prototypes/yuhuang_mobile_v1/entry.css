@@ -3142,15 +3142,20 @@ a {
 
 /*
  * 页面自身只接管横向滑动，
- * 不影响按钮的按住诉说操作。
+ * 不影响按钮的点击说话操作。
  */
 .fortune-page[data-fortune-scene-mode="integrated"] {
   touch-action: pan-y;
 }
 
 /*
- * 首次进入时显示短暂提示，
- * 告诉用户可以左右滑动切换神仙。
+ * 用户尚未成功滑动时持续显示提示。
+ *
+ * 只有在：
+ * 1. 当前仍允许切换角色；
+ * 2. 用户还没有成功切换过角色；
+ *
+ * 这两个条件同时满足时才显示。
  */
 .fortune-page[data-fortune-scene-mode="integrated"]::after {
   position: absolute;
@@ -3166,35 +3171,31 @@ a {
   color: #fff1c7;
   background: rgba(52, 14, 16, 0.68);
   box-shadow: 0 5px 14px rgba(18, 4, 5, 0.26);
-  content: "左滑切换神仙";
+  content: "左右滑动切换神仙";
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.04em;
   opacity: 0;
   pointer-events: none;
   text-shadow: 0 1px 5px rgba(16, 3, 4, 0.86);
-  transform: translateX(-50%);
-  animation:
-    fortune-scene-swipe-hint 4.6s ease-out 0.8s 1;
+  transform: translate(-50%, 5px);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
   backdrop-filter: blur(6px);
 }
 
-@keyframes fortune-scene-swipe-hint {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, 5px);
-  }
-
-  14%,
-  72% {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -3px);
-  }
+/*
+ * 求签还没有开始说话，并且用户还没有成功滑动过，
+ * 提示一直保持显示。
+ */
+.fortune-page[
+  data-fortune-scene-mode="integrated"
+][
+  data-fortune-state="ready-to-speak"
+]:not(.has-swiped-fortune-scene)::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 /* ========== FORTUNE SCENE SWIPE V1 END ========== */

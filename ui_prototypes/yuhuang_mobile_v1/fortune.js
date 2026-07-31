@@ -187,8 +187,6 @@
 
   let interactionState = INTERACTION_STATES.READY_TO_SPEAK;
   let activeAsrSession = null;
-  let activePointerId = null;
-  let keyboardPressActive = false;
   let finishRequested = false;
   let sessionGeneration = 0;
   let currentTranscript = '';
@@ -369,6 +367,9 @@
     );
 
     renderFortuneCharacter();
+    page.classList.add(
+      'has-swiped-fortune-scene'
+    );
     return true;
   }
 
@@ -796,6 +797,7 @@
     speechTitle.hidden = true;
     speechMessage.hidden = true;
     speakControlButton.hidden = true;
+    speakControlButton.setAttribute('aria-pressed', 'false');
     wishOfferingComplete.hidden = true;
     fortuneDrawAnimation.hidden = true;
     fortuneError.hidden = true;
@@ -819,10 +821,10 @@
       speakControlButton.hidden = false;
       speechTitle.textContent = '静心诉说';
       speechMessage.textContent =
-        '按住诉说，松开后心愿将自动敬呈。';
+        '点击“开始说话”，说完后再点击“结束说话”。';
       speechDetail.textContent =
-        '按住时使用麦克风实时识别，松开即停止采集。';
-      speakControlButton.textContent = '按住诉说';
+        '点击后使用麦克风实时识别，再次点击即停止采集。';
+      speakControlButton.textContent = '开始说话';
       speakControlButton.disabled = false;
       setWishPaperBusy(false);
       return;
@@ -835,9 +837,14 @@
       speechMessage.hidden = false;
       speakControlButton.hidden = false;
       speechTitle.textContent = '请求麦克风权限';
-      speechMessage.textContent = '请允许使用麦克风。';
-      speakControlButton.textContent = '松开结束';
-      speakControlButton.disabled = false;
+      speechMessage.textContent = finishRequested
+        ? '已收到结束操作，正在等待麦克风完成准备。'
+        : '请允许使用麦克风。';
+      speakControlButton.setAttribute('aria-pressed', 'true');
+      speakControlButton.textContent = finishRequested
+        ? '正在结束……'
+        : '结束说话';
+      speakControlButton.disabled = finishRequested;
       wishPaper.hidden = false;
       wishPaper.removeAttribute('aria-hidden');
       setWishPaperBusy(false);
@@ -849,9 +856,14 @@
       speechMessage.hidden = false;
       speakControlButton.hidden = false;
       speechTitle.textContent = '正在准备聆听';
-      speechMessage.textContent = '正在准备聆听，请稍候……';
-      speakControlButton.textContent = '松开结束';
-      speakControlButton.disabled = false;
+      speechMessage.textContent = finishRequested
+        ? '已收到结束操作，正在结束语音识别。'
+        : '正在准备聆听，请稍候……';
+      speakControlButton.setAttribute('aria-pressed', 'true');
+      speakControlButton.textContent = finishRequested
+        ? '正在结束……'
+        : '结束说话';
+      speakControlButton.disabled = finishRequested;
       transcriptStatus.textContent = '准备代您记录';
       wishPaper.hidden = false;
       wishPaper.removeAttribute('aria-hidden');
@@ -865,9 +877,14 @@
       speechMessage.hidden = false;
       speakControlButton.hidden = false;
       speechTitle.textContent = '道童正在聆听';
-      speechMessage.textContent = '请慢慢说，松开即结束。';
-      speakControlButton.textContent = '松开结束';
-      speakControlButton.disabled = false;
+      speechMessage.textContent = finishRequested
+        ? '已收到结束操作，正在整理您的心愿。'
+        : '请慢慢说，说完后点击“结束说话”。';
+      speakControlButton.setAttribute('aria-pressed', 'true');
+      speakControlButton.textContent = finishRequested
+        ? '正在结束……'
+        : '结束说话';
+      speakControlButton.disabled = finishRequested;
       if (currentTranscript === '') {
         transcriptStatus.textContent = '道童正在代您记下……';
       }
@@ -880,8 +897,12 @@
     if (interactionState === INTERACTION_STATES.FINISHING_ASR) {
       speechTitle.hidden = false;
       speechMessage.hidden = false;
+      speakControlButton.hidden = false;
       speechTitle.textContent = '正在整理心愿';
       speechMessage.textContent = '请稍候，正在写定心愿。';
+      speakControlButton.setAttribute('aria-pressed', 'true');
+      speakControlButton.textContent = '正在结束……';
+      speakControlButton.disabled = true;
       transcriptStatus.textContent = '正在整理您的话……';
       wishPaper.hidden = false;
       wishPaper.removeAttribute('aria-hidden');
@@ -1316,7 +1337,8 @@
     speechTitle.hidden = false;
     speechMessage.hidden = false;
     speechMessage.textContent = message;
-    speakControlButton.textContent = '按住重新诉说';
+    speakControlButton.setAttribute('aria-pressed', 'false');
+    speakControlButton.textContent = '开始说话';
     speakControlButton.disabled = false;
     speakControlButton.hidden = false;
     setWishPaperBusy(false);
@@ -1445,8 +1467,6 @@
         }
         activeAsrSession = null;
         finishRequested = false;
-        activePointerId = null;
-        keyboardPressActive = false;
         resetWishPaper();
         const microphoneError = error.kind === 'microphone';
         const workletError = error.kind === 'worklet';
@@ -1508,122 +1528,48 @@
     resetWishPaper();
     interactionState = INTERACTION_STATES.READY_TO_SPEAK;
     renderSpeechState();
-    speechMessage.textContent = '没有听清，请按住重新诉说。';
+    speechMessage.textContent = '没有听清，请点击“开始说话”重新诉说。';
     return true;
   }
 
-  function requestFinishAfterRelease() {
-    finishRequested = true;
-    if (interactionState === INTERACTION_STATES.LISTENING) {
-      finishSpeaking();
-    }
-  }
-
-  function handleSpeakPointerDown(event) {
+  function requestFinishSpeaking() {
     if (
-      activePointerId !== null
-      || keyboardPressActive
-      || (event && event.isPrimary === false)
-      || (event && Number.isFinite(event.button) && event.button !== 0)
-    ) {
-      return;
-    }
-    if (event && typeof event.preventDefault === 'function') {
-      event.preventDefault();
-    }
-    const pointerId = event && Number.isFinite(event.pointerId)
-      ? event.pointerId
-      : 1;
-    activePointerId = pointerId;
-    if (typeof speakControlButton.setPointerCapture === 'function') {
-      try {
-        speakControlButton.setPointerCapture(pointerId);
-      } catch (error) {
-        activePointerId = null;
-        return;
-      }
-    }
-    if (!startSpeakingSession()) {
-      activePointerId = null;
-    }
-  }
-
-  function handleSpeakPointerEnd(event) {
-    if (
-      activePointerId === null
+      finishRequested
+      || !activeAsrSession
       || (
-        event
-        && Number.isFinite(event.pointerId)
-        && event.pointerId !== activePointerId
+        interactionState !== INTERACTION_STATES.REQUESTING_MICROPHONE
+        && interactionState !== INTERACTION_STATES.CONNECTING_ASR
+        && interactionState !== INTERACTION_STATES.LISTENING
       )
     ) {
-      return;
+      return false;
     }
-    if (event && typeof event.preventDefault === 'function') {
-      event.preventDefault();
-    }
-    const pointerId = activePointerId;
-    activePointerId = null;
-    requestFinishAfterRelease();
-    if (
-      event
-      && event.type !== 'lostpointercapture'
-      && typeof speakControlButton.releasePointerCapture === 'function'
-    ) {
-      try {
-        speakControlButton.releasePointerCapture(pointerId);
-      } catch (error) {
-        // The capture may already have been released by the browser.
+
+    finishRequested = true;
+    if (interactionState === INTERACTION_STATES.LISTENING) {
+      const finishResult = finishSpeaking();
+      if (finishResult === false) {
+        finishRequested = false;
+        renderSpeechState();
+        return false;
       }
     }
+
+    renderSpeechState();
+    return true;
   }
 
-  function isSpeakKey(event) {
-    return event && (event.key === ' ' || event.key === 'Enter');
-  }
-
-  function handleSpeakKeyDown(event) {
+  function handleSpeakControlClick() {
     if (
-      !isSpeakKey(event)
-      || event.repeat
-      || keyboardPressActive
-      || activePointerId !== null
+      interactionState === INTERACTION_STATES.READY_TO_SPEAK
+      || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
+      || interactionState === INTERACTION_STATES.ASR_ERROR
     ) {
+      startSpeakingSession();
       return;
     }
-    event.preventDefault();
-    keyboardPressActive = true;
-    if (!startSpeakingSession()) {
-      keyboardPressActive = false;
-    }
-  }
 
-  function handleSpeakKeyUp(event) {
-    if (!isSpeakKey(event) || !keyboardPressActive) {
-      return;
-    }
-    event.preventDefault();
-    keyboardPressActive = false;
-    requestFinishAfterRelease();
-  }
-
-  function handleSpeakBlur() {
-    if (activePointerId !== null) {
-      const pointerId = activePointerId;
-      activePointerId = null;
-      requestFinishAfterRelease();
-      if (typeof speakControlButton.releasePointerCapture === 'function') {
-        try {
-          speakControlButton.releasePointerCapture(pointerId);
-        } catch (error) {
-          // The browser may have released capture while losing focus.
-        }
-      }
-    }
-    if (keyboardPressActive) {
-      keyboardPressActive = false;
-      requestFinishAfterRelease();
-    }
+    requestFinishSpeaking();
   }
 
   function completeWishOffering(generation) {
@@ -1871,8 +1817,6 @@
     closeActiveAsrSession();
     clearWishOfferingResources();
     clearDrawAnimation();
-    activePointerId = null;
-    keyboardPressActive = false;
     finishRequested = false;
     interactionState = INTERACTION_STATES.READY_TO_SPEAK;
   }
@@ -1903,20 +1847,9 @@
   );
 
   speakControlButton.addEventListener(
-    'pointerdown',
-    handleSpeakPointerDown
+    'click',
+    handleSpeakControlClick
   );
-  speakControlButton.addEventListener('pointerup', handleSpeakPointerEnd);
-  speakControlButton.addEventListener(
-    'pointercancel',
-    handleSpeakPointerEnd
-  );
-  speakControlButton.addEventListener(
-    'lostpointercapture',
-    handleSpeakPointerEnd
-  );
-  speakControlButton.addEventListener('keydown', handleSpeakKeyDown);
-  speakControlButton.addEventListener('keyup', handleSpeakKeyUp);
   drawFortuneButton.addEventListener('click', handleFortuneDraw);
   retryFortuneButton.addEventListener('click', handleFortuneDraw);
   interpretFortuneButton.addEventListener(
@@ -1933,10 +1866,10 @@
   );
   page.classList.add('has-offered-incense');
   incenseState.textContent = '三柱清香已燃';
-  acolyteGuidance.textContent = '按住下方按钮，慢慢诉说您的心愿。';
+  acolyteGuidance.textContent =
+    '点击下方“开始说话”，说完后再点击“结束说话”。';
   resetWishPaper();
   renderSpeechState();
-  window.addEventListener('blur', handleSpeakBlur);
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
   window.addEventListener('pageshow', handlePageShow);
