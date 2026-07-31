@@ -242,10 +242,6 @@ function loadFortuneRuntime(options = {}) {
   const flyingWishPaper = new FakeElement();
   const flyingWishPaperText = new FakeElement();
   const wishOfferingComplete = new FakeElement({ hidden: true });
-  const drawFortuneButton = new FakeElement({
-    disabled: true,
-    textContent: '开始抽签',
-  });
   const fortuneDrawAnimation = new FakeElement({ hidden: true });
   const fortuneError = new FakeElement({ hidden: true });
   const retryFortuneButton = new FakeElement({
@@ -299,7 +295,6 @@ function loadFortuneRuntime(options = {}) {
     ['[data-flying-wish-paper]', flyingWishPaper],
     ['[data-flying-wish-paper-text]', flyingWishPaperText],
     ['[data-wish-offering-complete]', wishOfferingComplete],
-    ['[data-draw-fortune]', drawFortuneButton],
     ['[data-fortune-draw-animation]', fortuneDrawAnimation],
     ['[data-fortune-error]', fortuneError],
     ['[data-retry-fortune]', retryFortuneButton],
@@ -555,7 +550,6 @@ function loadFortuneRuntime(options = {}) {
   return {
     acolyteGuidance,
     defaultStream,
-    drawFortuneButton,
     fetchRequests,
     fortuneError,
     fortuneDrawAnimation,
@@ -784,9 +778,9 @@ function verifyStaticSceneAndSafety() {
     html,
     /data-wish-offering-complete[^>]*aria-live="polite"[^>]*hidden/
   );
-  assert.match(
+  assert.doesNotMatch(
     html,
-    /<button class="draw-fortune-preview-button" type="button" data-draw-fortune disabled>诚心求一签<\/button>/
+    /data-draw-fortune|开始抽签|诚心求一签/
   );
   assert.match(
     html,
@@ -2115,16 +2109,8 @@ async function verifyWishOfferingAnimationAndCleanup() {
     ''
   );
   assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
-  assert.equal(
-    runtime.speechMessage.textContent,
-    '呈愿完成，可以求签。'
-  );
-  assert.equal(runtime.drawFortuneButton.disabled, false);
-  assert.equal(
-    runtime.drawFortuneButton.textContent,
-    '诚心求一签'
-  );
-
+  assert.equal(runtime.page.dataset.fortuneState, 'draw-ready');
+  assert.equal(runtime.fetchRequests.length, 0);
   animationTimer.callback();
   runtime.wishOfferingStage.trigger('animationend', {
     animationName: 'wish-offering-stage-sequence',
@@ -2132,6 +2118,10 @@ async function verifyWishOfferingAnimationAndCleanup() {
   });
   assert.equal(runtime.wishOfferingComplete.focusCallCount, 1);
   assert.equal(runtime.wishPaper.hidden, true);
+  assert.equal(runtime.fetchRequests.length, 0);
+  await flushPromises();
+  assert.equal(runtime.fetchRequests.length, 1);
+  assert.equal(runtime.page.dataset.fortuneState, 'drawing-lot');
 
   const fallbackRuntime = loadFortuneRuntime();
   await reachAutomaticWishOffering(fallbackRuntime);
@@ -2144,11 +2134,14 @@ async function verifyWishOfferingAnimationAndCleanup() {
   assert.equal(fallbackRuntime.wishOfferingComplete.hidden, false);
   assert.equal(fallbackRuntime.wishOfferingStage.hidden, true);
   assert.equal(fallbackRuntime.wishOfferingComplete.focusCallCount, 1);
+  assert.equal(fallbackRuntime.fetchRequests.length, 0);
   fallbackRuntime.wishOfferingStage.trigger('animationend', {
     animationName: 'wish-offering-stage-sequence',
     target: fallbackRuntime.wishOfferingStage,
   });
+  await flushPromises();
   assert.equal(fallbackRuntime.wishOfferingComplete.focusCallCount, 1);
+  assert.equal(fallbackRuntime.fetchRequests.length, 1);
 
   const reducedRuntime = loadFortuneRuntime({
     reducedMotion: true,
@@ -2165,6 +2158,9 @@ async function verifyWishOfferingAnimationAndCleanup() {
   assert.equal(reducedTimer.active, false);
   assert.equal(reducedRuntime.wishPaper.hidden, true);
   assert.equal(reducedRuntime.wishOfferingComplete.hidden, false);
+  assert.equal(reducedRuntime.fetchRequests.length, 0);
+  await flushPromises();
+  assert.equal(reducedRuntime.fetchRequests.length, 1);
 
   for (const exitEvent of ['pagehide', 'beforeunload']) {
     const exitRuntime = loadFortuneRuntime();
@@ -2215,6 +2211,9 @@ async function verifyWishOfferingAnimationAndCleanup() {
     target: staleAnimationRuntime.wishOfferingStage,
   });
   assert.equal(staleAnimationRuntime.wishOfferingComplete.hidden, false);
+  assert.equal(staleAnimationRuntime.fetchRequests.length, 0);
+  await flushPromises();
+  assert.equal(staleAnimationRuntime.fetchRequests.length, 1);
 }
 
 async function reachOfferedWish(runtime) {
@@ -2224,7 +2223,14 @@ async function reachOfferedWish(runtime) {
     target: runtime.wishOfferingStage,
   });
   assert.equal(runtime.wishOfferingComplete.hidden, false);
-  assert.equal(runtime.drawFortuneButton.disabled, false);
+  assert.equal(runtime.page.dataset.fortuneState, 'draw-ready');
+  assert.equal(runtime.fetchRequests.length, 0);
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: runtime.wishOfferingStage,
+  });
+  await flushPromises();
+  assert.equal(runtime.fetchRequests.length, 1);
 }
 
 async function verifyFortuneDrawFlowAndRetry() {
@@ -2233,17 +2239,13 @@ async function verifyFortuneDrawFlowAndRetry() {
     fetchImpl: () => pendingResponse.promise,
   });
 
-  runtime.drawFortuneButton.trigger('click');
   assert.equal(runtime.fetchRequests.length, 0);
   await reachOfferedWish(runtime);
   const confirmedText = runtime.transcriptText.textContent;
-  runtime.drawFortuneButton.trigger('click');
-  runtime.drawFortuneButton.trigger('click');
   assert.equal(runtime.fetchRequests.length, 1);
   assert.equal(runtime.fetchRequests[0].pathname, '/api/fortune-sessions');
   assert.equal(runtime.fetchRequests[0].method, 'POST');
-  assert.equal(runtime.drawFortuneButton.disabled, true);
-  assert.equal(runtime.drawFortuneButton.textContent, '正在请签……');
+  assert.equal(runtime.page.dataset.fortuneState, 'drawing-lot');
   const requestBody = JSON.parse(runtime.fetchRequests[0].body);
   assert.deepEqual(
     JSON.parse(JSON.stringify(requestBody)),
@@ -2261,7 +2263,14 @@ async function verifyFortuneDrawFlowAndRetry() {
     ownerId: 'private-owner',
   }));
   await flushPromises();
-  await flushPromises();
+  runtime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-cylinder-shake',
+    target: runtime.fortuneDrawAnimation,
+  });
+  runtime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-slip-reveal',
+    target: runtime.fortuneDrawAnimation,
+  });
   assert.equal(runtime.fetchRequests.length, 1);
   assert.equal(runtime.wishOfferingComplete.hidden, true);
   assert.equal(runtime.fortuneError.hidden, true);
@@ -2283,7 +2292,7 @@ async function verifyFortuneDrawFlowAndRetry() {
     ].join(' ').includes('不应显示的处境'),
     false
   );
-  runtime.drawFortuneButton.trigger('click');
+  runtime.retryFortuneButton.trigger('click');
   assert.equal(runtime.fetchRequests.length, 1);
   runtime.asrSessions[0].callbacks.onPartial('迟到 partial');
   runtime.asrSessions[0].callbacks.onFinal('迟到 final', true);
@@ -2301,7 +2310,6 @@ async function verifyFortuneDrawFlowAndRetry() {
     },
   });
   await reachOfferedWish(retryRuntime);
-  retryRuntime.drawFortuneButton.trigger('click');
   await flushPromises();
   assert.equal(retryRuntime.fortuneResult.hidden, true);
   assert.equal(retryRuntime.fortuneError.hidden, false);
@@ -2331,7 +2339,6 @@ async function verifyFortuneDrawFlowAndRetry() {
     }),
   });
   await reachOfferedWish(invalidRuntime);
-  invalidRuntime.drawFortuneButton.trigger('click');
   await flushPromises();
   assert.equal(invalidRuntime.fortuneResult.hidden, true);
   assert.equal(invalidRuntime.fortuneError.hidden, false);
@@ -2341,7 +2348,6 @@ async function verifyFortuneDrawFlowAndRetry() {
     fetchImpl: () => exitResponse.promise,
   });
   await reachOfferedWish(exitRuntime);
-  exitRuntime.drawFortuneButton.trigger('click');
   assert.equal(exitRuntime.abortControllers.length, 1);
   exitRuntime.triggerWindow('pagehide');
   assert.equal(exitRuntime.abortControllers[0].abortCallCount, 1);
@@ -2351,14 +2357,20 @@ async function verifyFortuneDrawFlowAndRetry() {
   assert.equal(exitRuntime.fortuneResult.hidden, true);
   exitRuntime.triggerWindow('pageshow');
   assert.equal(exitRuntime.wishPaper.hidden, false);
-  assert.equal(exitRuntime.drawFortuneButton.disabled, true);
+  assert.equal(exitRuntime.fetchRequests.length, 1);
 }
 
 async function reachDrawnLot(runtime) {
   await reachOfferedWish(runtime);
-  runtime.drawFortuneButton.trigger('click');
   await flushPromises();
-  await flushPromises();
+  runtime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-cylinder-shake',
+    target: runtime.fortuneDrawAnimation,
+  });
+  runtime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-slip-reveal',
+    target: runtime.fortuneDrawAnimation,
+  });
   assert.equal(runtime.fortuneResult.hidden, false);
   assert.equal(runtime.interpretFortuneButton.hidden, false);
   assert.equal(runtime.interpretFortuneButton.disabled, false);
@@ -2884,8 +2896,9 @@ function verifyStagedRitualStaticContract() {
   assert.match(html, /data-wish-paper[^>]*hidden/);
   assert.match(
     html,
-    /data-wish-offering-complete[^>]*hidden[\s\S]*?data-draw-fortune disabled>开始抽签/
+    /data-wish-offering-complete[^>]*hidden[\s\S]*?心愿已呈，正在为您请签……/
   );
+  assert.doesNotMatch(html, /data-draw-fortune|>开始抽签<\/button>/);
   assert.match(
     html,
     /data-fortune-draw-animation[^>]*hidden[\s\S]*?lot-cylinder[\s\S]*?lot-draw-stick[\s\S]*?lot-draw-slip/
@@ -3022,18 +3035,26 @@ async function reachStagedDrawnLot(runtime) {
   assert.equal(runtime.fetchRequests.length, 0);
   assert.equal(runtime.wishPaper.getBoundingClientRectCallCount, 1);
   assert.equal(runtime.wishFurnaceMouth.getBoundingClientRectCallCount, 1);
+  const wishOfferingTimer = runtime.timers.find(
+    (timer) => timer.delay === 3400
+  );
+  assert.ok(wishOfferingTimer);
 
   runtime.wishOfferingStage.trigger('animationend', {
     animationName: 'wish-offering-stage-sequence',
     target: runtime.wishOfferingStage,
   });
   assert.equal(runtime.page.dataset.fortuneState, 'draw-ready');
-  assert.equal(runtime.drawFortuneButton.hidden, false);
-  assert.equal(runtime.drawFortuneButton.disabled, false);
-  assert.equal(runtime.drawFortuneButton.textContent, '开始抽签');
-
-  runtime.drawFortuneButton.trigger('click');
-  runtime.drawFortuneButton.trigger('click');
+  assert.equal(runtime.wishOfferingComplete.hidden, false);
+  assert.equal(runtime.fetchRequests.length, 0);
+  assert.equal(wishOfferingTimer.active, false);
+  wishOfferingTimer.callback();
+  runtime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: runtime.wishOfferingStage,
+  });
+  assert.equal(runtime.fetchRequests.length, 0);
+  await flushPromises();
   assert.equal(runtime.fetchRequests.length, 1);
   assert.equal(runtime.page.dataset.fortuneState, 'drawing-lot');
   assert.equal(runtime.fortuneDrawAnimation.hidden, false);
@@ -3041,7 +3062,6 @@ async function reachStagedDrawnLot(runtime) {
     runtime.fortuneDrawAnimation.classList.contains('is-shaking'),
     true
   );
-  await flushPromises();
   assert.equal(runtime.fortuneResult.hidden, true);
   runtime.fortuneDrawAnimation.trigger('animationend', {
     animationName: 'lot-cylinder-shake',
@@ -3114,7 +3134,7 @@ async function verifyAutoplayRejectionFallback() {
   );
 }
 
-async function reachDrawReady(runtime) {
+async function reachAutomaticDraw(runtime) {
   clickSpeakControl(runtime);
   await flushPromises();
   clickSpeakControl(runtime);
@@ -3123,18 +3143,19 @@ async function reachDrawReady(runtime) {
     target: runtime.wishOfferingStage,
   });
   assert.equal(runtime.page.dataset.fortuneState, 'draw-ready');
+  assert.equal(runtime.fetchRequests.length, 0);
+  await flushPromises();
+  assert.equal(runtime.fetchRequests.length, 1);
   return runtime;
 }
 
 async function verifyDrawWaitingFailureAndInvalidFinal() {
   const responseDeferred = createDeferred();
-  const waitingRuntime = await reachDrawReady(loadFortuneRuntime({
+  const waitingRuntime = await reachAutomaticDraw(loadFortuneRuntime({
     fetchImpl() {
       return responseDeferred.promise;
     },
   }));
-  waitingRuntime.drawFortuneButton.trigger('click');
-  waitingRuntime.drawFortuneButton.trigger('click');
   assert.equal(waitingRuntime.fetchRequests.length, 1);
   waitingRuntime.fortuneDrawAnimation.trigger('animationend', {
     animationName: 'lot-cylinder-shake',
@@ -3155,20 +3176,46 @@ async function verifyDrawWaitingFailureAndInvalidFinal() {
     true
   );
 
-  const failureRuntime = await reachDrawReady(loadFortuneRuntime({
-    fetchImpl: async () => ({
-      ok: false,
-      async json() {
-        return {};
-      },
-    }),
+  const failureResponse = createDeferred();
+  let failureRequestCount = 0;
+  const failureRuntime = await reachAutomaticDraw(loadFortuneRuntime({
+    fetchImpl() {
+      failureRequestCount += 1;
+      if (failureRequestCount === 1) {
+        return failureResponse.promise;
+      }
+      return Promise.resolve(createFortuneResponse());
+    },
   }));
-  failureRuntime.drawFortuneButton.trigger('click');
+  assert.equal(failureRequestCount, 1);
+  failureResponse.resolve({
+    ok: false,
+    async json() {
+      return {};
+    },
+  });
   await flushPromises();
   assert.equal(failureRuntime.page.dataset.fortuneState, 'lot-error');
   assert.equal(failureRuntime.fortuneDrawAnimation.hidden, true);
   assert.equal(failureRuntime.fortuneResult.hidden, true);
   assert.equal(failureRuntime.retryFortuneButton.disabled, false);
+  await flushPromises();
+  assert.equal(failureRequestCount, 1);
+  failureRuntime.retryFortuneButton.trigger('click');
+  failureRuntime.retryFortuneButton.trigger('click');
+  assert.equal(failureRequestCount, 2);
+  assert.equal(failureRuntime.retryFortuneButton.disabled, true);
+  await flushPromises();
+  failureRuntime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-cylinder-shake',
+    target: failureRuntime.fortuneDrawAnimation,
+  });
+  failureRuntime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-slip-reveal',
+    target: failureRuntime.fortuneDrawAnimation,
+  });
+  assert.equal(failureRuntime.page.dataset.fortuneState, 'lot-drawn');
+  assert.equal(failureRuntime.fortuneResult.hidden, false);
 
   const invalidSessions = [];
   const invalidRuntime = loadFortuneRuntime({
@@ -3298,6 +3345,7 @@ async function main() {
       + 'relay-url,start-started,real-sample-rate,resample-pcm16-le,'
       + 'binary-chunks,tail-before-finish,partial-final-wish-paper,'
       + 'wish-paper-auto-adoption,wish-offering-animation,'
+      + 'automatic-fortune-draw,single-fortune-request,manual-draw-retry,'
       + 'finite-draw-shake,low-frequency-wait,response-gated-reveal,'
       + 'fortune-interpretation,interpretation-safe-render,'
       + 'interpretation-audio,automatic-audio-attempt,autoplay-fallback,'

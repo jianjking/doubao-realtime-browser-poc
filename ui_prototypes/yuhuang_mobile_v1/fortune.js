@@ -105,9 +105,6 @@
   const wishOfferingComplete = document.querySelector(
     '[data-wish-offering-complete]'
   );
-  const drawFortuneButton = document.querySelector(
-    '[data-draw-fortune]'
-  );
   const fortuneDrawAnimation = document.querySelector(
     '[data-fortune-draw-animation]'
   );
@@ -164,7 +161,6 @@
     || !flyingWishPaper
     || !flyingWishPaperText
     || !wishOfferingComplete
-    || !drawFortuneButton
     || !fortuneDrawAnimation
     || !fortuneError
     || !retryFortuneButton
@@ -802,8 +798,6 @@
     fortuneDrawAnimation.hidden = true;
     fortuneError.hidden = true;
     fortuneResult.hidden = true;
-    drawFortuneButton.disabled = true;
-    drawFortuneButton.textContent = '开始抽签';
     retryFortuneButton.disabled = true;
     interpretFortuneButton.hidden = true;
     interpretFortuneButton.disabled = true;
@@ -921,10 +915,6 @@
       page.classList.add('has-offered-wish');
       setWishPaperBusy(false);
       wishOfferingComplete.hidden = false;
-      drawFortuneButton.disabled = (
-        !transcriptIsFinal
-        || currentTranscript.trim() === ''
-      );
       return;
     }
 
@@ -1587,6 +1577,16 @@
     if (typeof wishOfferingComplete.focus === 'function') {
       wishOfferingComplete.focus();
     }
+    Promise.resolve().then(() => {
+      if (
+        pageIsActive
+        && generation === sessionGeneration
+        && generation === wishOfferingGeneration
+        && interactionState === INTERACTION_STATES.DRAW_READY
+      ) {
+        void handleFortuneDraw();
+      }
+    });
     return true;
   }
 
@@ -1850,7 +1850,6 @@
     'click',
     handleSpeakControlClick
   );
-  drawFortuneButton.addEventListener('click', handleFortuneDraw);
   retryFortuneButton.addEventListener('click', handleFortuneDraw);
   interpretFortuneButton.addEventListener(
     'click',
