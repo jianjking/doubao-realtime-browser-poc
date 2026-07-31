@@ -21,10 +21,12 @@ html {
 }
 
 body {
+  display: block;
   min-width: 320px;
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0;
+  padding: 0;
   overflow-x: hidden;
   color: var(--ink);
   background: #251014;

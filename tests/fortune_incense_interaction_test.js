@@ -81,9 +81,6 @@ class FakeElement {
     );
     this.focusCallCount = 0;
     this.getBoundingClientRectCallCount = 0;
-    this.pointerCaptureCalls = [];
-    this.pointerReleaseCalls = [];
-    this.capturedPointers = new Set();
     this.listeners = new Map();
     this.rect = {
       bottom: 0,
@@ -136,16 +133,6 @@ class FakeElement {
     this.focusCallCount += 1;
   }
 
-  setPointerCapture(pointerId) {
-    this.pointerCaptureCalls.push(pointerId);
-    this.capturedPointers.add(pointerId);
-  }
-
-  releasePointerCapture(pointerId) {
-    this.pointerReleaseCalls.push(pointerId);
-    this.capturedPointers.delete(pointerId);
-  }
-
   getBoundingClientRect() {
     this.getBoundingClientRectCallCount += 1;
     return { ...this.rect };
@@ -184,29 +171,8 @@ function flushPromises() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-function pointerEvent(type, pointerId = 1) {
-  return {
-    button: 0,
-    isPrimary: true,
-    pointerId,
-    preventDefaultCallCount: 0,
-    preventDefault() {
-      this.preventDefaultCallCount += 1;
-    },
-    type,
-  };
-}
-
-function startSpeakPress(runtime, pointerId = 1) {
-  const event = pointerEvent('pointerdown', pointerId);
-  runtime.speakControlButton.trigger('pointerdown', event);
-  return event;
-}
-
-function endSpeakPress(runtime, pointerId = 1, type = 'pointerup') {
-  const event = pointerEvent(type, pointerId);
-  runtime.speakControlButton.trigger(type, event);
-  return event;
+function clickSpeakControl(runtime) {
+  runtime.speakControlButton.trigger('click');
 }
 
 function loadFortuneRuntime(options = {}) {
@@ -227,7 +193,7 @@ function loadFortuneRuntime(options = {}) {
     textContent: '三柱清香已燃',
   });
   const acolyteGuidance = new FakeElement({
-    textContent: '按住下方按钮，慢慢诉说您的心愿。',
+    textContent: '点击下方“开始说话”，说完后再点击“结束说话”。',
   });
   const waitingState = new FakeElement();
   const speechTitle = new FakeElement({
@@ -240,7 +206,7 @@ function loadFortuneRuntime(options = {}) {
     textContent: '语音只用于当前识别，不会录制为音频文件。',
   });
   const speakControlButton = new FakeElement({
-    textContent: '按住诉说',
+    textContent: '开始说话',
   });
   const transcriptStatus = new FakeElement({
     textContent: '正在聆听',
@@ -487,6 +453,7 @@ function loadFortuneRuntime(options = {}) {
   }
 
   context = {
+    Image: class FakeImage {},
     URLSearchParams,
     document: {
       querySelector(selector) {
@@ -767,7 +734,7 @@ function verifyStaticSceneAndSafety() {
   );
   assert.match(
     html,
-    /<button class="speak-control-button" type="button" data-speak-control>开始诉说<\/button>/
+    /<button class="speak-control-button" type="button" data-speak-control[^>]*>开始说话<\/button>/
   );
   assert.match(
     html,
@@ -1005,9 +972,9 @@ function verifyCharacterVisualSelection() {
   const defaultRuntime = loadFortuneRuntime();
   assert.equal(
     defaultRuntime.fortuneCharacterImage.getAttribute('src'),
-    './assets/characters/yuhuang/yuhuang-home-hero-v1.png'
+    './assets/fortune/scenes/fortune-scene-guanyin-v1.png'
   );
-  assert.equal(defaultRuntime.page.dataset.fortuneCharacterKey, 'yuhuang');
+  assert.equal(defaultRuntime.page.dataset.fortuneCharacterKey, 'guanyin');
   assert.equal(defaultRuntime.fortuneCharacterImage.hidden, false);
 
   const sunwukongRuntime = loadFortuneRuntime({
@@ -1089,7 +1056,7 @@ function verifySingleOfferingFlow() {
   );
   assert.equal(runtime.waitingState.hidden, false);
   assert.equal(runtime.speakControlButton.disabled, false);
-  assert.equal(runtime.speakControlButton.textContent, '开始诉说');
+  assert.equal(runtime.speakControlButton.textContent, '开始说话');
   assert.equal(
     runtime.speechMessage.textContent,
     '请慢慢说，道童会在殿前听您诉说。'
@@ -1163,7 +1130,7 @@ async function verifyMicrophoneStartStopAndConcurrency() {
     '道童正在聆听，请慢慢说。'
   );
   assert.equal(runtime.speakControlButton.disabled, false);
-  assert.equal(runtime.speakControlButton.textContent, '我说完了');
+  assert.equal(runtime.speakControlButton.textContent, '结束说话');
   assert.equal(runtime.page.classList.contains('is-listening'), true);
 
   runtime.speakControlButton.trigger('click');
@@ -1217,7 +1184,7 @@ async function verifyMicrophoneErrorsAndRetry() {
     runtime.speechMessage.textContent,
     '麦克风权限未开启，请允许使用麦克风后重试。'
   );
-  assert.equal(runtime.speakControlButton.textContent, '重新诉说');
+  assert.equal(runtime.speakControlButton.textContent, '开始说话');
   assert.equal(runtime.speakControlButton.disabled, false);
   assert.equal(
     runtime.page.classList.contains('is-listening'),
@@ -1227,7 +1194,7 @@ async function verifyMicrophoneErrorsAndRetry() {
   runtime.speakControlButton.trigger('click');
   await flushPromises();
   assert.equal(runtime.microphoneRequests.length, 2);
-  assert.equal(runtime.speakControlButton.textContent, '我说完了');
+  assert.equal(runtime.speakControlButton.textContent, '结束说话');
 
   const unsupportedRuntime = loadFortuneRuntime({
     unsupportedMicrophone: true,
@@ -1241,7 +1208,7 @@ async function verifyMicrophoneErrorsAndRetry() {
   );
   assert.equal(
     unsupportedRuntime.speakControlButton.textContent,
-    '重新诉说'
+    '开始说话'
   );
 
   const systemErrorRuntime = loadFortuneRuntime({
@@ -1281,7 +1248,7 @@ async function verifyPageExitCleanup() {
     [1, 1]
   );
   activeRuntime.triggerWindow('pageshow');
-  assert.equal(activeRuntime.speakControlButton.textContent, '开始诉说');
+  assert.equal(activeRuntime.speakControlButton.textContent, '开始说话');
 
   const pendingDeferred = createDeferred();
   const lateStream = createMicrophoneStream(2);
@@ -1844,7 +1811,7 @@ async function verifyPartialFinalPreviewAndStaleRetry() {
     retryRuntime.speechDetail.textContent.includes('Relay'),
     false
   );
-  assert.equal(retryRuntime.speakControlButton.textContent, '重新诉说');
+  assert.equal(retryRuntime.speakControlButton.textContent, '开始说话');
   retryRuntime.speakControlButton.trigger('click');
   await flushPromises();
   assert.notEqual(createdSessions.at(-1), failedSession);
@@ -2027,7 +1994,7 @@ async function verifyWishPaperAutomaticAdoptionAndErrors() {
     false
   );
   assert.equal(errorRuntime.fetchRequests.length, 0);
-  assert.equal(errorRuntime.speakControlButton.textContent, '重新诉说');
+  assert.equal(errorRuntime.speakControlButton.textContent, '开始说话');
   errorRuntime.speakControlButton.trigger('click');
   await flushPromises();
   assert.equal(errorSessions.length, 2);
@@ -2888,6 +2855,10 @@ async function verifyModulePageExitAndFailureBoundaries() {
 
 function verifyStagedRitualStaticContract() {
   const html = fs.readFileSync(FORTUNE_HTML_PATH, 'utf8');
+  const mainHtml = html.slice(
+    html.indexOf('<main'),
+    html.indexOf('</main>') + '</main>'.length
+  );
   const css = fs.readFileSync(ENTRY_CSS_PATH, 'utf8');
   const js = fs.readFileSync(FORTUNE_JS_PATH, 'utf8');
   const incenseSticks = html.match(
@@ -2903,7 +2874,11 @@ function verifyStagedRitualStaticContract() {
   assert.match(html, /data-incense-state aria-live="polite">三柱清香已燃/);
   assert.doesNotMatch(html, /data-offer-incense|香火已敬|敬上一炷香/);
   assert.equal(
-    (html.match(/data-speak-control>按住诉说<\/button>/g) || []).length,
+    (
+      html.match(
+        /data-speak-control[^>]*aria-pressed="false"[^>]*>开始说话<\/button>/
+      ) || []
+    ).length,
     1
   );
   assert.match(html, /data-wish-paper[^>]*hidden/);
@@ -2930,7 +2905,7 @@ function verifyStagedRitualStaticContract() {
     1
   );
   assert.doesNotMatch(
-    html,
+    mainHtml,
     /<(?:input|textarea)\b|contenteditable=|听道童解签|下载语音/
   );
   assert.match(
@@ -2957,10 +2932,31 @@ function verifyStagedRitualStaticContract() {
   ]) {
     assert.match(
       js,
-      new RegExp(`addEventListener\\(\\s*'${eventName}'`)
+      new RegExp(
+        `page\\.addEventListener\\(\\s*'${eventName}'`
+      )
     );
   }
-  assert.match(js, /speakControlButton\.setPointerCapture\(pointerId\)/);
+  assert.match(
+    js,
+    /speakControlButton\.addEventListener\(\s*'click'[\s\S]*?handleSpeakControlClick/
+  );
+  assert.doesNotMatch(
+    js,
+    /speakControlButton\.addEventListener\(\s*'(?:pointerdown|pointerup|pointercancel|lostpointercapture)'/
+  );
+  for (const removedSymbol of [
+    'activePointerId',
+    'keyboardPressActive',
+    'handleSpeakPointerDown',
+    'handleSpeakPointerEnd',
+    'handleSpeakKeyDown',
+    'handleSpeakKeyUp',
+    'handleSpeakBlur',
+    'requestFinishAfterRelease',
+  ]) {
+    assert.doesNotMatch(js, new RegExp(`\\b${removedSymbol}\\b`));
+  }
   assert.doesNotMatch(js, /touchstart|touchend|pointermove/);
   assert.match(
     js,
@@ -2986,7 +2982,7 @@ function verifyInitialReadyState() {
   assert.equal(runtime.page.dataset.fortuneState, 'ready-to-speak');
   assert.equal(runtime.waitingState.hidden, false);
   assert.equal(runtime.speakControlButton.hidden, false);
-  assert.equal(runtime.speakControlButton.textContent, '按住诉说');
+  assert.equal(runtime.speakControlButton.textContent, '开始说话');
   assert.equal(runtime.speakControlButton.disabled, false);
   assert.equal(runtime.wishPaper.hidden, true);
   assert.equal(runtime.wishOfferingComplete.hidden, true);
@@ -2995,42 +2991,31 @@ function verifyInitialReadyState() {
   assert.equal(runtime.interpretationAudio.hidden, true);
   assert.equal(runtime.fetchRequests.length, 0);
   assert.equal(runtime.audioElements.length, 0);
+  assert.equal(runtime.speakControlButton.listeners.has('pointerdown'), false);
+  assert.equal(runtime.speakControlButton.listeners.has('pointerup'), false);
+  assert.equal(runtime.speakControlButton.listeners.has('pointercancel'), false);
   assert.equal(
-    runtime.speakControlButton.listeners.get('pointerdown').length,
-    1
+    runtime.speakControlButton.listeners.has('lostpointercapture'),
+    false
   );
   assert.equal(
-    runtime.speakControlButton.listeners.get('pointerup').length,
+    runtime.speakControlButton.listeners.get('click').length,
     1
   );
-  assert.equal(
-    runtime.speakControlButton.listeners.get('pointercancel').length,
-    1
-  );
-  assert.equal(
-    runtime.speakControlButton.listeners.get('lostpointercapture').length,
-    1
-  );
-  assert.equal(runtime.speakControlButton.listeners.has('click'), false);
 }
 
 async function reachStagedDrawnLot(runtime) {
-  const downEvent = startSpeakPress(runtime, 17);
-  assert.equal(downEvent.preventDefaultCallCount, 1);
-  assert.deepEqual(runtime.speakControlButton.pointerCaptureCalls, [17]);
-  startSpeakPress(runtime, 17);
+  clickSpeakControl(runtime);
   assert.equal(runtime.asrSessions.length, 1);
   await flushPromises();
   assert.equal(runtime.page.dataset.fortuneState, 'listening');
-  assert.equal(runtime.speakControlButton.textContent, '松开结束');
+  assert.equal(runtime.speakControlButton.textContent, '结束说话');
   assert.equal(runtime.wishPaper.hidden, false);
   runtime.asrSessions[0].callbacks.onPartial('愿家人平安');
   runtime.asrSessions[0].callbacks.onPartial('愿家人平安');
   assert.equal(runtime.transcriptText.textContent, '愿家人平安');
 
-  const upEvent = endSpeakPress(runtime, 17);
-  assert.equal(upEvent.preventDefaultCallCount, 1);
-  assert.deepEqual(runtime.speakControlButton.pointerReleaseCalls, [17]);
+  clickSpeakControl(runtime);
   assert.equal(runtime.asrSessions[0].finishCallCount, 1);
   assert.equal(runtime.page.dataset.fortuneState, 'offering-wish');
   assert.equal(runtime.transcriptText.textContent, '测试识别结果');
@@ -3079,7 +3064,7 @@ async function reachStagedDrawnLot(runtime) {
   return runtime;
 }
 
-async function verifyPointerKeyboardAndStagedFlow() {
+async function verifyClickAndStagedFlow() {
   const runtime = await reachStagedDrawnLot(loadFortuneRuntime());
   runtime.interpretFortuneButton.trigger('click');
   runtime.interpretFortuneButton.trigger('click');
@@ -3106,39 +3091,6 @@ async function verifyPointerKeyboardAndStagedFlow() {
   assert.equal(runtime.audioElements[0].pauseCallCount, 1);
   assert.deepEqual(runtime.revokedObjectUrls, ['blob:fortune-audio-1']);
 
-  const keyboardRuntime = loadFortuneRuntime();
-  const keyDown = {
-    key: ' ',
-    repeat: false,
-    preventDefaultCallCount: 0,
-    preventDefault() {
-      this.preventDefaultCallCount += 1;
-    },
-  };
-  keyboardRuntime.speakControlButton.trigger('keydown', keyDown);
-  keyboardRuntime.speakControlButton.trigger('keydown', {
-    ...keyDown,
-    repeat: true,
-  });
-  await flushPromises();
-  assert.equal(keyboardRuntime.asrSessions.length, 1);
-  keyboardRuntime.speakControlButton.trigger('keyup', {
-    key: ' ',
-    preventDefault() {},
-  });
-  assert.equal(keyboardRuntime.asrSessions[0].finishCallCount, 1);
-
-  const cancelRuntime = loadFortuneRuntime();
-  startSpeakPress(cancelRuntime, 23);
-  await flushPromises();
-  endSpeakPress(cancelRuntime, 23, 'pointercancel');
-  assert.equal(cancelRuntime.asrSessions[0].finishCallCount, 1);
-
-  const lostRuntime = loadFortuneRuntime();
-  startSpeakPress(lostRuntime, 29);
-  await flushPromises();
-  endSpeakPress(lostRuntime, 29, 'lostpointercapture');
-  assert.equal(lostRuntime.asrSessions[0].finishCallCount, 1);
 }
 
 async function verifyAutoplayRejectionFallback() {
@@ -3163,9 +3115,9 @@ async function verifyAutoplayRejectionFallback() {
 }
 
 async function reachDrawReady(runtime) {
-  startSpeakPress(runtime, 41);
+  clickSpeakControl(runtime);
   await flushPromises();
-  endSpeakPress(runtime, 41);
+  clickSpeakControl(runtime);
   runtime.wishOfferingStage.trigger('animationend', {
     animationName: 'wish-offering-stage-sequence',
     target: runtime.wishOfferingStage,
@@ -3233,7 +3185,7 @@ async function verifyDrawWaitingFailureAndInvalidFinal() {
         finish() {
           this.finishCallCount += 1;
           callbacks.onFinishing();
-          callbacks.onFinal('   ', true);
+          Promise.resolve().then(() => callbacks.onFinal('   ', true));
           return true;
         },
         close() {
@@ -3246,9 +3198,10 @@ async function verifyDrawWaitingFailureAndInvalidFinal() {
       return session;
     },
   });
-  startSpeakPress(invalidRuntime, 53);
+  clickSpeakControl(invalidRuntime);
   await flushPromises();
-  endSpeakPress(invalidRuntime, 53);
+  clickSpeakControl(invalidRuntime);
+  await flushPromises();
   assert.equal(invalidSessions[0].finishCallCount, 1);
   assert.equal(invalidRuntime.page.dataset.fortuneState, 'ready-to-speak');
   assert.equal(invalidRuntime.wishOfferingStage.hidden, true);
@@ -3326,7 +3279,7 @@ async function main() {
   verifyStagedRitualStaticContract();
   verifyInitialReadyState();
   verifyCharacterVisualSelection();
-  await verifyPointerKeyboardAndStagedFlow();
+  await verifyClickAndStagedFlow();
   await verifyAutoplayRejectionFallback();
   await verifyDrawWaitingFailureAndInvalidFinal();
   await verifyTtsFailureAndPendingRequestCleanup();
@@ -3338,8 +3291,8 @@ async function main() {
 
   process.stdout.write('fortune_incense_interaction_test: PASS\n');
   process.stdout.write(
-    'verified=single-shrine-scene,three-incense-sticks,pointer-only-hold,'
-      + 'pointer-capture,cancel-lost-capture,keyboard-hold,'
+    'verified=single-shrine-scene,three-incense-sticks,click-to-speak,'
+      + 'page-swipe-pointer-events,'
       + 'microphone-user-gesture,single-request,start-stop,'
       + 'all-tracks-stopped,pagehide-beforeunload,no-recording-upload,'
       + 'relay-url,start-started,real-sample-rate,resample-pcm16-le,'

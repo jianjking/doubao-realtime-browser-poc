@@ -28,46 +28,41 @@
         fetchpriority="high">
     </div>
 
-    <header class="top-controls">
-      <h1 class="visually-hidden">玉皇大帝 · 传统文化智慧陪伴</h1>
-      <button
-        class="account-summary-button"
-        type="button"
-        aria-label="查看游客个人信息，充值前需要登录"
-        aria-controls="account-profile-overlay"
-        aria-expanded="false">
-        <img
-          class="account-summary-avatar"
-          src="./assets/account/default-fu-avatar.svg"
-          width="48"
-          height="48"
-          alt="">
-        <span class="account-summary-copy">
-          <strong data-account-primary>游客用户</strong>
-          <small data-account-secondary>游客体验</small>
-        </span>
-        <span class="account-summary-chevron" aria-hidden="true">›</span>
-      </button>
+    <header class="top-controls unified-top-controls" aria-label="页面导航">
+      <a class="unified-return-link" href="./choice.html">返回</a>
+      <div class="unified-title-area">
+        <span>语音陪伴</span>
+        <h1>玉皇大帝</h1>
+      </div>
+      <div class="unified-account-area">
+        <button
+          class="account-summary-button"
+          type="button"
+          aria-label="查看游客个人信息，充值前需要登录"
+          aria-controls="account-profile-overlay"
+          aria-expanded="false">
+          <span class="account-summary-copy">
+            <strong data-account-primary>游客用户</strong>
+            <small data-account-secondary>游客体验</small>
+          </span>
+        </button>
 
-      <button
-        class="time-recharge-entry"
-        type="button"
-        aria-label="当前话费加载中，进入话费充值"
-        aria-controls="recharge-panel recharge-login-overlay"
-        aria-expanded="false">
-        <span class="time-entry-summary">
-          <span>当前话费</span>
-          <span data-current-credit>--</span>
-        </span>
-        <strong>充值</strong>
-      </button>
+        <button
+          class="time-recharge-entry"
+          type="button"
+          aria-label="当前话费加载中，进入话费充值"
+          aria-controls="recharge-panel recharge-login-overlay"
+          aria-expanded="false">
+          <span class="time-entry-summary">
+            <span>当前话费</span>
+            <span data-current-credit>--</span>
+          </span>
+          <strong>话费充值</strong>
+        </button>
+      </div>
     </header>
 
     <nav class="side-actions side-actions-left" aria-label="页面与使用帮助">
-      <a class="side-action feature-choice-link" href="./choice.html" aria-label="返回功能选择">
-        <span class="side-icon icon-choice" aria-hidden="true"></span>
-        <span>功能选择</span>
-      </a>
       <button class="side-action" type="button" aria-label="查看使用说明" data-action="guide">
         <span class="side-icon icon-guide" aria-hidden="true"></span>
         <span>使用说明</span>

@@ -197,6 +197,7 @@
   let roleCatalogLoadPromise = null;
   let rolePricingByKey = new Map();
 
+  const homePage = document.querySelector('.app-shell');
   const homeTitle = document.querySelector('.top-controls h1');
   const sceneImage = document.querySelector('.scene-image');
   const characterStage = document.querySelector('.character-stage');
@@ -895,7 +896,7 @@
       );
     }
     if (homeTitle) {
-      homeTitle.textContent = `${character.name} · 传统文化智慧陪伴`;
+      homeTitle.textContent = character.name;
     }
     document.title = `${character.name} · 传统文化智慧陪伴`;
     if (characterMotto) {
@@ -1588,9 +1589,11 @@
     document.body.dataset.authReady = 'true';
     renderAccountSummary(currentAuthState);
     renderAccountProfile(currentAuthState);
-    renderCharacter(charactersByKey.get(currentCharacterKey));
-    if (rolePricingTrigger && rolePricingOverlay) {
-      void loadPublicRoleCatalog();
+    if (homePage) {
+      renderCharacter(charactersByKey.get(currentCharacterKey));
+      if (rolePricingTrigger && rolePricingOverlay) {
+        void loadPublicRoleCatalog();
+      }
     }
     if (isPhoneAuthenticated(currentAuthState)) {
       void loadAccountState();
@@ -1721,7 +1724,9 @@
     document.addEventListener('keydown', handleEscapeKey);
     window.addEventListener('pageshow', handleHomePageShow);
     updateRechargeSelectionSummary();
-    warmAdjacentCharacterImages(currentCharacterKey);
+    if (homePage) {
+      warmAdjacentCharacterImages(currentCharacterKey);
+    }
     consumePendingAction();
   }
 

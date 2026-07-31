@@ -6,14 +6,49 @@
   <meta name="theme-color" content="#481a20">
   <title>上香求签 · 传统文化智慧陪伴</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./ui.css">
   <link rel="stylesheet" href="./entry.css">
 </head>
-<body>
+<body data-auth-ready="false">
   <main
     class="entry-shell fortune-page"
     data-fortune-character-key="yuhuang"
     aria-labelledby="fortune-title"
   >
+    <header class="top-controls unified-top-controls" aria-label="页面导航">
+      <a class="unified-return-link" href="./choice.html">返回</a>
+      <div class="unified-title-area">
+        <span>静心入殿</span>
+        <h1 id="fortune-title">上香求签</h1>
+      </div>
+      <div class="unified-account-area">
+        <button
+          class="account-summary-button"
+          type="button"
+          aria-label="当前用户信息加载中"
+          aria-controls="account-profile-overlay"
+          aria-expanded="false">
+          <span class="account-summary-copy">
+            <strong data-account-primary>加载中</strong>
+            <small data-account-secondary>账户信息</small>
+          </span>
+        </button>
+
+        <button
+          class="time-recharge-entry"
+          type="button"
+          aria-label="当前话费加载中，进入话费充值"
+          aria-controls="recharge-panel recharge-login-overlay"
+          aria-expanded="false">
+          <span class="time-entry-summary">
+            <span>当前话费</span>
+            <span data-current-credit>--</span>
+          </span>
+          <strong>话费充值</strong>
+        </button>
+      </div>
+    </header>
+
     <div class="shrine-scene-background" aria-hidden="true">
       <img
         class="shrine-deity-visual"
@@ -27,12 +62,6 @@
       <span class="shrine-scene-smoke shrine-scene-smoke-left"></span>
       <span class="shrine-scene-smoke shrine-scene-smoke-right"></span>
     </div>
-
-    <header class="entry-heading fortune-heading">
-      <p class="entry-kicker">静心入殿</p>
-      <h1 id="fortune-title">上香求签</h1>
-      <p class="fortune-introduction">三炷清香已燃，请向神明诉说心愿。</p>
-    </header>
 
     <section class="temple-scene shrine-character-layer" aria-labelledby="temple-scene-title">
       <h2 id="temple-scene-title" class="visually-hidden">神明与道童同在殿前</h2>
@@ -156,13 +185,203 @@
     </div>
 
     <footer class="page-footnotes">
-      <a class="return-choice-button" href="./choice.html">返回</a>
       <p class="fortune-prototype-notice">当前为项目原型签文，正式签谱后续校订。</p>
       <p class="fortune-experience-disclaimer">
         签文与解读仅作传统文化体验及情绪陪伴参考。
       </p>
     </footer>
   </main>
+
+  <section
+    class="recharge-panel prototype-overlay"
+    id="recharge-panel"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    hidden
+    aria-labelledby="recharge-panel-title">
+    <div class="overlay-card">
+      <header class="overlay-header">
+        <div>
+          <h2 id="recharge-panel-title">开发态模拟充值</h2>
+          <p>仅用于本地开发演示，不会发生真实支付</p>
+        </div>
+        <button class="overlay-close" type="button" aria-label="关闭话费充值" data-close-overlay>关闭</button>
+      </header>
+
+      <div class="recharge-scroll-content">
+        <section class="overlay-account-summary" aria-label="当前话费">
+          <p>
+            <span>当前话费</span>
+            <strong data-current-credit>--</strong>
+          </p>
+        </section>
+
+        <section class="recharge-amounts" aria-labelledby="recharge-amounts-title">
+          <h3 id="recharge-amounts-title">充值金额</h3>
+          <div class="package-grid" aria-label="选择充值金额">
+            <button class="package-option is-selected" type="button" data-package-mode="preset" data-package-amount="10元" data-package-cents="1000" aria-pressed="true">
+              <strong>10元</strong>
+              <span>约30分钟</span>
+              <small class="selection-status">已选</small>
+            </button>
+            <button class="package-option" type="button" data-package-mode="preset" data-package-amount="20元" data-package-cents="2000" aria-pressed="false">
+              <strong>20元</strong>
+              <span>约70分钟</span>
+              <small class="selection-status">选择</small>
+            </button>
+            <button class="package-option" type="button" data-package-mode="preset" data-package-amount="50元" data-package-cents="5000" aria-pressed="false">
+              <strong>50元</strong>
+              <span>约200分钟</span>
+              <small class="selection-status">选择</small>
+            </button>
+            <button class="package-option custom-amount-option" type="button" data-package-mode="custom" aria-pressed="false" aria-controls="custom-amount-field">
+              <strong>任意金额</strong>
+              <span>0.01至1000元</span>
+              <small class="selection-status">选择</small>
+            </button>
+          </div>
+          <div class="custom-amount-field" id="custom-amount-field" hidden>
+            <label for="custom-amount-input">请输入充值金额</label>
+            <div class="custom-amount-input-shell">
+              <span aria-hidden="true">¥</span>
+              <input
+                class="custom-amount-input"
+                id="custom-amount-input"
+                type="number"
+                min="0.01"
+                max="1000"
+                step="0.01"
+                required
+                inputmode="decimal"
+                placeholder="0.01至1000元"
+                aria-describedby="custom-amount-help custom-amount-error">
+            </div>
+            <p id="custom-amount-help">最低0.01元，最高1000元，最多两位小数</p>
+            <p class="custom-amount-error" id="custom-amount-error" role="alert" hidden>请输入0.01至1000元之间的金额</p>
+          </div>
+        </section>
+
+        <p class="package-note">实际可用时长以充值页面说明为准</p>
+
+        <section class="payment-methods" aria-labelledby="payment-methods-title">
+          <h3 id="payment-methods-title">支付方式界面演示</h3>
+          <div class="payment-options" role="radiogroup" aria-label="选择支付方式">
+            <button class="payment-option is-selected" type="button" role="radio" aria-checked="true" data-payment-method="wechat" data-payment-name="微信支付">
+              <img class="payment-icon" src="./assets/payment/wechat-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
+              <span class="payment-name">微信支付</span>
+              <small class="selection-status">已选</small>
+            </button>
+            <button class="payment-option" type="button" role="radio" aria-checked="false" data-payment-method="alipay" data-payment-name="支付宝支付">
+              <img class="payment-icon" src="./assets/payment/alipay-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
+              <span class="payment-name">支付宝支付</span>
+              <small class="selection-status">选择</small>
+            </button>
+          </div>
+          <p class="payment-demo-note">支付方式仅为界面演示，当前未接真实支付</p>
+        </section>
+      </div>
+
+      <div class="recharge-actions">
+        <p class="recharge-selection-summary" aria-live="polite">
+          本次模拟充值：10元 · 微信支付（仅界面演示）
+        </p>
+        <button class="recharge-confirm" type="button">模拟充值</button>
+        <p class="recharge-result" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="recharge-login-overlay prototype-overlay"
+    id="recharge-login-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    hidden
+    aria-labelledby="recharge-login-title">
+    <div class="overlay-card compact-dialog">
+      <header class="overlay-header">
+        <div>
+          <h2 id="recharge-login-title">充值前请先登录</h2>
+          <p>登录后才能充值和保存账户信息。游客仍可继续浏览和求签。</p>
+        </div>
+      </header>
+      <div class="dialog-actions">
+        <button class="dialog-primary-action" type="button" data-login-for-recharge>手机号登录</button>
+        <button class="dialog-secondary-action" type="button" data-close-overlay>暂不充值</button>
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="account-profile-overlay prototype-overlay"
+    id="account-profile-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    hidden
+    aria-labelledby="account-profile-title">
+    <div class="account-profile-dialog overlay-card">
+      <header class="overlay-header profile-header">
+        <div class="profile-heading">
+          <img src="./assets/account/default-fu-avatar.svg" width="64" height="64" alt="">
+          <div>
+            <h2 id="account-profile-title">个人信息</h2>
+            <p data-profile-summary>游客用户 · 游客体验</p>
+          </div>
+        </div>
+        <button class="overlay-close" type="button" aria-label="关闭个人信息" data-close-overlay>关闭</button>
+      </header>
+      <dl class="account-profile-list">
+        <div>
+          <dt>账户状态</dt>
+          <dd data-profile-status>游客体验</dd>
+        </div>
+        <div>
+          <dt>手机号</dt>
+          <dd data-profile-phone>未绑定</dd>
+        </div>
+        <div>
+          <dt>VIP等级</dt>
+          <dd data-profile-vip>游客</dd>
+        </div>
+        <div>
+          <dt>充值权限</dt>
+          <dd data-profile-recharge>登录后可以充值</dd>
+        </div>
+      </dl>
+      <div class="profile-actions">
+        <button class="profile-main-action" type="button" data-profile-main-action>手机号登录／注册</button>
+        <button class="dialog-secondary-action" type="button" data-close-overlay>关闭</button>
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="logout-confirm-overlay prototype-overlay"
+    id="logout-confirm-overlay"
+    role="alertdialog"
+    aria-modal="true"
+    aria-hidden="true"
+    hidden
+    aria-labelledby="logout-confirm-title">
+    <div class="overlay-card compact-dialog">
+      <header class="overlay-header">
+        <div>
+          <h2 id="logout-confirm-title">确定退出当前账户吗？</h2>
+          <p>退出后需要重新登录才能充值。</p>
+        </div>
+      </header>
+      <div class="dialog-actions">
+        <button class="dialog-danger-action" type="button" data-confirm-logout>确定退出</button>
+        <button class="dialog-secondary-action" type="button" data-cancel-logout>取消</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="ui-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
   <div class="wish-offering-stage" data-wish-offering-stage aria-hidden="true" hidden>
     <p class="wish-offering-stage-caption" aria-hidden="true">
       <span>心愿投入焚愿炉</span>
@@ -201,5 +420,6 @@
   </div>
   <script src="./fortune_browser_asr.js"></script>
   <script src="./fortune.js"></script>
+  <script src="./ui.js"></script>
 </body>
 </html>
