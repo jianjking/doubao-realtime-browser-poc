@@ -22,14 +22,21 @@ const SYNTHETIC_SECRETS = Object.freeze([
 ]);
 const DEFAULT_FORTUNE_SPEAKER_ID = 'S_bpBL3BA92';
 const EXPLICIT_FORTUNE_SPEAKER_ID = 'synthetic-speaker-override';
+const DEFAULT_FORTUNE_TEXT_MODEL_BASE_URL =
+  'https://ark.cn-beijing.volces.com/api/v3';
+const DEFAULT_FORTUNE_TEXT_MODEL_NAME = 'deepseek-v4-flash-260425';
+const DEFAULT_FORTUNE_TTS_RESOURCE_ID = 'seed-icl-2.0';
 const DEFAULT_FORTUNE_TIMEOUT_MS = '30000';
 const EXPLICIT_FORTUNE_TIMEOUT_MS = '45000';
 const EXPECTED_ENVIRONMENT_NAMES = Object.freeze([
   'VOLCENGINE_API_KEY',
   'DOUBAO_ASR_API_KEY',
   'FORTUNE_TTS_API_KEY',
+  'FORTUNE_TEXT_MODEL_BASE_URL',
   'FORTUNE_TEXT_MODEL_API_KEY',
+  'FORTUNE_TEXT_MODEL_NAME',
   'FORTUNE_TEXT_MODEL_TIMEOUT_MS',
+  'FORTUNE_TTS_RESOURCE_ID',
   'FORTUNE_TTS_SPEAKER_ID',
 ]);
 
@@ -393,11 +400,42 @@ async function main() {
     source.match(/请输入文本模型 API Key/g)?.length,
     1
   );
+  assert.equal(source.match(/请输入/g)?.length, 2);
   assert.doesNotMatch(
     source,
     /请输入 (?:VOLCENGINE_API_KEY|DOUBAO_ASR_API_KEY|FORTUNE_TTS_API_KEY)/
   );
-  assert.doesNotMatch(source, /请输入 FORTUNE_TTS_SPEAKER_ID/);
+  assert.doesNotMatch(
+    source,
+    /请输入 (?:FORTUNE_TEXT_MODEL_BASE_URL|FORTUNE_TEXT_MODEL_NAME|FORTUNE_TTS_RESOURCE_ID|FORTUNE_TTS_SPEAKER_ID)/
+  );
+  assert.equal(source.match(/read -r -s -p/g)?.length, 2);
+  assert.doesNotMatch(source, /read -r -p/);
+  assert.doesNotMatch(
+    source,
+    /(?:echo|printf)[^\n]*(?:API_KEY|TEXT_MODEL_API_KEY)/
+  );
+  assert.doesNotMatch(source, /require_plain_env/);
+  assert.match(
+    source,
+    /FORTUNE_TEXT_MODEL_BASE_URL="\$\{FORTUNE_TEXT_MODEL_BASE_URL:-https:\/\/ark\.cn-beijing\.volces\.com\/api\/v3\}"/
+  );
+  assert.match(source, /^export FORTUNE_TEXT_MODEL_BASE_URL$/m);
+  assert.match(
+    source,
+    /FORTUNE_TEXT_MODEL_NAME="\$\{FORTUNE_TEXT_MODEL_NAME:-deepseek-v4-flash-260425\}"/
+  );
+  assert.match(source, /^export FORTUNE_TEXT_MODEL_NAME$/m);
+  assert.match(
+    source,
+    /FORTUNE_TTS_RESOURCE_ID="\$\{FORTUNE_TTS_RESOURCE_ID:-seed-icl-2\.0\}"/
+  );
+  assert.match(source, /^export FORTUNE_TTS_RESOURCE_ID$/m);
+  assert.match(
+    source,
+    /FORTUNE_TTS_SPEAKER_ID="\$\{FORTUNE_TTS_SPEAKER_ID:-S_bpBL3BA92\}"/
+  );
+  assert.match(source, /^export FORTUNE_TTS_SPEAKER_ID$/m);
   assert.match(
     source,
     /FORTUNE_TEXT_MODEL_TIMEOUT_MS:-30000/
@@ -422,13 +460,30 @@ async function main() {
   );
   assert.equal(requestedUrl.includes('/internal/internal/'), false);
 
-  const missing = runScript(bashPath, {
-    envOverrides: { FORTUNE_TTS_RESOURCE_ID: undefined },
+  const defaults = runScript(bashPath, {
+    envOverrides: {
+      FORTUNE_TEXT_MODEL_BASE_URL: undefined,
+      FORTUNE_TEXT_MODEL_NAME: undefined,
+      FORTUNE_TTS_RESOURCE_ID: undefined,
+      FORTUNE_TTS_SPEAKER_ID: undefined,
+      MOCK_BACKEND_MODE: 'fail',
+    },
+    expectedEnvironment: {
+      VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[0],
+      DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[1],
+      FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[3],
+      FORTUNE_TEXT_MODEL_BASE_URL:
+        DEFAULT_FORTUNE_TEXT_MODEL_BASE_URL,
+      FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[2],
+      FORTUNE_TEXT_MODEL_NAME: DEFAULT_FORTUNE_TEXT_MODEL_NAME,
+      FORTUNE_TTS_RESOURCE_ID: DEFAULT_FORTUNE_TTS_RESOURCE_ID,
+      FORTUNE_TTS_SPEAKER_ID: DEFAULT_FORTUNE_SPEAKER_ID,
+    },
   });
-  assert.notEqual(missing.result.status, 0);
-  assert.match(missing.result.stderr, /FORTUNE_TTS_RESOURCE_ID/);
-  assert.equal(missing.events, '');
-  assertSecretsAbsent(missing.result.stdout + missing.result.stderr);
+  assert.notEqual(defaults.result.status, 0);
+  assertExpectedEnvironment(defaults, 'backend');
+  assertExpectedEnvironment(defaults, 'relay');
+  assertSecretsAbsent(defaults.result.stdout + defaults.result.stderr);
 
   const invalidThinking = runScript(bashPath, {
     envOverrides: { FORTUNE_TEXT_MODEL_DISABLE_THINKING: 'enabled' },
@@ -473,7 +528,10 @@ async function main() {
       VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[0],
       DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[1],
       FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[3],
+      FORTUNE_TEXT_MODEL_BASE_URL: 'https://model.invalid/v1',
       FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[2],
+      FORTUNE_TEXT_MODEL_NAME: 'synthetic-model',
+      FORTUNE_TTS_RESOURCE_ID: 'synthetic.tts.resource',
       FORTUNE_TTS_SPEAKER_ID: EXPLICIT_FORTUNE_SPEAKER_ID,
     },
   });
@@ -503,6 +561,9 @@ async function main() {
       FORTUNE_TTS_API_KEY: undefined,
       FORTUNE_TEXT_MODEL_API_KEY: undefined,
       FORTUNE_TEXT_MODEL_TIMEOUT_MS: '',
+      FORTUNE_TEXT_MODEL_BASE_URL: undefined,
+      FORTUNE_TEXT_MODEL_NAME: undefined,
+      FORTUNE_TTS_RESOURCE_ID: undefined,
       FORTUNE_TTS_SPEAKER_ID: undefined,
       MOCK_BACKEND_MODE: 'fail',
     },
@@ -510,7 +571,11 @@ async function main() {
       VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[4],
       DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[4],
       FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[4],
+      FORTUNE_TEXT_MODEL_BASE_URL:
+        DEFAULT_FORTUNE_TEXT_MODEL_BASE_URL,
       FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[5],
+      FORTUNE_TEXT_MODEL_NAME: DEFAULT_FORTUNE_TEXT_MODEL_NAME,
+      FORTUNE_TTS_RESOURCE_ID: DEFAULT_FORTUNE_TTS_RESOURCE_ID,
       FORTUNE_TTS_SPEAKER_ID: DEFAULT_FORTUNE_SPEAKER_ID,
     },
     input: `${SYNTHETIC_SECRETS[4]}\n${SYNTHETIC_SECRETS[5]}\n`,
@@ -530,8 +595,11 @@ async function main() {
       VOLCENGINE_API_KEY: SYNTHETIC_SECRETS[0],
       DOUBAO_ASR_API_KEY: SYNTHETIC_SECRETS[0],
       FORTUNE_TTS_API_KEY: SYNTHETIC_SECRETS[0],
+      FORTUNE_TEXT_MODEL_BASE_URL: 'https://model.invalid/v1',
       FORTUNE_TEXT_MODEL_API_KEY: SYNTHETIC_SECRETS[2],
+      FORTUNE_TEXT_MODEL_NAME: 'synthetic-model',
       FORTUNE_TEXT_MODEL_TIMEOUT_MS: EXPLICIT_FORTUNE_TIMEOUT_MS,
+      FORTUNE_TTS_RESOURCE_ID: 'synthetic.tts.resource',
       FORTUNE_TTS_SPEAKER_ID: EXPLICIT_FORTUNE_SPEAKER_ID,
     },
   });

@@ -226,30 +226,6 @@ configure_voice_service_credentials() {
   unset voice_key
 }
 
-require_plain_env() {
-  local name="$1"
-  local prompt="$2"
-  local current="${!name-}"
-  local entered=""
-
-  if [[ -n "$current" ]]; then
-    return
-  fi
-  if ! IFS= read -r -p "$prompt" entered; then
-    printf '\n'
-    printf '错误：%s 不能为空。\n' "$name" >&2
-    return 1
-  fi
-  if [[ -z "${entered//[[:space:]]/}" ]]; then
-    printf '错误：%s 不能为空。\n' "$name" >&2
-    unset entered
-    return 1
-  fi
-  printf -v "$name" '%s' "$entered"
-  export "$name"
-  unset entered
-}
-
 validate_demo_configuration() {
   node - validate-config <<'NODE'
 try {
@@ -405,19 +381,15 @@ if [[ -z "${DOUBAO_ASR_RESOURCE_ID-}" ]]; then
   export DOUBAO_ASR_RESOURCE_ID="volc.seedasr.sauc.duration"
 fi
 
-require_plain_env \
-  FORTUNE_TEXT_MODEL_BASE_URL \
-  "请输入 FORTUNE_TEXT_MODEL_BASE_URL："
-require_plain_env \
-  FORTUNE_TEXT_MODEL_NAME \
-  "请输入 FORTUNE_TEXT_MODEL_NAME："
+FORTUNE_TEXT_MODEL_BASE_URL="${FORTUNE_TEXT_MODEL_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
+export FORTUNE_TEXT_MODEL_BASE_URL
+FORTUNE_TEXT_MODEL_NAME="${FORTUNE_TEXT_MODEL_NAME:-deepseek-v4-flash-260425}"
+export FORTUNE_TEXT_MODEL_NAME
 export FORTUNE_TEXT_MODEL_TIMEOUT_MS="${FORTUNE_TEXT_MODEL_TIMEOUT_MS:-30000}"
-require_plain_env \
-  FORTUNE_TTS_RESOURCE_ID \
-  "请输入 FORTUNE_TTS_RESOURCE_ID："
-if [[ -z "${FORTUNE_TTS_SPEAKER_ID-}" ]]; then
-  export FORTUNE_TTS_SPEAKER_ID="S_bpBL3BA92"
-fi
+FORTUNE_TTS_RESOURCE_ID="${FORTUNE_TTS_RESOURCE_ID:-seed-icl-2.0}"
+export FORTUNE_TTS_RESOURCE_ID
+FORTUNE_TTS_SPEAKER_ID="${FORTUNE_TTS_SPEAKER_ID:-S_bpBL3BA92}"
+export FORTUNE_TTS_SPEAKER_ID
 
 export DOUBAO_ENABLE_SUNWUKONG=1
 export DOUBAO_SUNWUKONG_SPEAKER_ID=S_UiUfvBA92
