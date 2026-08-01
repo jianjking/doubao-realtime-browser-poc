@@ -9,6 +9,9 @@ const {
 const {
   createFortuneTtsClientFromEnv,
 } = require('./clients/fortune_tts_client');
+const {
+  createBusinessStores,
+} = require('./stores/business_store_factory');
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3002;
@@ -54,25 +57,37 @@ function startServer() {
   const fortuneTtsClient = createFortuneTtsClientFromEnv({
     env: process.env,
   });
-  const app = createApp({
-    enableDevRecharge: isDevRechargeEnabled(process.env),
-    internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
-    mobileUiDirectory: path.resolve(
-      __dirname,
-      '../ui_prototypes/yuhuang_mobile_v1'
-    ),
-    fortuneAudioWorkletFile: path.resolve(
-      __dirname,
-      '../public/pcm_capture_processor.js'
-    ),
-    fortuneInterpretationClient,
-    fortuneTtsClient,
+  const businessStores = createBusinessStores({
+    databasePath: process.env.BUSINESS_DATABASE_PATH,
   });
+  let app;
+  try {
+    app = createApp({
+      businessStores,
+      enableDevRecharge: isDevRechargeEnabled(process.env),
+      internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
+      mobileUiDirectory: path.resolve(
+        __dirname,
+        '../ui_prototypes/yuhuang_mobile_v1'
+      ),
+      fortuneAudioWorkletFile: path.resolve(
+        __dirname,
+        '../public/pcm_capture_processor.js'
+      ),
+      fortuneInterpretationClient,
+      fortuneTtsClient,
+    });
+  } catch (error) {
+    businessStores.close();
+    throw error;
+  }
 
   const server = app.listen(port, host, () => {
     console.log(`business-backend listening on ${host}:${port}`);
   });
+  server.once('close', businessStores.close);
   server.on('error', (error) => {
+    businessStores.close();
     console.error(`business-backend failed to start: ${error.message}`);
     process.exitCode = 1;
   });

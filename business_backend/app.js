@@ -45,9 +45,29 @@ const { MemoryUserStore } = require('./stores/memory_user_store');
 
 function createApp(options = {}) {
   const sessionStore = new MemorySessionStore();
-  const userStore = new MemoryUserStore();
-  const accountStore = new MemoryAccountStore();
-  const callStore = new MemoryCallStore();
+  const businessStores = options.businessStores === undefined
+    ? {
+      userStore: new MemoryUserStore(),
+      accountStore: new MemoryAccountStore(),
+      callStore: new MemoryCallStore(),
+    }
+    : options.businessStores;
+  if (
+    !businessStores
+    || typeof businessStores !== 'object'
+    || !businessStores.userStore
+    || !businessStores.accountStore
+    || !businessStores.callStore
+  ) {
+    throw new TypeError(
+      'businessStores must provide user, account, and call stores'
+    );
+  }
+  const {
+    userStore,
+    accountStore,
+    callStore,
+  } = businessStores;
   const fortuneSessionStore = new MemoryFortuneSessionStore();
   const roleService = createRoleService({ roles: PUBLIC_ROLES });
   const sessionService = createSessionService({
@@ -76,6 +96,7 @@ function createApp(options = {}) {
     accountService,
     clock: options.clock,
     idGenerator: options.callIdGenerator,
+    runInTransaction: businessStores.runInTransaction,
   });
   const fortuneService = createFortuneService({
     fortuneSessionStore,

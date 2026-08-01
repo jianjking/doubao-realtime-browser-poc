@@ -53,3 +53,14 @@ temp/
 *.swp
 *.pcm
 *.raw
+
+# Business backend SQLite databases
+business_backend/data/*.sqlite
+business_backend/data/*.sqlite3
+business_backend/data/*.db
+business_backend/data/*.sqlite-wal
+business_backend/data/*.sqlite-shm
+business_backend/data/*.sqlite3-wal
+business_backend/data/*.sqlite3-shm
+business_backend/data/*.db-wal
+business_backend/data/*.db-shm

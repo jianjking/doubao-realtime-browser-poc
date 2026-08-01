@@ -23,6 +23,7 @@ function createCallService({
   accountService = null,
   clock = Date.now,
   idGenerator = () => crypto.randomUUID(),
+  runInTransaction = (operation) => operation(),
 } = {}) {
   if (!callStore || !roleService) {
     throw new TypeError('callStore and roleService are required');
@@ -44,6 +45,9 @@ function createCallService({
   }
   if (typeof idGenerator !== 'function') {
     throw new TypeError('idGenerator must be a function');
+  }
+  if (typeof runInTransaction !== 'function') {
+    throw new TypeError('runInTransaction must be a function');
   }
 
   function validateUserId(userId) {
@@ -119,56 +123,58 @@ function createCallService({
       );
     }
 
-    const account = accountService === null
-      ? null
-      : accountService.getPublicAccountForUser(userId);
-    if (!account) {
-      throw createPublicError(
-        409,
-        'ACCOUNT_UNAVAILABLE',
-        'User account is unavailable'
-      );
-    }
+    return runInTransaction(() => {
+      const account = accountService === null
+        ? null
+        : accountService.getPublicAccountForUser(userId);
+      if (!account) {
+        throw createPublicError(
+          409,
+          'ACCOUNT_UNAVAILABLE',
+          'User account is unavailable'
+        );
+      }
 
-    const role = roleService.findPublicRoleBySlug(roleSlug);
-    if (!role) {
-      throw createPublicError(
-        404,
-        'ROLE_NOT_FOUND',
-        'Requested role was not found'
-      );
-    }
-    if (!role.available) {
-      throw createPublicError(
-        409,
-        'ROLE_UNAVAILABLE',
-        'Requested role is currently unavailable'
-      );
-    }
-    if (account.balanceCents < role.pricePerBillingUnitFen) {
-      throw createPublicError(
-        409,
-        'INSUFFICIENT_BALANCE',
-        'Account balance is insufficient to start a call'
-      );
-    }
+      const role = roleService.findPublicRoleBySlug(roleSlug);
+      if (!role) {
+        throw createPublicError(
+          404,
+          'ROLE_NOT_FOUND',
+          'Requested role was not found'
+        );
+      }
+      if (!role.available) {
+        throw createPublicError(
+          409,
+          'ROLE_UNAVAILABLE',
+          'Requested role is currently unavailable'
+        );
+      }
+      if (account.balanceCents < role.pricePerBillingUnitFen) {
+        throw createPublicError(
+          409,
+          'INSUFFICIENT_BALANCE',
+          'Account balance is insufficient to start a call'
+        );
+      }
 
-    const createdAt = new Date(clock()).toISOString();
-    const call = {
-      id: idGenerator(),
-      userId,
-      roleSlug,
-      billingUnitMs: role.billingUnitMs,
-      pricePerBillingUnitFen: role.pricePerBillingUnitFen,
-      chargeFen: null,
-      status: 'pending',
-      createdAt,
-      startedAt: null,
-      endedAt: null,
-    };
-    callStore.save(call);
+      const createdAt = new Date(clock()).toISOString();
+      const call = {
+        id: idGenerator(),
+        userId,
+        roleSlug,
+        billingUnitMs: role.billingUnitMs,
+        pricePerBillingUnitFen: role.pricePerBillingUnitFen,
+        chargeFen: null,
+        status: 'pending',
+        createdAt,
+        startedAt: null,
+        endedAt: null,
+      };
+      callStore.save(call);
 
-    return buildPublicCall(call);
+      return buildPublicCall(call);
+    });
   }
 
   function getPublicCallForUser({ userId, callId } = {}) {
@@ -200,69 +206,71 @@ function createCallService({
 
   function transitionCall(callId, targetStatus) {
     validateInternalCallId(callId);
-    const call = callStore.findById(callId);
-    if (!call) {
-      throw createPublicError(
-        404,
-        'CALL_NOT_FOUND',
-        'Requested call was not found'
-      );
-    }
-    if (call.status === targetStatus) {
-      return buildPublicCall(call);
-    }
-    if (
-      !ALLOWED_SOURCE_STATUSES[targetStatus].includes(call.status)
-    ) {
-      throw createPublicError(
-        409,
-        'INVALID_CALL_TRANSITION',
-        'Call state transition is not allowed'
-      );
-    }
-
-    const nextCall = {
-      ...call,
-      status: targetStatus,
-    };
-    if (targetStatus === 'connecting') {
-      nextCall.startedAt = null;
-      nextCall.endedAt = null;
-    } else if (targetStatus === 'active') {
-      nextCall.startedAt = new Date(clock()).toISOString();
-      nextCall.endedAt = null;
-    } else {
-      nextCall.endedAt = new Date(clock()).toISOString();
-
-      if (targetStatus === 'failed') {
-        nextCall.chargeFen = 0;
-      } else {
-        const durationMs = getDurationMs(nextCall);
-        const billableUnits = Math.ceil(
-          durationMs / nextCall.billingUnitMs
+    return runInTransaction(() => {
+      const call = callStore.findById(callId);
+      if (!call) {
+        throw createPublicError(
+          404,
+          'CALL_NOT_FOUND',
+          'Requested call was not found'
         );
-        const chargeFen = billableUnits
-          * nextCall.pricePerBillingUnitFen;
+      }
+      if (call.status === targetStatus) {
+        return buildPublicCall(call);
+      }
+      if (
+        !ALLOWED_SOURCE_STATUSES[targetStatus].includes(call.status)
+      ) {
+        throw createPublicError(
+          409,
+          'INVALID_CALL_TRANSITION',
+          'Call state transition is not allowed'
+        );
+      }
 
-        if (!Number.isSafeInteger(chargeFen)) {
-          throw new Error(
-            'Call charge exceeds safe integer range'
+      const nextCall = {
+        ...call,
+        status: targetStatus,
+      };
+      if (targetStatus === 'connecting') {
+        nextCall.startedAt = null;
+        nextCall.endedAt = null;
+      } else if (targetStatus === 'active') {
+        nextCall.startedAt = new Date(clock()).toISOString();
+        nextCall.endedAt = null;
+      } else {
+        nextCall.endedAt = new Date(clock()).toISOString();
+
+        if (targetStatus === 'failed') {
+          nextCall.chargeFen = 0;
+        } else {
+          const durationMs = getDurationMs(nextCall);
+          const billableUnits = Math.ceil(
+            durationMs / nextCall.billingUnitMs
           );
-        }
+          const chargeFen = billableUnits
+            * nextCall.pricePerBillingUnitFen;
 
-        nextCall.chargeFen = chargeFen;
+          if (!Number.isSafeInteger(chargeFen)) {
+            throw new Error(
+              'Call charge exceeds safe integer range'
+            );
+          }
 
-        if (accountService !== null) {
-          accountService.debitBalanceCentsForUser(
-            call.userId,
-            nextCall.chargeFen
-          );
+          nextCall.chargeFen = chargeFen;
+
+          if (accountService !== null) {
+            accountService.debitBalanceCentsForUser(
+              call.userId,
+              nextCall.chargeFen
+            );
+          }
         }
       }
-    }
 
-    callStore.replace(nextCall);
-    return buildPublicCall(nextCall);
+      callStore.replace(nextCall);
+      return buildPublicCall(nextCall);
+    });
   }
 
   function markCallConnecting({ callId } = {}) {
