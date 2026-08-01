@@ -1609,7 +1609,7 @@ async function verifyReturnUrlNavigation() {
   assert.equal(missingApiRuntime.ids.callPrimaryButton.disabled, true);
   assert.equal(
     missingApiRuntime.ids.callStatusText.textContent,
-    '通话组件加载失败，可返回首页后重新进入'
+    '通话功能暂时没有加载成功，请重新加载或返回功能选择'
   );
   assert.equal(missingApiRuntime.subscriptions.length, 0);
   assert.deepEqual(missingApiRuntime.apiCounts, {
@@ -2011,22 +2011,24 @@ function verifyStaticSafetyAndCurrentUi() {
   assert.match(callHtml, /id="callIdentityEntry"/);
   assert.match(
     callHtml,
-    /id="callReturnButton"[\s\S]{0,240}aria-disabled="true"[\s\S]{0,80}tabindex="-1"/
+    /id="callReturnButton"[\s\S]{0,240}href="http:\/\/127\.0\.0\.1:8765\/ui_prototypes\/yuhuang_mobile_v1\/home\.html"/
   );
   assert.match(
     callHtml,
-    /id="callIdentityEntry"[\s\S]{0,240}aria-disabled="true"[\s\S]{0,80}tabindex="-1"/
+    /id="callIdentityEntry"[\s\S]{0,240}href="http:\/\/127\.0\.0\.1:8765\/ui_prototypes\/yuhuang_mobile_v1\/index\.html"/
   );
   assert.match(
     callHtml,
-    /<noscript>[\s\S]*?<p role="alert">[\s\S]*?此通话页面需要启用 JavaScript，请返回首页后重新进入。[\s\S]*?<\/noscript>/
+    /<noscript>[\s\S]*?通话功能暂时没有加载成功[\s\S]*?<a href="">重新加载<\/a>[\s\S]*?返回功能选择[\s\S]*?<\/noscript>/
+  );
+  assert.equal(
+    (callHtml.match(
+      /href="http:\/\/127\.0\.0\.1:8765\/ui_prototypes\/yuhuang_mobile_v1\/choice\.html"/g
+    ) || []).length,
+    2
   );
   assert.doesNotMatch(
-    callHtml,
-    /href="\/ui_prototypes\/yuhuang_mobile_v1\/(?:home|index)\.html"/
-  );
-  assert.doesNotMatch(
-    `${homeJs}\n${callHtml}\n${callJs}`,
+    `${homeJs}\n${callJs}`,
     /(?:127\.0\.0\.1|localhost):(?:8765|18765)/
   );
   assert.match(

@@ -20,18 +20,66 @@ const MIC_JS_PATH = path.join(
   'public/doubao_mic_single_turn.js'
 );
 const SERVER_JS_PATH = path.join(PROJECT_DIR, 'server_doubao_realtime.js');
+const HOME_HTML_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/home.html'
+);
+const HOME_CSS_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/ui.css'
+);
+const CALL_HTML_PATH = path.join(PROJECT_DIR, 'public/index.html');
+const CALL_CSS_PATH = path.join(PROJECT_DIR, 'public/doubao_realtime.css');
+const CALL_UI_JS_PATH = path.join(PROJECT_DIR, 'public/realtime_call_ui.js');
+const CALL_STARTUP_ERROR =
+  '通话功能暂时没有加载成功，请重新加载或返回功能选择';
 
 class FakeClassList {
-  add() {}
-  remove() {}
-  toggle() {}
+  constructor() {
+    this.values = new Set();
+  }
+
+  add(...names) {
+    names.forEach((name) => this.values.add(name));
+  }
+
+  remove(...names) {
+    names.forEach((name) => this.values.delete(name));
+  }
+
+  toggle(name, force) {
+    const shouldAdd = force === undefined
+      ? !this.values.has(name)
+      : Boolean(force);
+    if (shouldAdd) {
+      this.values.add(name);
+    } else {
+      this.values.delete(name);
+    }
+    return shouldAdd;
+  }
+
+  contains(name) {
+    return this.values.has(name);
+  }
 }
 
 class FakeElement {
   constructor() {
+    this.attributes = new Map();
     this.classList = new FakeClassList();
+    this.dataset = {};
     this.disabled = false;
     this.handlers = new Map();
+    this.hidden = false;
+    this.style = {
+      display: '',
+      removeProperty: (name) => {
+        if (name === 'display') {
+          this.style.display = '';
+        }
+      },
+    };
     this.textContent = '';
   }
 
@@ -41,6 +89,40 @@ class FakeElement {
     }
     this.handlers.get(eventName).push(handler);
   }
+
+  click() {
+    if (this.disabled) {
+      return;
+    }
+    for (const handler of this.handlers.get('click') || []) {
+      handler({
+        currentTarget: this,
+        preventDefault() {},
+        target: this,
+      });
+    }
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+    if (name === 'src') {
+      this.src = '';
+    }
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+    if (name === 'src') {
+      this.src = String(value);
+    }
+    if (name === 'alt') {
+      this.alt = String(value);
+    }
+  }
+}
+
+function wait(milliseconds = 0) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function findBash() {
@@ -162,6 +244,286 @@ function verifyStartupScript() {
     /错误：8765端口已被占用，请先停止旧的业务后端与首页服务。/
   );
   assert.doesNotMatch(port8765.stdout, /VOLCENGINE_API_KEY/);
+}
+
+function verifyStaticCallFallbacks() {
+  const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
+  const homeCss = fs.readFileSync(HOME_CSS_PATH, 'utf8');
+  const callHtml = fs.readFileSync(CALL_HTML_PATH, 'utf8');
+  const callCss = fs.readFileSync(CALL_CSS_PATH, 'utf8');
+
+  assert.match(
+    homeHtml,
+    /<noscript>[\s\S]*?通话功能暂时没有加载成功[\s\S]*?<\/noscript>/
+  );
+  assert.match(homeHtml, /<a href="\.\/home\.html">重新加载<\/a>/);
+  assert.match(
+    homeHtml,
+    /<a href="\.\/choice\.html">返回功能选择<\/a>/
+  );
+  assert.match(homeHtml, /data-home-startup-fallback[\s\S]*?hidden/);
+  assert.match(
+    homeHtml,
+    /src="\.\/ui\.js"[\s\S]*?onerror="[^"]*is-startup-failed[^"]*"/
+  );
+  assert.match(
+    homeCss,
+    /\.call-startup-fallback\[hidden\][\s\S]*?display:\s*none/
+  );
+  assert.match(
+    homeCss,
+    /\.app-shell\.is-startup-failed[\s\S]*?display:\s*none/
+  );
+
+  assert.match(
+    callHtml,
+    /<noscript>[\s\S]*?通话功能暂时没有加载成功[\s\S]*?<\/noscript>/
+  );
+  assert.match(
+    callHtml,
+    /<a href="">重新加载<\/a>/
+  );
+  assert.match(
+    callHtml,
+    /href="http:\/\/127\.0\.0\.1:8765\/ui_prototypes\/yuhuang_mobile_v1\/choice\.html">返回功能选择<\/a>/
+  );
+  assert.match(callHtml, /id="callStartupFallback"[\s\S]*?hidden/);
+  assert.match(
+    callHtml,
+    /src="\/realtime_call_ui\.js"[\s\S]*?onerror="window\.showCallStartupFallback\(\)"/
+  );
+  assert.match(
+    callCss,
+    /\.call-startup-fallback\[hidden\][\s\S]*?display:\s*none/
+  );
+  assert.match(
+    callCss,
+    /\.call-main\[hidden\],[\s\S]*?\.call-console\[hidden\][\s\S]*?display:\s*none/
+  );
+
+  const fallbackCopies = [homeHtml, callHtml]
+    .flatMap((source) => [...source.matchAll(
+      /<section[^>]*class="call-startup-fallback"[\s\S]*?<\/section>/g
+    )].map((match) => match[0]))
+    .join('\n');
+  assert.doesNotMatch(
+    fallbackCopies,
+    /DoubaoRealtimeCall|WebSocket|JavaScript|speaker|token|3001|堆栈/i
+  );
+}
+
+function createCallUiRuntime(options = {}) {
+  const selectors = {
+    '.page-shell': new FakeElement(),
+    '.call-main': new FakeElement(),
+    '[data-call-character-image]': new FakeElement(),
+    '[data-call-character-heading]': new FakeElement(),
+    '[data-call-character-location]': new FakeElement(),
+    '[data-call-character-name]': new FakeElement(),
+    '[data-call-character-motto]': new FakeElement(),
+    '[data-call-character-controls]': new FakeElement(),
+  };
+  const ids = {
+    callDuration: new FakeElement(),
+    callIdentityEntry: new FakeElement(),
+    callPrimaryButton: new FakeElement(),
+    callReturnButton: new FakeElement(),
+    callStartupFallback: new FakeElement(),
+    callStatusText: new FakeElement(),
+    connectButton: new FakeElement(),
+    debugPanel: new FakeElement(),
+    startMicrophoneButton: new FakeElement(),
+  };
+  ids.callStartupFallback.hidden = true;
+  const apiCounts = {
+    connect: 0,
+    disconnect: 0,
+    startAudio: 0,
+    subscribe: 0,
+    warmupPlayback: 0,
+  };
+  const subscriptions = [];
+  const api = {
+    async connect() {
+      apiCounts.connect += 1;
+      if (options.connectError) {
+        throw options.connectError;
+      }
+    },
+    async disconnect() {
+      apiCounts.disconnect += 1;
+      return {};
+    },
+    async startAudio() {
+      apiCounts.startAudio += 1;
+    },
+    subscribe(handler) {
+      apiCounts.subscribe += 1;
+      if (options.subscribeError) {
+        throw options.subscribeError;
+      }
+      subscriptions.push(handler);
+    },
+    async warmupPlayback() {
+      apiCounts.warmupPlayback += 1;
+    },
+  };
+  if (options.partialApi === true) {
+    delete api.startAudio;
+  }
+
+  const document = {
+    body: {
+      classList: new FakeClassList(),
+    },
+    referrer: '',
+    title: '',
+    getElementById(id) {
+      return ids[id] || null;
+    },
+    querySelector(selector) {
+      return selectors[selector] || null;
+    },
+  };
+  const callPageUrl = new URL('http://127.0.0.1:3001/');
+  callPageUrl.searchParams.set('characterKey', 'yuhuang');
+  callPageUrl.searchParams.set(
+    'returnUrl',
+    'http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/home.html'
+  );
+  const locationAssignments = [];
+  let fallbackShowCount = 0;
+  const window = {
+    addEventListener() {},
+    clearInterval() {},
+    clearTimeout,
+    location: {
+      assign(url) {
+        locationAssignments.push(url);
+      },
+      href: callPageUrl.href,
+      hostname: callPageUrl.hostname,
+      origin: callPageUrl.origin,
+      port: callPageUrl.port,
+      protocol: callPageUrl.protocol,
+      search: callPageUrl.search,
+    },
+    setInterval() {
+      return 1;
+    },
+    setTimeout,
+    showCallStartupFallback() {
+      fallbackShowCount += 1;
+      ids.callStartupFallback.hidden = false;
+      selectors['.call-main'].hidden = true;
+      ids.callPrimaryButton.disabled = true;
+    },
+  };
+  if (options.apiAvailable !== false) {
+    window.DoubaoRealtimeCall = api;
+  }
+
+  vm.runInNewContext(fs.readFileSync(CALL_UI_JS_PATH, 'utf8'), {
+    URL,
+    URLSearchParams,
+    console,
+    document,
+    window,
+  }, {
+    filename: CALL_UI_JS_PATH,
+  });
+  return {
+    apiCounts,
+    get fallbackShowCount() {
+      return fallbackShowCount;
+    },
+    ids,
+    locationAssignments,
+    selectors,
+    subscriptions,
+  };
+}
+
+async function verifyCallUiStartupFailures() {
+  const missingApi = createCallUiRuntime({
+    apiAvailable: false,
+  });
+  assert.equal(missingApi.fallbackShowCount, 1);
+  assert.equal(missingApi.ids.callStartupFallback.hidden, false);
+  assert.equal(missingApi.selectors['.call-main'].hidden, true);
+  assert.equal(missingApi.ids.callPrimaryButton.disabled, true);
+  assert.equal(missingApi.ids.callStatusText.textContent, CALL_STARTUP_ERROR);
+  assert.equal(
+    missingApi.ids.callReturnButton.attributes.get('href'),
+    'http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/home.html'
+  );
+  assert.equal(
+    missingApi.ids.callIdentityEntry.attributes.get('href'),
+    'http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/index.html'
+  );
+  missingApi.ids.callPrimaryButton.click();
+  assert.deepEqual(missingApi.apiCounts, {
+    connect: 0,
+    disconnect: 0,
+    startAudio: 0,
+    subscribe: 0,
+    warmupPlayback: 0,
+  });
+  assert.equal(missingApi.subscriptions.length, 0);
+  assert.equal(missingApi.locationAssignments.length, 0);
+
+  const partialApi = createCallUiRuntime({
+    partialApi: true,
+  });
+  assert.equal(partialApi.fallbackShowCount, 1);
+  assert.equal(partialApi.apiCounts.subscribe, 0);
+  assert.equal(partialApi.ids.callPrimaryButton.disabled, true);
+
+  const initializationSecret =
+    'DoubaoRealtimeCall speaker token stack must stay private';
+  const initializationFailure = createCallUiRuntime({
+    subscribeError: new Error(initializationSecret),
+  });
+  assert.equal(initializationFailure.fallbackShowCount, 1);
+  assert.equal(initializationFailure.ids.callPrimaryButton.disabled, true);
+  assert.equal(
+    initializationFailure.ids.callStatusText.textContent,
+    CALL_STARTUP_ERROR
+  );
+  assert.equal(
+    initializationFailure.ids.callStatusText.textContent.includes(
+      initializationSecret
+    ),
+    false
+  );
+  initializationFailure.ids.callPrimaryButton.click();
+  assert.equal(initializationFailure.apiCounts.connect, 0);
+
+  const startupSecret = 'speaker-id=secret token=secret stack=private';
+  const rejectedStartup = createCallUiRuntime({
+    connectError: new Error(startupSecret),
+  });
+  rejectedStartup.ids.callPrimaryButton.click();
+  await wait();
+  await wait();
+  assert.equal(rejectedStartup.apiCounts.connect, 1);
+  assert.equal(rejectedStartup.apiCounts.warmupPlayback, 1);
+  assert.equal(rejectedStartup.apiCounts.startAudio, 0);
+  assert.equal(rejectedStartup.apiCounts.disconnect, 1);
+  assert.equal(
+    rejectedStartup.selectors['.page-shell'].dataset.callState,
+    'failed'
+  );
+  assert.equal(
+    rejectedStartup.ids.callStatusText.textContent,
+    '暂时未能接通，请稍后重试'
+  );
+  assert.equal(rejectedStartup.ids.callPrimaryButton.textContent, '重新接通');
+  assert.equal(rejectedStartup.ids.callPrimaryButton.disabled, false);
+  assert.equal(
+    rejectedStartup.ids.callStatusText.textContent.includes(startupSecret),
+    false
+  );
 }
 
 function loadMicRuntime() {
@@ -920,6 +1282,8 @@ function verifySpeakerIdsAreRedactedFromTerminalLogs() {
 
 async function main() {
   verifyStartupScript();
+  verifyStaticCallFallbacks();
+  await verifyCallUiStartupFailures();
   await verifyImmediateRelayErrorFeedback();
   verifyLifecycleStartupAssembly();
   verifySafeServerCharacterLogging();
@@ -928,6 +1292,9 @@ async function main() {
   process.stdout.write('startup_error_feedback_test: PASS\n');
   process.stdout.write(
     'verified=3001-preflight,8765-preflight,strict-shell,static-alive,'
+      + 'noscript-fallback,real-fallback-links,script-onerror,'
+      + 'missing-core-api,partial-core-api,init-recovery,'
+      + 'startup-rejection-ui,'
       + 'session-waiter-immediate,audio-waiter-immediate,'
       + 'active-nonfatal-preserved,sanitized-role-log,'
       + 'speaker-id-redaction,lifecycle-startup-assembly\n'

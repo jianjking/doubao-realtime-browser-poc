@@ -29,9 +29,8 @@
         id="callReturnButton"
         class="return-home-link"
         data-return-navigation
+        href="http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/home.html"
         aria-label="返回首页"
-        aria-disabled="true"
-        tabindex="-1"
       >
         <span class="back-mark" aria-hidden="true"></span>
         <span>返回首页</span>
@@ -40,19 +39,42 @@
         id="callIdentityEntry"
         class="return-home-link"
         data-identity-entry
+        href="http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/index.html"
         aria-label="返回身份入口"
-        aria-disabled="true"
-        tabindex="-1"
       >
         <span>身份入口</span>
       </a>
     </header>
 
     <noscript>
-      <p role="alert">
-        此通话页面需要启用 JavaScript，请返回首页后重新进入。
-      </p>
+      <style>
+        .call-main {
+          display: none !important;
+        }
+      </style>
+      <section class="call-startup-fallback" role="alert">
+        <h2>通话功能暂时没有加载成功</h2>
+        <p>请重新加载页面后重试，或返回功能选择。</p>
+        <div class="call-startup-fallback-actions">
+          <a href="">重新加载</a>
+          <a href="http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/choice.html">返回功能选择</a>
+        </div>
+      </section>
     </noscript>
+
+    <section
+      id="callStartupFallback"
+      class="call-startup-fallback"
+      data-call-startup-fallback
+      role="alert"
+      hidden>
+      <h2>通话功能暂时没有加载成功</h2>
+      <p>请重新加载页面后重试，或返回功能选择。</p>
+      <div class="call-startup-fallback-actions">
+        <a href="">重新加载</a>
+        <a href="http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/choice.html">返回功能选择</a>
+      </div>
+    </section>
 
     <main class="call-main">
       <section
@@ -170,7 +192,21 @@
     </section>
   </div>
 
-  <script src="/doubao_mic_single_turn.js"></script>
-  <script src="/realtime_call_ui.js"></script>
+  <script>
+    window.showCallStartupFallback = () => {
+      const fallback = document.getElementById('callStartupFallback');
+      const callMain = document.querySelector('.call-main');
+      const callButton = document.getElementById('callPrimaryButton');
+      if (fallback) fallback.hidden = false;
+      if (callMain) callMain.hidden = true;
+      if (callButton) callButton.disabled = true;
+    };
+  </script>
+  <script
+    src="/doubao_mic_single_turn.js"
+    onerror="window.showCallStartupFallback()"></script>
+  <script
+    src="/realtime_call_ui.js"
+    onerror="window.showCallStartupFallback()"></script>
 </body>
 </html>

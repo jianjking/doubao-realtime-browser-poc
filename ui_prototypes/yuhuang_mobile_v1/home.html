@@ -62,6 +62,38 @@
       </div>
     </header>
 
+    <noscript>
+      <style>
+        body[data-auth-ready="false"] .app-shell {
+          visibility: visible !important;
+        }
+        .app-shell > :not(.app-background):not(.scene-layer):not(noscript) {
+          display: none !important;
+        }
+      </style>
+      <section class="call-startup-fallback" role="alert">
+        <h2>通话功能暂时没有加载成功</h2>
+        <p>请重新加载页面后重试，或返回功能选择。</p>
+        <div class="call-startup-fallback-actions">
+          <a href="./home.html">重新加载</a>
+          <a href="./choice.html">返回功能选择</a>
+        </div>
+      </section>
+    </noscript>
+
+    <section
+      class="call-startup-fallback"
+      data-home-startup-fallback
+      role="alert"
+      hidden>
+      <h2>通话功能暂时没有加载成功</h2>
+      <p>请重新加载页面后重试，或返回功能选择。</p>
+      <div class="call-startup-fallback-actions">
+        <a href="./home.html">重新加载</a>
+        <a href="./choice.html">返回功能选择</a>
+      </div>
+    </section>
+
     <nav class="side-actions side-actions-left" aria-label="页面与使用帮助">
       <button class="side-action" type="button" aria-label="查看使用说明" data-action="guide">
         <span class="side-icon icon-guide" aria-hidden="true"></span>
@@ -345,6 +377,8 @@
 
     <div class="ui-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
   </div>
-  <script src="./ui.js"></script>
+  <script
+    src="./ui.js"
+    onerror="document.querySelector('.app-shell').classList.add('is-startup-failed');document.querySelector('[data-home-startup-fallback]').hidden=false"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
   const RETURN_NAVIGATION_ERROR =
     '无法确定首页地址，请从首页重新进入通话';
   const CALL_COMPONENT_LOAD_ERROR =
-    '通话组件加载失败，可返回首页后重新进入';
+    '通话功能暂时没有加载成功，请重新加载或返回功能选择';
   const DEFAULT_CALL_CHARACTER_KEY = 'yuhuang';
 
   function validateReturnHomeUrl(rawReturnUrl) {
@@ -270,11 +270,29 @@
     'startMicrophoneButton'
   );
 
-  if (!api) {
+  function renderStartupFailure() {
+    if (typeof window.showCallStartupFallback === 'function') {
+      window.showCallStartupFallback();
+    }
+    if (pageShell) {
+      pageShell.dataset.callState = 'startup-failed';
+    }
+    if (characterControls) {
+      characterControls.hidden = true;
+    }
     if (callPrimaryButton) {
       callPrimaryButton.disabled = true;
     }
     callStatusText.textContent = CALL_COMPONENT_LOAD_ERROR;
+  }
+
+  if (!api
+    || typeof api.connect !== 'function'
+    || typeof api.disconnect !== 'function'
+    || typeof api.startAudio !== 'function'
+    || typeof api.subscribe !== 'function'
+    || typeof api.warmupPlayback !== 'function') {
+    renderStartupFailure();
     return;
   }
 
@@ -671,6 +689,13 @@
     return endingPromise;
   }
 
+  try {
+    api.subscribe(handleRealtimeCallSnapshot);
+  } catch {
+    renderStartupFailure();
+    return;
+  }
+
   callPrimaryButton.addEventListener('click', () => {
     if (productState === 'idle'
       || productState === 'ended'
@@ -695,8 +720,6 @@
     event.preventDefault();
     void endCall(true);
   });
-
-  api.subscribe(handleRealtimeCallSnapshot);
 
   window.addEventListener('beforeunload', () => {
     clearDurationTimer();
