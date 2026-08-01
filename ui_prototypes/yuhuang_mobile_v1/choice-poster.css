@@ -58,6 +58,39 @@ body {
   -webkit-user-drag: none;
 }
 
+.choice-page-copy {
+  position: absolute;
+  z-index: 3;
+  top: 2.2%;
+  left: 5%;
+  width: 90%;
+  color: #ffe9aa;
+  text-align: center;
+  text-shadow: 0 3px 10px rgba(49, 4, 4, 0.92);
+  pointer-events: none;
+}
+
+.choice-page-copy p {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 3px;
+}
+
+.choice-page-copy h1 {
+  margin: 11px 0 7px;
+  font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
+  font-size: 42px;
+  line-height: 1.08;
+  letter-spacing: 1px;
+}
+
+.choice-page-copy > span {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
 /*
  * 整张卡片都能点。
  * 坐标按 852×1846 原图比例换算。
@@ -66,6 +99,7 @@ body {
   position: absolute;
   z-index: 5;
   display: block;
+  overflow: hidden;
   background: transparent;
   border-radius: 5%;
   -webkit-tap-highlight-color: rgba(255, 231, 176, 0.20);
@@ -73,17 +107,17 @@ body {
 }
 
 .choice-link-call {
-  top: 40.60%;
-  left: 4.20%;
-  width: 91.60%;
-  height: 23.20%;
+  top: 35.95%;
+  left: 2.35%;
+  width: 95.30%;
+  height: 23.95%;
 }
 
 .choice-link-fortune {
-  top: 64.45%;
-  left: 4.20%;
-  width: 91.60%;
-  height: 23.40%;
+  top: 60.35%;
+  left: 2.35%;
+  width: 95.30%;
+  height: 25.55%;
 }
 
 .choice-link:focus-visible {
@@ -93,4 +127,210 @@ body {
 
 .choice-link:active {
   background: rgba(255, 238, 200, 0.08);
+}
+
+.choice-card-accessible-copy {
+  position: absolute;
+  z-index: 3;
+  top: 17%;
+  left: 61%;
+  display: grid;
+  gap: 5px;
+  color: #fff0bd;
+  text-shadow: 0 2px 8px rgba(45, 3, 4, 0.92);
+  pointer-events: none;
+}
+
+.choice-card-accessible-copy strong {
+  font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.choice-card-accessible-copy > span {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.landline-phone,
+.choice-card-accessible-copy,
+.call-card-enter,
+.fortune-card-copy,
+.fortune-card-enter,
+.choice-footer-copy {
+  pointer-events: none;
+}
+
+.feature-card-call {
+  background: transparent;
+}
+
+.landline-phone {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  top: 7%;
+  left: 34%;
+  width: 26%;
+  color: #f7cb72;
+  transform: rotate(-4deg);
+}
+
+.landline-phone svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.landline-receiver,
+.landline-body {
+  stroke: #f7cb72;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  filter: url("#landline-shadow");
+}
+
+.landline-receiver {
+  fill: url("#landline-shell-gradient");
+}
+
+.landline-body {
+  fill: url("#landline-body-gradient");
+}
+
+.landline-receiver-highlight {
+  fill: rgba(255, 228, 153, 0.35);
+}
+
+.landline-body-front {
+  fill: #57121a;
+  stroke: rgba(247, 203, 114, 0.72);
+  stroke-width: 2;
+}
+
+.landline-shadow {
+  fill: rgba(35, 5, 8, 0.7);
+  filter: blur(2px);
+}
+
+.landline-dial {
+  fill: #4d1014;
+  stroke: #f7cb72;
+  stroke-width: 2.5;
+}
+
+.landline-dial-ring {
+  fill: none;
+  stroke: rgba(255, 224, 142, 0.72);
+  stroke-width: 2;
+}
+
+.landline-dial-center,
+.landline-dial-holes {
+  fill: currentColor;
+}
+
+.feature-card-fortune {
+  color: #fff2c8;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fortune-card-copy {
+  position: absolute;
+  z-index: 3;
+  top: 10%;
+  left: 5%;
+  display: grid;
+  gap: 4px;
+  text-shadow: 0 2px 7px rgba(35, 4, 6, 0.92);
+}
+
+.fortune-card-copy strong {
+  font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.fortune-card-copy > span {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.call-card-enter,
+.fortune-card-enter {
+  position: absolute;
+  z-index: 3;
+  right: 6%;
+  bottom: 9%;
+  display: inline-flex;
+  min-width: 28%;
+  min-height: 24%;
+  align-items: center;
+  justify-content: center;
+  gap: 10%;
+  border: 2px solid #ffe29a;
+  border-radius: 999px;
+  color: #671315;
+  background: linear-gradient(180deg, #ffe39a, #e9a83d);
+  box-shadow: 0 5px 12px rgba(36, 4, 5, 0.48), inset 0 0 0 2px rgba(125, 45, 20, 0.32);
+  font-size: 23px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.call-card-enter {
+  right: 6%;
+  bottom: 11%;
+}
+
+.call-card-enter span,
+.fortune-card-enter span {
+  font-size: 1.3em;
+}
+
+.choice-footer-copy {
+  position: absolute;
+  z-index: 3;
+  top: 89.1%;
+  left: 12%;
+  width: 76%;
+  margin: 0;
+  color: #6c2415;
+  font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 244, 194, 0.72);
+}
+
+@media (max-width: 390px) {
+  .choice-page-copy h1 {
+    font-size: 38px;
+  }
+
+  .choice-page-copy > span {
+    font-size: 15px;
+  }
+
+  .choice-card-accessible-copy strong,
+  .fortune-card-copy strong {
+    font-size: 27px;
+  }
+
+  .choice-card-accessible-copy > span,
+  .fortune-card-copy > span {
+    font-size: 13px;
+  }
+
+  .call-card-enter,
+  .fortune-card-enter {
+    font-size: 21px;
+  }
+
+  .choice-footer-copy {
+    font-size: 20px;
+  }
 }

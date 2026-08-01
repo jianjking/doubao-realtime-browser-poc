@@ -16,7 +16,7 @@
       <div class="choice-poster-frame">
         <img
           class="choice-poster-image"
-          src="./assets/choice/choice-poster-v1.png"
+          src="./assets/choice/choice-poster-unified-v2.png"
           width="852"
           height="1846"
           alt="传统文化智慧陪伴功能选择页"
@@ -24,15 +24,75 @@
           decoding="async"
           fetchpriority="high">
 
-        <a
-          class="choice-link choice-link-call"
-          href="./home.html"
-          aria-label="进入与神仙通话"></a>
+        <header class="choice-page-copy">
+          <p>传统文化智慧陪伴</p>
+          <h1>今天想体验什么？</h1>
+          <span>请选择一项，我们陪您慢慢来。</span>
+        </header>
 
         <a
-          class="choice-link choice-link-fortune"
+          class="feature-card feature-card-call choice-link choice-link-call"
+          href="./home.html"
+          aria-label="进入与神仙通话">
+          <span class="choice-card-accessible-copy">
+            <strong>与神仙通话</strong>
+            <span>听您慢慢说</span>
+          </span>
+          <span class="call-card-enter">进入 <span aria-hidden="true">›</span></span>
+          <span class="landline-phone" aria-hidden="true">
+            <svg viewBox="0 0 160 132" focusable="false" aria-hidden="true">
+              <defs>
+                <linearGradient id="landline-shell-gradient" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0" stop-color="#b94735" />
+                  <stop offset="0.52" stop-color="#7d1e22" />
+                  <stop offset="1" stop-color="#3e0c13" />
+                </linearGradient>
+                <linearGradient id="landline-body-gradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#b23d31" />
+                  <stop offset="0.62" stop-color="#771a20" />
+                  <stop offset="1" stop-color="#450d15" />
+                </linearGradient>
+                <filter id="landline-shadow" x="-30%" y="-30%" width="160%" height="180%">
+                  <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#21070b" flood-opacity="0.72" />
+                </filter>
+              </defs>
+              <ellipse class="landline-shadow" cx="80" cy="120" rx="57" ry="8" />
+              <path
+                class="landline-receiver"
+                d="M31 26c7-13 18-18 29-14l13 5c5 2 7 8 5 13l-3 7h10l-3-7c-2-5 0-11 5-13l13-5c11-4 22 1 29 14l4 8c3 7 0 14-7 17l-18 7c-6 2-12-1-14-7l-2-6H68l-2 6c-2 6-8 9-14 7l-18-7c-7-3-10-10-7-17z"/>
+              <path class="landline-receiver-highlight" d="M35 27c7-10 15-13 23-10l10 4c2 1 3 3 2 5l-3 7h-8l-11-4c-5-2-9-1-13 2z" />
+              <path
+                class="landline-body"
+                d="M42 50h76l21 58c2 7-3 14-11 14H32c-8 0-13-7-11-14z"/>
+              <path class="landline-body-front" d="M29 105h102l5 9c2 5-2 8-8 8H32c-6 0-10-3-8-8z" />
+              <circle class="landline-dial" cx="80" cy="84" r="24"/>
+              <circle class="landline-dial-ring" cx="80" cy="84" r="18"/>
+              <circle class="landline-dial-center" cx="80" cy="84" r="8"/>
+              <g class="landline-dial-holes">
+                <circle cx="80" cy="66" r="3"/>
+                <circle cx="94" cy="73" r="3"/>
+                <circle cx="98" cy="88" r="3"/>
+                <circle cx="89" cy="100" r="3"/>
+                <circle cx="71" cy="100" r="3"/>
+                <circle cx="62" cy="88" r="3"/>
+                <circle cx="66" cy="73" r="3"/>
+              </g>
+            </svg>
+          </span>
+        </a>
+
+        <a
+          class="feature-card feature-card-fortune choice-link choice-link-fortune"
           href="./fortune.html?characterKey=guanyin"
-          aria-label="进入上香求签"></a>
+          aria-label="进入上香求签">
+          <span class="fortune-card-copy">
+            <strong>上香求签</strong>
+            <span>静心诉说，诚心求一签</span>
+          </span>
+          <span class="fortune-card-enter">进入 <span aria-hidden="true">›</span></span>
+        </a>
+
+        <p class="choice-footer-copy">轻触上方任一大按钮即可进入</p>
       </div>
     </div>
   </main>

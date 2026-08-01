@@ -26,6 +26,14 @@ const CHOICE_HTML_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/choice.html'
 );
+const CHOICE_CSS_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/choice-poster.css'
+);
+const CHOICE_UNIFIED_POSTER_ASSET_PATH = path.join(
+  PROJECT_DIR,
+  'ui_prototypes/yuhuang_mobile_v1/assets/choice/choice-poster-unified-v2.png'
+);
 const FORTUNE_HTML_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/fortune.html'
@@ -2058,7 +2066,7 @@ function verifyFeatureChoiceAndFortuneEntry() {
   const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
 
   assert.equal(
-    (choiceHtml.match(/<a class="feature-card /g) || []).length,
+    (choiceHtml.match(/class="feature-card feature-card-/g) || []).length,
     2
   );
   assert.match(
@@ -2207,13 +2215,14 @@ function verifyFeatureChoiceAndFortuneEntry() {
 
 function verifyFeatureChoiceAndStagedFortuneEntry() {
   const choiceHtml = fs.readFileSync(CHOICE_HTML_PATH, 'utf8');
+  const choiceCss = fs.readFileSync(CHOICE_CSS_PATH, 'utf8');
   const fortuneHtml = fs.readFileSync(FORTUNE_HTML_PATH, 'utf8');
   const fortuneJs = fs.readFileSync(FORTUNE_JS_PATH, 'utf8');
   const entryCss = fs.readFileSync(ENTRY_CSS_PATH, 'utf8');
   const homeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
 
   assert.equal(
-    (choiceHtml.match(/<a class="feature-card /g) || []).length,
+    (choiceHtml.match(/class="feature-card feature-card-/g) || []).length,
     2
   );
   assert.match(
@@ -2222,8 +2231,40 @@ function verifyFeatureChoiceAndStagedFortuneEntry() {
   );
   assert.match(
     choiceHtml,
-    /href="\.\/fortune\.html"[\s\S]*?<strong>上香求签<\/strong>/
+    /href="\.\/fortune\.html\?characterKey=guanyin"[\s\S]*?<strong>上香求签<\/strong>/
   );
+  assert.match(
+    choiceHtml,
+    /class="landline-phone" aria-hidden="true">[\s\S]*?landline-shell-gradient[\s\S]*?landline-body-gradient[\s\S]*?landline-dial-ring/
+  );
+  assert.match(
+    choiceHtml,
+    /class="choice-poster-image"[\s\S]*?assets\/choice\/choice-poster-unified-v2\.png/
+  );
+  assert.match(
+    choiceHtml,
+    /class="choice-page-copy"[\s\S]*?<h1>[\s\S]*?<span>[\s\S]*?class="feature-card feature-card-call/
+  );
+  assert.doesNotMatch(
+    choiceHtml,
+    /fortune-card-scene|fortune-worshipper|assets\/fortune\/scenes\/fortune-scene-caishen-v1\.png|worshipper-kneeling-back-v[12]\.png/
+  );
+  assert.match(
+    choiceCss,
+    /\.choice-link-call\s*\{[\s\S]*?top:\s*35\.95%;[\s\S]*?width:\s*95\.30%;/
+  );
+  assert.match(
+    choiceCss,
+    /\.choice-link-fortune\s*\{[\s\S]*?top:\s*60\.35%;[\s\S]*?height:\s*25\.55%;/
+  );
+  assert.match(
+    choiceCss,
+    /\.choice-card-accessible-copy\s*\{[\s\S]*?display:\s*grid;/
+  );
+  assert.match(choiceCss, /\.landline-phone\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(choiceHtml, /class="call-card-enter"/);
+  assert.match(choiceHtml, /class="choice-footer-copy"/);
+  assert.equal(fs.existsSync(CHOICE_UNIFIED_POSTER_ASSET_PATH), true);
   assert.match(
     homeHtml,
     /href="\.\/choice\.html" aria-label="返回功能选择"/
