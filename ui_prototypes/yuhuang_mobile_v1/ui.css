@@ -14,6 +14,8 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  --action-rail-right: calc(var(--safe-right) + 7px);
+  --action-rail-width: 72px;
 }
 
 * {
@@ -332,7 +334,9 @@ button {
 
 .side-actions-right {
   top: calc(var(--safe-top) + 184px);
-  right: calc(var(--safe-right) + 7px);
+  right: var(--action-rail-right);
+  width: var(--action-rail-width);
+  align-items: center;
 }
 
 .side-action {
@@ -548,6 +552,9 @@ button {
 }
 
 .role-pricing-trigger {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
   display: grid;
   width: 48px;
   height: 48px;

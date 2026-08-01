@@ -2010,6 +2010,10 @@ function verifyStaticSafetyAndCurrentUi() {
   );
   assert.match(
     homeHtml,
+    /class="side-actions side-actions-right"[\s\S]*?class="role-pricing-trigger"[\s\S]*?data-action="culture"[\s\S]*?data-action="share"[\s\S]*?<\/nav>/
+  );
+  assert.match(
+    homeHtml,
     /<button[\s\S]{0,180}class="role-pricing-trigger"[\s\S]{0,260}type="button"[\s\S]{0,180}aria-label="查看收费说明"[\s\S]{0,180}aria-haspopup="dialog"/
   );
   assert.match(
@@ -2027,7 +2031,15 @@ function verifyStaticSafetyAndCurrentUi() {
   );
   assert.match(
     homeCss,
-    /\.role-pricing-trigger\s*\{[\s\S]*?width:\s*48px;[\s\S]*?height:\s*48px;/
+    /:root\s*\{[\s\S]*?--action-rail-right:\s*calc\(var\(--safe-right\) \+ 7px\);[\s\S]*?--action-rail-width:\s*72px;/
+  );
+  assert.match(
+    homeCss,
+    /\.side-actions-right\s*\{[\s\S]*?right:\s*var\(--action-rail-right\);[\s\S]*?width:\s*var\(--action-rail-width\);[\s\S]*?align-items:\s*center;/
+  );
+  assert.match(
+    homeCss,
+    /\.role-pricing-trigger\s*\{[\s\S]*?position:\s*relative;[\s\S]*?width:\s*48px;[\s\S]*?height:\s*48px;/
   );
   assert.match(homeJs, /const ROLE_CATALOG_API_URL = '\/api\/roles'/);
   assert.match(homeJs, /function loadPublicRoleCatalog\(\)/);
