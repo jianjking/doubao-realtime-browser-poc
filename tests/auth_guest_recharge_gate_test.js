@@ -334,11 +334,13 @@ function loadHomeRuntime(options = {}) {
       getAccountLoadPromise: () => accountLoadPromise,
       getCurrentCharacterKey: () => currentCharacterKey,
       getIsStartingCall: () => isStartingCall,
+      getSessionAuthState: () => sessionAuthState,
       getValidatedAuthState,
       handleCustomAmountInput,
       handlePackageSelection,
       handlePaymentSelection,
       handleRechargeConfirmation,
+      handleRechargeEntryClick,
       handleStartConversation,
       isPhoneAuthenticated,
       loadAccountState,
@@ -460,21 +462,31 @@ function loadHomeRuntime(options = {}) {
   const fetchRequests = [];
   const windowHandlers = new Map();
   const homePageUrl = new URL(options.homePageUrl || DEFAULT_HOME_URL);
+  let cachedAuthState = null;
+  try {
+    cachedAuthState = options.storageEntries
+      && options.storageEntries[AUTH_STORAGE_KEY]
+      ? JSON.parse(options.storageEntries[AUTH_STORAGE_KEY])
+      : null;
+  } catch {
+    cachedAuthState = null;
+  }
+  const sessionMode = options.sessionMode || (
+    cachedAuthState && cachedAuthState.mode === 'guest'
+      ? 'guest'
+      : 'user'
+  );
   const fetchImpl = options.fetchImpl || (async (pathname) => {
     if (pathname === '/api/me') {
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return {
-            account: {
-              currency: 'CNY',
-              balanceCents: 1250,
-              remainingSeconds: 0,
-            },
-          };
-        },
-      };
+      if (sessionMode === 'guest') {
+        return createGuestAccountResponse();
+      }
+      if (sessionMode === 'unauthenticated') {
+        return createJsonResponse(401, {
+          error: { code: 'AUTH_REQUIRED' },
+        });
+      }
+      return createAccountResponse(1250);
     }
     if (pathname === '/api/dev/recharge') {
       return {
@@ -670,7 +682,7 @@ async function verifyAuthValidationAndPrivacy() {
     login.localStorage.getItem(PENDING_ACTION_STORAGE_KEY),
     'recharge'
   );
-  assert.deepEqual(login.locationAssignments, ['./home.html']);
+  assert.deepEqual(login.locationAssignments, ['./choice.html']);
   assert.equal(login.fetchRequests.length, 1);
   assert.equal(login.fetchRequests[0].pathname, '/api/auth/login');
   assert.deepEqual(
@@ -689,7 +701,7 @@ async function verifyAuthValidationAndPrivacy() {
   assert.equal(guestState.mode, 'guest');
   assert.equal(guestState.authenticated, false);
   assert.equal(guestState.phoneMasked, '');
-  assert.deepEqual(guest.locationAssignments, ['./home.html']);
+  assert.deepEqual(guest.locationAssignments, ['./choice.html']);
   assert.equal(guest.fetchRequests.length, 1);
   assert.equal(guest.fetchRequests[0].pathname, '/api/auth/guest');
 
@@ -718,8 +730,24 @@ async function verifyAuthValidationAndPrivacy() {
 }
 
 async function verifyHomeGuardRechargeAndAccount() {
-  const noState = loadHomeRuntime();
-  assert.deepEqual(noState.locationAssignments, ['./index.html']);
+  const noState = loadHomeRuntime({
+    sessionMode: 'unauthenticated',
+  });
+  assert.equal(noState.rechargeEntry.disabled, true);
+  assert.equal(noState.test.getSessionAuthState(), 'loading');
+  await wait();
+  assert.deepEqual(noState.locationAssignments, []);
+  assert.equal(noState.test.getSessionAuthState(), 'unauthenticated');
+  assert.equal(noState.rechargeEntry.disabled, false);
+  await noState.rechargeEntry.click();
+  assert.equal(noState.rechargePanel.hidden, true);
+  assert.equal(noState.rechargeLoginOverlay.hidden, false);
+  assert.equal(
+    noState.fetchRequests.some(
+      (request) => request.pathname === '/api/dev/recharge'
+    ),
+    false
+  );
 
   for (const invalidState of [
     {
@@ -736,12 +764,18 @@ async function verifyHomeGuardRechargeAndAccount() {
     },
   ]) {
     const runtime = loadHomeRuntime({
+      sessionMode: 'unauthenticated',
       storageEntries: {
         [AUTH_STORAGE_KEY]: JSON.stringify(invalidState),
       },
     });
-    assert.deepEqual(runtime.locationAssignments, ['./index.html']);
-    assert.equal(runtime.localStorage.getItem(AUTH_STORAGE_KEY), null);
+    await wait();
+    assert.deepEqual(runtime.locationAssignments, []);
+    assert.equal(runtime.test.getSessionAuthState(), 'unauthenticated');
+    assert.equal(
+      JSON.parse(runtime.localStorage.getItem(AUTH_STORAGE_KEY)).mode,
+      'guest'
+    );
   }
 
   const guest = loadHomeRuntime({
@@ -749,6 +783,7 @@ async function verifyHomeGuardRechargeAndAccount() {
       [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('guest')),
     },
   });
+  await wait();
   assert.deepEqual(guest.locationAssignments, []);
   assert.equal(guest.document.body.dataset.authReady, 'true');
   assert.equal(guest.accountPrimary.textContent, '游客用户');
@@ -770,7 +805,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   assert.equal(guest.accountProfileOverlay.hidden, true);
   assert.equal(guest.accountSummaryButton.focused, true);
 
-  guest.rechargeEntry.click();
+  await guest.rechargeEntry.click();
   assert.equal(guest.rechargePanel.hidden, true);
   assert.equal(guest.rechargeLoginOverlay.hidden, false);
   assert.equal(await guest.test.handleRechargeConfirmation(), false);
@@ -793,7 +828,8 @@ async function verifyHomeGuardRechargeAndAccount() {
       [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('guest')),
     },
   });
-  guestCall.callButton.click();
+  await wait();
+  await guestCall.callButton.click();
   const guestCallUrl = new URL(guestCall.locationAssignments.at(-1));
   assert.equal(guestCallUrl.origin, 'http://127.0.0.1:3001');
   assert.equal(
@@ -816,7 +852,7 @@ async function verifyHomeGuardRechargeAndAccount() {
     phone.accountSummaryButton.attributes.get('aria-label'),
     '查看138****1234的个人信息，当前普通会员'
   );
-  phone.rechargeEntry.click();
+  await phone.rechargeEntry.click();
   assert.equal(phone.rechargePanel.hidden, false);
   assert.equal(phone.rechargeLoginOverlay.hidden, true);
   assert.equal(await phone.test.handleRechargeConfirmation(), true);
@@ -845,7 +881,7 @@ async function verifyHomeGuardRechargeAndAccount() {
       [PENDING_ACTION_STORAGE_KEY]: 'recharge',
     },
   });
-  await wait();
+  await wait(10);
   assert.equal(pendingRecharge.rechargePanel.hidden, false);
   assert.equal(
     pendingRecharge.localStorage.getItem(PENDING_ACTION_STORAGE_KEY),
@@ -867,7 +903,7 @@ async function verifyHomeGuardRechargeAndAccount() {
       [PENDING_ACTION_STORAGE_KEY]: 'profile',
     },
   });
-  await wait();
+  await wait(10);
   assert.equal(pendingProfile.accountProfileOverlay.hidden, false);
   assert.equal(pendingProfile.rechargePanel.hidden, true);
   assert.equal(
@@ -902,10 +938,33 @@ function createJsonResponse(status, responseBody) {
 
 function createAccountResponse(balanceCents) {
   return createJsonResponse(200, {
+    principal: {
+      type: 'user',
+      id: 'user-test',
+    },
+    profile: {
+      phoneMasked: '138****1234',
+    },
     account: {
       currency: 'CNY',
       balanceCents,
       remainingSeconds: 0,
+    },
+    permissions: {
+      canRecharge: true,
+    },
+  });
+}
+
+function createGuestAccountResponse() {
+  return createJsonResponse(200, {
+    principal: {
+      type: 'guest',
+      id: 'guest-test',
+    },
+    account: null,
+    permissions: {
+      canRecharge: false,
     },
   });
 }
@@ -1043,6 +1102,7 @@ async function verifyDevelopmentRechargeFlow() {
   assert.equal(pendingRuntime.rechargeConfirmButton.disabled, true);
   assert.match(pendingRuntime.rechargeConfirmButton.textContent, /正在/);
   assert.equal(await duplicateSubmission, false);
+  await wait();
   assert.equal(pendingRequestCount, 1);
   resolveRecharge(createAccountResponse(2250));
   assert.equal(await firstSubmission, true);
@@ -1138,6 +1198,61 @@ async function verifyDevelopmentRechargeFlow() {
     assert.equal(runtime.test.getAccountBalanceCents(), null);
   }
 
+  let lostSessionAccountReads = 0;
+  let lostSessionRechargeRequests = 0;
+  const lostSessionRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        lostSessionAccountReads += 1;
+        return lostSessionAccountReads === 1
+          ? createAccountResponse(1250)
+          : createJsonResponse(401, {
+            error: { code: 'AUTH_REQUIRED' },
+          });
+      }
+      lostSessionRechargeRequests += 1;
+      return createAccountResponse(2250);
+    },
+  });
+  await wait();
+  await lostSessionRuntime.rechargeEntry.click();
+  assert.equal(lostSessionAccountReads, 2);
+  assert.equal(lostSessionRechargeRequests, 0);
+  assert.equal(lostSessionRuntime.rechargePanel.hidden, true);
+  assert.equal(lostSessionRuntime.rechargeLoginOverlay.hidden, false);
+  assert.equal(
+    lostSessionRuntime.test.getSessionAuthState(),
+    'unauthenticated'
+  );
+
+  let networkAccountReads = 0;
+  let networkRechargeRequests = 0;
+  const networkGateRuntime = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        networkAccountReads += 1;
+        if (networkAccountReads === 1) {
+          return createAccountResponse(1250);
+        }
+        throw new Error('account service unavailable');
+      }
+      networkRechargeRequests += 1;
+      return createAccountResponse(2250);
+    },
+  });
+  await wait();
+  await networkGateRuntime.rechargeEntry.click();
+  assert.equal(networkRechargeRequests, 0);
+  assert.equal(networkGateRuntime.rechargePanel.hidden, true);
+  assert.equal(networkGateRuntime.rechargeLoginOverlay.hidden, true);
+  assert.equal(networkGateRuntime.test.getSessionAuthState(), 'error');
+  assert.equal(
+    networkGateRuntime.toast.textContent,
+    '账户状态暂时无法确认，请稍后重试'
+  );
+
   let backendBalanceCents = 1250;
   let accountReadCount = 0;
   const lifecycleRuntime = loadHomeRuntime({
@@ -1160,7 +1275,7 @@ async function verifyDevelopmentRechargeFlow() {
   lifecycleRuntime.window.dispatch('pageshow', { persisted: false });
   lifecycleRuntime.window.dispatch('pageshow', { persisted: true });
   await wait();
-  assert.equal(accountReadCount, 2);
+  assert.equal(accountReadCount, 3);
   assert.equal(lifecycleRuntime.test.getAccountBalanceCents(), 2250);
 
   let guestRechargeCount = 0;
@@ -1168,14 +1283,34 @@ async function verifyDevelopmentRechargeFlow() {
     storageEntries: {
       [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('guest')),
     },
-    fetchImpl: async () => {
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        return createGuestAccountResponse();
+      }
       guestRechargeCount += 1;
       return createAccountResponse(1250);
     },
   });
+  await wait();
   assert.equal(await guestRuntime.test.handleRechargeConfirmation(), false);
   assert.equal(guestRechargeCount, 0);
   assert.equal(guestRuntime.rechargeLoginOverlay.hidden, false);
+
+  const spoofedPhoneRuntime = loadHomeRuntime({
+    sessionMode: 'guest',
+    storageEntries: phoneStorage,
+  });
+  await wait();
+  await spoofedPhoneRuntime.rechargeEntry.click();
+  assert.equal(spoofedPhoneRuntime.test.getSessionAuthState(), 'guest');
+  assert.equal(spoofedPhoneRuntime.rechargePanel.hidden, true);
+  assert.equal(spoofedPhoneRuntime.rechargeLoginOverlay.hidden, false);
+  assert.equal(
+    spoofedPhoneRuntime.fetchRequests.some(
+      (request) => request.pathname === '/api/dev/recharge'
+    ),
+    false
+  );
 }
 
 async function verifyRealAccountAndCallFlow() {
@@ -1433,14 +1568,21 @@ async function verifyRealAccountAndCallFlow() {
     storageEntries: {
       [authKey]: JSON.stringify(createAuthState('guest')),
     },
-    fetchImpl: async () => {
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        return createGuestAccountResponse();
+      }
       throw new Error('guest must not call business APIs');
     },
   });
+  await wait();
   assert.equal(await guestRuntime.test.handleStartConversation(), true);
   const guestUrl = new URL(guestRuntime.locationAssignments.at(-1));
   assert.equal(guestUrl.searchParams.has('businessCallId'), false);
-  assert.equal(guestRuntime.fetchRequests.length, 0);
+  assert.deepEqual(
+    guestRuntime.fetchRequests.map((request) => request.pathname),
+    ['/api/me']
+  );
 }
 
 async function verifyAccountRefreshLifecycle() {
@@ -1488,13 +1630,13 @@ async function verifyAccountRefreshLifecycle() {
     persisted: false,
   });
   await bfcacheRuntime.test.selectCharacter('sunwukong', 'test');
-  bfcacheRuntime.rechargeEntry.click();
+  await bfcacheRuntime.rechargeEntry.click();
   bfcacheBalanceCents = 1180;
   bfcacheRuntime.window.dispatch('pageshow', {
     persisted: true,
   });
   await wait();
-  assert.equal(bfcacheRuntime.fetchRequests.length, 2);
+  assert.equal(bfcacheRuntime.fetchRequests.length, 3);
   assert.equal(bfcacheRuntime.creditDisplay.textContent, '¥11.80');
   assert.equal(
     bfcacheRuntime.test.getCurrentCharacterKey(),
@@ -1610,8 +1752,9 @@ async function verifyAccountRefreshLifecycle() {
     storageEntries: {
       [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('guest')),
     },
-    fetchImpl: async () => {
-      throw new Error('guest account request must not run');
+    fetchImpl: async (pathname) => {
+      assert.equal(pathname, '/api/me');
+      return createGuestAccountResponse();
     },
   });
   guestRuntime.window.dispatch('pageshow', {
@@ -1621,7 +1764,10 @@ async function verifyAccountRefreshLifecycle() {
     persisted: true,
   });
   await wait();
-  assert.equal(guestRuntime.fetchRequests.length, 0);
+  assert.deepEqual(
+    guestRuntime.fetchRequests.map((request) => request.pathname),
+    ['/api/me']
+  );
   assert.equal(guestRuntime.creditDisplay.textContent, '--');
 
   let resolveStaleAccount;
@@ -1643,8 +1789,13 @@ async function verifyAccountRefreshLifecycle() {
   });
   resolveStaleAccount(createAccountResponse(9999));
   await wait();
-  assert.equal(staleRuntime.creditDisplay.textContent, '--');
-  assert.equal(staleRuntime.test.getAccountBalanceCents(), null);
+  assert.equal(staleRuntime.creditDisplay.textContent, '¥99.99');
+  assert.equal(staleRuntime.test.getAccountBalanceCents(), 9999);
+  assert.equal(staleRuntime.test.getSessionAuthState(), 'authenticated');
+  assert.equal(
+    JSON.parse(staleRuntime.localStorage.getItem(AUTH_STORAGE_KEY)).mode,
+    'phone'
+  );
 
   let failedReturnRequestCount = 0;
   const failedReturnRuntime = loadHomeRuntime({
@@ -1695,7 +1846,14 @@ function verifyStaticUiAndPrivacyBoundaries() {
   assert.match(homeHtml, /class="account-summary-button"/);
   assert.match(homeHtml, /class="account-profile-overlay prototype-overlay"/);
   assert.match(homeJs, /const TRUSTED_PENDING_ACTIONS = new Set\(\['recharge', 'profile'\]\)/);
-  assert.match(homeJs, /async function handleRechargeConfirmation\(\) \{[\s\S]*?getValidatedAuthState\(\)/);
+  assert.match(
+    homeJs,
+    /async function handleRechargeEntryClick\(\) \{[\s\S]*?await loadAccountState\(\)/
+  );
+  assert.match(
+    homeJs,
+    /async function handleRechargeConfirmation\(\) \{[\s\S]*?await loadAccountState\(\)/
+  );
   assert.match(homeHtml, /data-package-cents="1000"/);
   assert.match(homeHtml, /data-package-cents="2000"/);
   assert.match(homeHtml, /data-package-cents="5000"/);
@@ -1737,7 +1895,8 @@ async function main() {
       + 'phone-recharge,pending-once,account-summary,profile,logout,'
       + 'profile-return,real-balance,currency-format,call-create,'
       + 'insufficient-balance,error-separation,expired-session,'
-      + 'network-error,duplicate-lock,eight-role-business-call-id,'
+      + 'network-error,duplicate-lock,server-session-authority,'
+      + 'loading-lock,session-loss-click-gate,eight-role-business-call-id,'
       + 'guest-call,account-pageshow-once,normal-return-refresh,'
       + 'dev-recharge-integer-cents,dev-recharge-validation,'
       + 'dev-recharge-lock,dev-recharge-retry,dev-recharge-errors,'
@@ -1745,7 +1904,7 @@ async function main() {
       + 'insufficient-recharge-call-admission,'
       + 'bfcache-refresh,account-single-flight,refresh-retains-balance,'
       + 'initial-refresh-error,refresh-expired-session,guest-restore,'
-      + 'stale-response-guard,role-state-preserved,overlay-preserved,'
+      + 'server-session-overrides-cache,role-state-preserved,overlay-preserved,'
       + 'failed-return-balance,privacy,avatar-svg\n'
   );
 }

@@ -191,6 +191,7 @@
   let accountLoadRequestId = 0;
   let hasSeenInitialPageShow = false;
   let currentAuthState = null;
+  let sessionAuthState = 'loading';
   let isStartingCall = false;
   let isSubmittingRecharge = false;
   let roleCatalogState = 'loading';
@@ -312,15 +313,42 @@
     return null;
   }
 
-  function isPhoneAuthenticated(authState = getValidatedAuthState()) {
+  function isPhoneAuthenticated(authState = currentAuthState) {
     return Boolean(
-      authState
+      sessionAuthState === 'authenticated'
+      && authState
       && authState.mode === 'phone'
       && authState.authenticated === true
     );
   }
 
   function getAccountPresentation(authState) {
+    if (sessionAuthState === 'loading') {
+      return {
+        primary: '正在确认身份',
+        secondary: '请稍候',
+        summaryAria: '正在确认登录状态',
+        profileSummary: '正在确认登录状态',
+        status: '正在加载',
+        phone: '正在确认',
+        vip: '正在确认',
+        recharge: '确认登录状态后可用',
+        mainAction: '请稍候',
+      };
+    }
+    if (sessionAuthState === 'error') {
+      return {
+        primary: '账户状态待确认',
+        secondary: '网络异常',
+        summaryAria: '账户状态暂时无法确认',
+        profileSummary: '账户状态暂时无法确认',
+        status: '网络异常',
+        phone: '暂时无法确认',
+        vip: '暂时无法确认',
+        recharge: '请稍后重试',
+        mainAction: '稍后重试',
+      };
+    }
     // VIP is display-only in this local prototype and derives from validated
     // auth mode; no stored vip/isVip/vipLevel field is ever trusted.
     if (isPhoneAuthenticated(authState)) {
@@ -394,12 +422,11 @@
   }
 
   function openAccountProfile(trigger = accountSummaryButton) {
-    const authState = getValidatedAuthState();
+    const authState = currentAuthState;
     if (!authState) {
-      window.location.assign('./index.html');
+      showToast('账户状态暂时无法确认，请稍后重试');
       return;
     }
-    currentAuthState = authState;
     renderAccountSummary(authState);
     renderAccountProfile(authState);
     openOverlay(accountProfileOverlay, trigger);
@@ -428,9 +455,9 @@
   }
 
   function handleAccountProfileAction() {
-    const authState = getValidatedAuthState();
+    const authState = currentAuthState;
     if (!authState) {
-      window.location.assign('./index.html');
+      showToast('账户状态暂时无法确认，请稍后重试');
       return;
     }
     if (isPhoneAuthenticated(authState)) {
@@ -758,16 +785,48 @@
     };
   }
 
-  function handleExpiredSession() {
-    accountLoadRequestId += 1;
-    currentAuthState = createGuestAuthState();
+  function createPhoneAuthState(phoneMasked) {
+    const cachedAuthState = getValidatedAuthState();
+    return {
+      version: 1,
+      mode: 'phone',
+      authenticated: true,
+      phoneMasked,
+      createdAt: cachedAuthState
+        && cachedAuthState.mode === 'phone'
+        && cachedAuthState.phoneMasked === phoneMasked
+        ? cachedAuthState.createdAt
+        : Date.now(),
+    };
+  }
+
+  function saveCurrentAuthState(authState) {
+    currentAuthState = authState;
     window.localStorage.setItem(
       AUTH_STORAGE_KEY,
-      JSON.stringify(currentAuthState)
+      JSON.stringify(authState)
     );
-    renderAccountSummary(currentAuthState);
-    renderAccountProfile(currentAuthState);
+    renderAccountSummary(authState);
+    renderAccountProfile(authState);
+  }
+
+  function setRechargeAccessChecking(checking) {
+    if (!rechargeEntry) {
+      return;
+    }
+    rechargeEntry.disabled = checking;
+    rechargeEntry.setAttribute('aria-disabled', String(checking));
+  }
+
+  function applyGuestSession(authStateName) {
+    sessionAuthState = authStateName;
+    saveCurrentAuthState(createGuestAuthState());
     setAccountBalanceState('guest');
+  }
+
+  function handleExpiredSession() {
+    accountLoadRequestId += 1;
+    applyGuestSession('unauthenticated');
   }
 
   async function readJsonResponse(response) {
@@ -779,6 +838,9 @@
   }
 
   function handleAccountLoadFailure(hadConfirmedBalance) {
+    sessionAuthState = 'error';
+    renderAccountSummary(currentAuthState);
+    renderAccountProfile(currentAuthState);
     if (hadConfirmedBalance) {
       showToast('话费刷新失败，请稍后重试');
       return;
@@ -787,13 +849,6 @@
   }
 
   function loadAccountState() {
-    const authState = getValidatedAuthState();
-    currentAuthState = authState;
-    if (!isPhoneAuthenticated(authState)) {
-      accountLoadRequestId += 1;
-      setAccountBalanceState('guest');
-      return Promise.resolve(false);
-    }
     if (accountLoadPromise) {
       return accountLoadPromise;
     }
@@ -805,6 +860,7 @@
     if (!hadConfirmedBalance) {
       setAccountBalanceState('loading');
     }
+    setRechargeAccessChecking(true);
 
     const requestPromise = (async () => {
       if (typeof window.fetch !== 'function') {
@@ -830,31 +886,59 @@
         return false;
       }
       if (response.status === 401 || response.status === 403) {
+        const cachedAuthState = getValidatedAuthState();
+        const shouldAnnounceExpiry = sessionAuthState === 'authenticated'
+          || Boolean(cachedAuthState && cachedAuthState.mode === 'phone');
         handleExpiredSession();
-        showToast('登录状态已失效，请重新登录');
+        if (shouldAnnounceExpiry) {
+          showToast('登录状态已失效，请重新登录');
+        }
         return false;
       }
       const responseBody = await readJsonResponse(response);
       if (requestId !== accountLoadRequestId) {
         return false;
       }
+      const principal = responseBody && responseBody.principal;
+      const profile = responseBody && responseBody.profile;
       const account = responseBody && responseBody.account;
+      const permissions = responseBody && responseBody.permissions;
+      if (
+        response.ok
+        && principal
+        && principal.type === 'guest'
+        && account === null
+        && permissions
+        && permissions.canRecharge === false
+      ) {
+        applyGuestSession('guest');
+        return false;
+      }
       if (
         !response.ok
+        || !principal
+        || principal.type !== 'user'
+        || !profile
+        || !/^1[3-9]\d\*{4}\d{4}$/.test(profile.phoneMasked)
         || !account
         || account.currency !== 'CNY'
         || !Number.isSafeInteger(account.balanceCents)
+        || !permissions
+        || permissions.canRecharge !== true
       ) {
         handleAccountLoadFailure(hadConfirmedBalance);
         return false;
       }
 
+      sessionAuthState = 'authenticated';
+      saveCurrentAuthState(createPhoneAuthState(profile.phoneMasked));
       setAccountBalanceState('ready', account.balanceCents);
       return true;
     })();
     const trackedPromise = requestPromise.finally(() => {
       if (accountLoadPromise === trackedPromise) {
         accountLoadPromise = null;
+        setRechargeAccessChecking(false);
       }
     });
     accountLoadPromise = trackedPromise;
@@ -1348,48 +1432,58 @@
     if (isSubmittingRecharge) {
       return false;
     }
-    const authState = getValidatedAuthState();
-    if (!authState) {
-      closeOverlay(rechargePanel, false);
-      window.location.assign('./index.html');
-      return false;
-    }
-    if (!isPhoneAuthenticated(authState)) {
-      currentAuthState = authState;
-      openRechargeLoginPrompt(rechargeEntry);
-      return false;
-    }
-
-    if (selectedAmountMode === 'custom') {
-      const parsedAmount = customAmountInput
-        ? parseCustomRechargeAmount(customAmountInput.value)
-        : parseCustomRechargeAmount('');
-      if (parsedAmount.errorMessage) {
-        selectedRechargeAmountCents = null;
-        selectedRechargeAmountDisplay = '';
-        renderCustomAmountError(parsedAmount.errorMessage);
-        updateRechargeSelectionSummary();
-        showToast(parsedAmount.errorMessage);
-        if (customAmountInput) {
-          customAmountInput.focus();
+    setSubmittingRecharge(true);
+    try {
+      if (
+        sessionAuthState === 'guest'
+        || sessionAuthState === 'unauthenticated'
+      ) {
+        closeOverlay(rechargePanel, false);
+        openRechargeLoginPrompt(rechargeEntry);
+        return false;
+      }
+      const hasRechargeAccess = await loadAccountState();
+      if (!hasRechargeAccess || sessionAuthState !== 'authenticated') {
+        closeOverlay(rechargePanel, false);
+        if (
+          sessionAuthState === 'guest'
+          || sessionAuthState === 'unauthenticated'
+        ) {
+          openRechargeLoginPrompt(rechargeEntry);
+        } else {
+          showToast('账户状态暂时无法确认，请稍后重试');
         }
         return false;
       }
-      selectedRechargeAmountCents = parsedAmount.amountCents;
-      selectedRechargeAmountDisplay = parsedAmount.displayAmount;
-      renderCustomAmountError();
-    }
 
-    if (!Number.isSafeInteger(selectedRechargeAmountCents)
-      || selectedRechargeAmountCents < 1
-      || selectedRechargeAmountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS) {
-      showToast(CUSTOM_AMOUNT_RANGE_ERROR);
-      return false;
-    }
+      if (selectedAmountMode === 'custom') {
+        const parsedAmount = customAmountInput
+          ? parseCustomRechargeAmount(customAmountInput.value)
+          : parseCustomRechargeAmount('');
+        if (parsedAmount.errorMessage) {
+          selectedRechargeAmountCents = null;
+          selectedRechargeAmountDisplay = '';
+          renderCustomAmountError(parsedAmount.errorMessage);
+          updateRechargeSelectionSummary();
+          showToast(parsedAmount.errorMessage);
+          if (customAmountInput) {
+            customAmountInput.focus();
+          }
+          return false;
+        }
+        selectedRechargeAmountCents = parsedAmount.amountCents;
+        selectedRechargeAmountDisplay = parsedAmount.displayAmount;
+        renderCustomAmountError();
+      }
 
-    clearRechargeResult();
-    setSubmittingRecharge(true);
-    try {
+      if (!Number.isSafeInteger(selectedRechargeAmountCents)
+        || selectedRechargeAmountCents < 1
+        || selectedRechargeAmountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS) {
+        showToast(CUSTOM_AMOUNT_RANGE_ERROR);
+        return false;
+      }
+
+      clearRechargeResult();
       if (typeof window.fetch !== 'function') {
         throw new TypeError('fetch is unavailable');
       }
@@ -1453,6 +1547,29 @@
     } finally {
       setSubmittingRecharge(false);
     }
+  }
+
+  async function handleRechargeEntryClick() {
+    if (
+      sessionAuthState === 'guest'
+      || sessionAuthState === 'unauthenticated'
+    ) {
+      openRechargeLoginPrompt(rechargeEntry);
+      return;
+    }
+    const hasRechargeAccess = await loadAccountState();
+    if (hasRechargeAccess && sessionAuthState === 'authenticated') {
+      openOverlay(rechargePanel, rechargeEntry);
+      return;
+    }
+    if (
+      sessionAuthState === 'guest'
+      || sessionAuthState === 'unauthenticated'
+    ) {
+      openRechargeLoginPrompt(rechargeEntry);
+      return;
+    }
+    showToast('账户状态暂时无法确认，请稍后重试');
   }
 
   function handleAuxiliaryAction(event) {
@@ -1580,11 +1697,7 @@
   }
 
   function initializeUi() {
-    currentAuthState = getValidatedAuthState();
-    if (!currentAuthState) {
-      window.location.assign('./index.html');
-      return;
-    }
+    getValidatedAuthState();
 
     document.body.dataset.authReady = 'true';
     renderAccountSummary(currentAuthState);
@@ -1595,11 +1708,7 @@
         void loadPublicRoleCatalog();
       }
     }
-    if (isPhoneAuthenticated(currentAuthState)) {
-      void loadAccountState();
-    } else {
-      setAccountBalanceState('guest');
-    }
+    void loadAccountState().then(consumePendingAction);
 
     if (accountSummaryButton && accountProfileOverlay) {
       accountSummaryButton.addEventListener('click', () => {
@@ -1608,21 +1717,7 @@
     }
 
     if (rechargeEntry && rechargePanel) {
-      rechargeEntry.addEventListener('click', () => {
-        const authState = getValidatedAuthState();
-        if (!authState) {
-          window.location.assign('./index.html');
-          return;
-        }
-        currentAuthState = authState;
-        renderAccountSummary(authState);
-        renderAccountProfile(authState);
-        if (isPhoneAuthenticated(authState)) {
-          openOverlay(rechargePanel, rechargeEntry);
-        } else {
-          openRechargeLoginPrompt(rechargeEntry);
-        }
-      });
+      rechargeEntry.addEventListener('click', handleRechargeEntryClick);
     }
 
     if (rolePricingTrigger && rolePricingOverlay) {
@@ -1727,7 +1822,6 @@
     if (homePage) {
       warmAdjacentCharacterImages(currentCharacterKey);
     }
-    consumePendingAction();
   }
 
   initializeUi();

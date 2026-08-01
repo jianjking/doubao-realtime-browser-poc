@@ -285,7 +285,7 @@
         );
       }
       codeInput.value = '';
-      window.location.assign('./home.html');
+      window.location.assign('./choice.html');
     } catch {
       authStatus.textContent = '网络连接失败，请稍后重试';
     } finally {
@@ -322,7 +322,7 @@
       });
       window.localStorage.removeItem(PENDING_ACTION_STORAGE_KEY);
       codeInput.value = '';
-      window.location.assign('./home.html');
+      window.location.assign('./choice.html');
     } catch {
       authStatus.textContent = '网络连接失败，请稍后重试';
     } finally {

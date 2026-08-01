@@ -229,6 +229,51 @@ function createRoleCatalogResponse(
   };
 }
 
+function createAccountResponse(balanceCents) {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        principal: {
+          type: 'user',
+          id: 'user-matrix',
+        },
+        profile: {
+          phoneMasked: '138****1234',
+        },
+        account: {
+          currency: 'CNY',
+          balanceCents,
+          remainingSeconds: 0,
+        },
+        permissions: {
+          canRecharge: true,
+        },
+      };
+    },
+  };
+}
+
+function createGuestAccountResponse() {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        principal: {
+          type: 'guest',
+          id: 'guest-matrix',
+        },
+        account: null,
+        permissions: {
+          canRecharge: false,
+        },
+      };
+    },
+  };
+}
+
 class FakeClassList {
   constructor() {
     this.values = new Set();
@@ -440,21 +485,23 @@ function loadHomeRuntime(options = {}) {
   const locationAssignments = [];
   const localStorage = createLocalStorage(options.storageEntries);
   const fetchRequests = [];
-  const fetchImpl = options.fetchImpl || (async (pathname) => {
+  let cachedAuthState = null;
+  try {
+    cachedAuthState = options.storageEntries
+      && options.storageEntries.companion_auth_state_v1
+      ? JSON.parse(options.storageEntries.companion_auth_state_v1)
+      : null;
+  } catch {
+    cachedAuthState = null;
+  }
+  const fetchImpl = async (pathname, requestOptions) => {
     if (pathname === '/api/me') {
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return {
-            account: {
-              currency: 'CNY',
-              balanceCents: 1250,
-              remainingSeconds: 0,
-            },
-          };
-        },
-      };
+      return cachedAuthState && cachedAuthState.mode === 'guest'
+        ? createGuestAccountResponse()
+        : createAccountResponse(1250);
+    }
+    if (options.fetchImpl) {
+      return options.fetchImpl(pathname, requestOptions);
     }
     if (pathname === '/api/roles') {
       return createRoleCatalogResponse();
@@ -485,7 +532,7 @@ function loadHomeRuntime(options = {}) {
         };
       },
     };
-  });
+  };
   const homePageUrl = new URL(
     options.homePageUrl || DEFAULT_HOME_URL
   );
