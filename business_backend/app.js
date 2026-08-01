@@ -137,6 +137,12 @@ function createApp(options = {}) {
     ) {
       throw new TypeError('mobileUiDirectory must be a non-empty string');
     }
+    app.get('/', (request, response) => {
+      response.redirect(
+        302,
+        '/ui_prototypes/yuhuang_mobile_v1/index.html'
+      );
+    });
     app.use(
       '/ui_prototypes/yuhuang_mobile_v1',
       express.static(options.mobileUiDirectory, {

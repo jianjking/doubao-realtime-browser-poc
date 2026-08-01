@@ -125,6 +125,13 @@ test('configured business backend serves the authoritative mobile UI', async () 
     assert.notEqual(address, null);
     assert.equal(typeof address, 'object');
 
+    const rootResponse = await requestPath(address.port, '/');
+    assert.equal(rootResponse.statusCode, 302);
+    assert.equal(
+      rootResponse.headers.location,
+      '/ui_prototypes/yuhuang_mobile_v1/index.html'
+    );
+
     for (const requestedFile of [
       'choice.html',
       'fortune.html',

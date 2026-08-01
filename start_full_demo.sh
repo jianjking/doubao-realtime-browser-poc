@@ -444,7 +444,7 @@ if ! wait_for_http_ready \
   exit 1
 fi
 
-printf '手机端入口：http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/choice.html\n'
+printf '手机端入口：http://127.0.0.1:8765/\n'
 printf 'Realtime Relay：http://127.0.0.1:3001/\n'
 printf '求签 ASR：ws://127.0.0.1:3001/fortune-asr\n'
 

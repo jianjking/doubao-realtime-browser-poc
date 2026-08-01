@@ -536,7 +536,10 @@ async function main() {
     },
   });
   assert.equal(firstSuccess.result.status, 0);
-  assert.match(firstSuccess.capturedStdout, /手机端入口/);
+  assert.match(
+    firstSuccess.capturedStdout,
+    /手机端入口：http:\/\/127\.0\.0\.1:8765\//
+  );
   assert.match(firstSuccess.capturedStdout, /Realtime Relay/);
   assert.match(firstSuccess.capturedStdout, /求签 ASR/);
   assert.match(firstSuccess.events, /ready:backend:\d+/);
