@@ -40,11 +40,13 @@ function createPaymentHarness({
   mockConfirmationEnabled = true,
   nodeEnv = 'test',
   orderTtlMs,
+  providerRegistry: injectedProviderRegistry,
 } = {}) {
   let now = initialNow;
   const clock = () => now;
   const stores = createBusinessStores({ databasePath, clock });
-  const providerRegistry = createPaymentProviderRegistry({ mode });
+  const providerRegistry = injectedProviderRegistry
+    || createPaymentProviderRegistry({ mode });
   const paymentService = createPaymentService({
     ...stores,
     providerRegistry,

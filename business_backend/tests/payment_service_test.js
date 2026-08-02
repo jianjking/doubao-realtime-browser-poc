@@ -25,9 +25,17 @@ async function createOrder(harness, overrides = {}) {
 
 test('payment mode defaults closed and production rejects mock', () => {
   assert.deepEqual(parsePaymentRuntimeConfig({}), {
+    alipay: {
+      configured: false,
+      enabled: false,
+    },
     mode: 'disabled',
     mockConfirmationEnabled: false,
     nodeEnv: '',
+    wechat: {
+      configured: false,
+      enabled: false,
+    },
   });
   assert.throws(
     () => parsePaymentRuntimeConfig({

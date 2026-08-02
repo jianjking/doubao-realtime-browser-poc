@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const net = require('node:net');
 
 const {
   AUTH_REQUIRED_RESPONSE,
@@ -54,15 +55,31 @@ function isEmptyRequestBody(requestBody) {
     );
 }
 
+function normalizeDirectClientIp(request) {
+  const address = request
+    && request.socket
+    && typeof request.socket.remoteAddress === 'string'
+    ? request.socket.remoteAddress
+    : '';
+  const normalized = address.startsWith('::ffff:')
+    ? address.slice(7)
+    : address;
+  return net.isIP(normalized) ? normalized : '';
+}
+
 function createPaymentRouter({
   requireSession,
   userStore,
   paymentService,
+  resolveTrustedPaymentContext = () => ({}),
 } = {}) {
   if (!requireSession || !userStore || !paymentService) {
     throw new TypeError(
       'requireSession, userStore, and paymentService are required'
     );
+  }
+  if (typeof resolveTrustedPaymentContext !== 'function') {
+    throw new TypeError('resolveTrustedPaymentContext must be a function');
   }
   const router = express.Router();
 
@@ -94,6 +111,10 @@ function createPaymentRouter({
     }
 
     try {
+      const trustedContext = await resolveTrustedPaymentContext({
+        request,
+        user,
+      });
       const result = await paymentService.createPaymentOrder({
         userId: user.id,
         provider: requestBody.provider,
@@ -102,6 +123,14 @@ function createPaymentRouter({
         context: {
           userAgent: typeof request.headers['user-agent'] === 'string'
             ? request.headers['user-agent'].slice(0, 512)
+            : '',
+          payerClientIp: trustedContext
+            && typeof trustedContext.payerClientIp === 'string'
+            ? trustedContext.payerClientIp
+            : normalizeDirectClientIp(request),
+          wechatOpenId: trustedContext
+            && typeof trustedContext.wechatOpenId === 'string'
+            ? trustedContext.wechatOpenId
             : '',
         },
       });
@@ -116,7 +145,7 @@ function createPaymentRouter({
     }
   });
 
-  router.get('/payment-orders/:orderId', requireSession, (
+  router.get('/payment-orders/:orderId', requireSession, async (
     request,
     response,
     next
@@ -127,7 +156,7 @@ function createPaymentRouter({
     }
     try {
       response.status(200).json({
-        order: paymentService.getPaymentOrderForUser(
+        order: await paymentService.getPaymentOrderForUser(
           user.id,
           request.params.orderId
         ),
@@ -207,5 +236,6 @@ function createPaymentRouter({
 
 module.exports = {
   createPaymentRouter,
+  normalizeDirectClientIp,
   sendKnownPaymentError,
 };

@@ -108,6 +108,7 @@ function digestVerifiedEvent(event) {
     currency: event.currency,
     paymentStatus: event.paymentStatus,
     paidAt: event.paidAt,
+    requestedScene: event.requestedScene || '',
   });
   return crypto.createHash('sha256').update(canonicalPayload).digest('hex');
 }
@@ -192,7 +193,7 @@ function createPaymentService({
     context = {},
   }) {
     validateCreateRequest({ provider, amountCents, clientRequestId });
-    providerRegistry.get(provider);
+    const paymentProvider = providerRegistry.get(provider);
     const account = requireActiveUserAndAccount(userId);
 
     const existingOrder =
@@ -210,12 +211,29 @@ function createPaymentService({
 
     const createdAtMs = clock();
     const createdAt = new Date(createdAtMs).toISOString();
+    const requestedScene = typeof paymentProvider.getRequestedScene === 'function'
+      ? paymentProvider.getRequestedScene(context)
+      : providerRegistry.mode === 'mock'
+        ? 'mock'
+        : '';
+    if (![
+      'wechat_jsapi',
+      'wechat_h5',
+      'alipay_wap',
+      'mock',
+    ].includes(requestedScene)) {
+      throw createPaymentError(
+        400,
+        'INVALID_PAYMENT_REQUEST',
+        'Payment scene is invalid'
+      );
+    }
     const order = {
       id: `pay_${idGenerator()}`,
       userId,
       accountId: account.userId,
       provider,
-      requestedScene: 'mock',
+      requestedScene,
       merchantOrderNo: `MO${String(idGenerator()).replace(/-/g, '')}`,
       clientRequestId,
       providerTradeNo: null,
@@ -247,9 +265,24 @@ function createPaymentService({
     };
   }
 
-  function getPaymentOrderForUser(userId, orderId) {
+  async function getPaymentOrderForUser(userId, orderId) {
     requireActiveUserAndAccount(userId);
-    return toPublicOrder(requireOwnedOrder(userId, orderId));
+    const order = requireOwnedOrder(userId, orderId);
+    if (
+      providerRegistry.mode === 'live'
+      && ['pending', 'paid'].includes(order.status)
+    ) {
+      try {
+        const provider = providerRegistry.get(order.provider);
+        const queryResult = await provider.queryPayment(order);
+        if (queryResult && queryResult.verifiedEvent) {
+          return processVerifiedProviderEvent(queryResult.verifiedEvent).order;
+        }
+      } catch {
+        // A transient or uncertain provider query never changes local funds.
+      }
+    }
+    return toPublicOrder(paymentOrderStore.findById(order.id));
   }
 
   function validateVerifiedEvent(event) {
@@ -284,11 +317,35 @@ function createPaymentService({
         'Payment notification is invalid'
       );
     }
+    if (
+      event.rawDigest !== undefined
+      && (
+        typeof event.rawDigest !== 'string'
+        || !/^[0-9a-f]{64}$/.test(event.rawDigest)
+      )
+    ) {
+      throw createPaymentError(
+        400,
+        'PAYMENT_NOTIFICATION_INVALID',
+        'Payment notification is invalid'
+      );
+    }
+    if (
+      event.requestedScene !== undefined
+      && !['wechat_jsapi', 'wechat_h5', 'alipay_wap', 'mock']
+        .includes(event.requestedScene)
+    ) {
+      throw createPaymentError(
+        400,
+        'PAYMENT_NOTIFICATION_INVALID',
+        'Payment notification is invalid'
+      );
+    }
   }
 
   function processVerifiedProviderEvent(event) {
     validateVerifiedEvent(event);
-    const payloadDigest = digestVerifiedEvent(event);
+    const payloadDigest = event.rawDigest || digestVerifiedEvent(event);
     const receivedAt = new Date(clock()).toISOString();
     let transactionResult;
     let processingError = null;
@@ -364,6 +421,17 @@ function createPaymentService({
           400,
           'PAYMENT_NOTIFICATION_INVALID',
           'Payment provider does not match the order'
+        ));
+        return;
+      }
+      if (
+        event.requestedScene
+        && event.requestedScene !== order.requestedScene
+      ) {
+        rejectEvent(createPaymentError(
+          400,
+          'PAYMENT_NOTIFICATION_INVALID',
+          'Payment scene does not match the order'
         ));
         return;
       }
@@ -567,6 +635,28 @@ function createPaymentService({
         'Only pending payment orders can be closed'
       );
     }
+    const provider = providerRegistry.get(order.provider);
+    if (providerRegistry.mode === 'live') {
+      const providerResult = await provider.closePayment(order);
+      if (providerResult && providerResult.verifiedEvent) {
+        const credited = processVerifiedProviderEvent(
+          providerResult.verifiedEvent
+        );
+        return {
+          order: credited.order,
+          alreadyClosed: false,
+          credited: true,
+        };
+      }
+      if (!providerResult || providerResult.closed !== true) {
+        throw createPaymentError(
+          409,
+          'PAYMENT_ORDER_STATUS_UNCERTAIN',
+          'Payment order status is not safe to close'
+        );
+      }
+    }
+
     if (
       paymentOrderStore.closePending(
         order.id,
@@ -582,7 +672,7 @@ function createPaymentService({
     }
     const closedOrder = paymentOrderStore.findById(order.id);
     if (providerRegistry.mode === 'mock') {
-      await providerRegistry.get(order.provider).closePayment(closedOrder);
+      await provider.closePayment(closedOrder);
     }
     return { order: toPublicOrder(closedOrder), alreadyClosed: false };
   }

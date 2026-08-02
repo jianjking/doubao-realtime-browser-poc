@@ -12,6 +12,8 @@
   const PAYMENT_ORDER_STORAGE_KEY = 'companion_pending_payment_order_v1';
   const PAYMENT_POLL_INTERVAL_MS = 1000;
   const PAYMENT_POLL_TIMEOUT_MS = 60000;
+  const WECHAT_BRIDGE_TIMEOUT_MS = 8000;
+  const ALIPAY_WAP_GATEWAY = 'https://openapi.alipay.com/gateway.do';
   const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
   const PENDING_ACTION_STORAGE_KEY = 'companion_pending_action_v1';
   const TOAST_DURATION_MS = 3200;
@@ -1502,6 +1504,7 @@
       'creating-order': ['正在创建支付订单……', true, '正在创建支付订单……'],
       'awaiting-payment': ['订单已创建', true, '等待完成支付'],
       'confirming-payment': ['订单已创建', true, '正在模拟支付确认……'],
+      'launching-payment': ['订单已创建', true, '正在打开支付页面……'],
       'verifying-payment': ['订单已创建', true, '正在确认支付结果……'],
       credited: ['再充一笔', false, '充值成功'],
       'payment-error': ['重新创建订单', false, '暂时无法确认支付，请稍后重试'],
@@ -1521,9 +1524,11 @@
       const canConfirm = Boolean(
         currentPaymentOrder
         && currentPaymentOrder.status === 'pending'
+        && currentPaymentOrder.requestedScene === 'mock'
         && (state === 'awaiting-payment' || state === 'payment-error')
       );
-      mockPaymentConfirmButton.hidden = !currentPaymentOrder;
+      mockPaymentConfirmButton.hidden = !currentPaymentOrder
+        || currentPaymentOrder.requestedScene !== 'mock';
       mockPaymentConfirmButton.disabled = !canConfirm;
       mockPaymentConfirmButton.textContent = state === 'confirming-payment'
         ? '正在模拟完成支付……'
@@ -1540,6 +1545,8 @@
       || Array.isArray(value)
       || typeof value.id !== 'string'
       || !['wechat', 'alipay'].includes(value.provider)
+      || !['mock', 'wechat_jsapi', 'wechat_h5', 'alipay_wap']
+        .includes(value.requestedScene)
       || !Number.isSafeInteger(value.amountCents)
       || value.amountCents < MIN_PAYMENT_AMOUNT_CENTS
       || value.amountCents > MAX_PAYMENT_AMOUNT_CENTS
@@ -1700,8 +1707,181 @@
       setAccountBalanceState('ready', account.balanceCents);
     }
     setPaymentUiState('credited');
-    showRechargeResult('充值成功，话费已到账（模拟支付，未发生真实支付）');
+    showRechargeResult(order.requestedScene === 'mock'
+      ? '充值成功，话费已到账（模拟支付，未发生真实支付）'
+      : '充值成功，话费已到账');
     await loadAccountState();
+  }
+
+  function parsePaymentCheckout(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    if (
+      value.kind === 'mock'
+      && value.notice === '模拟支付，不会产生真实扣款'
+    ) {
+      return Object.freeze({ kind: 'mock', notice: value.notice });
+    }
+    if (value.kind === 'wechat_jsapi') {
+      const payload = value.payload;
+      if (
+        !payload
+        || typeof payload !== 'object'
+        || Array.isArray(payload)
+        || payload.signType !== 'RSA'
+        || !/^prepay_id=[A-Za-z0-9_-]+$/.test(payload.package || '')
+        || !/^\d{1,16}$/.test(payload.timeStamp || '')
+        || ![payload.appId, payload.nonceStr, payload.paySign]
+          .every((item) => typeof item === 'string' && item !== '')
+      ) {
+        return null;
+      }
+      return Object.freeze({ kind: 'wechat_jsapi', payload: { ...payload } });
+    }
+    if (value.kind === 'wechat_h5') {
+      try {
+        const h5Url = new URL(value.h5Url);
+        if (
+          h5Url.protocol !== 'https:'
+          || h5Url.hostname !== 'wx.tenpay.com'
+          || h5Url.port !== ''
+          || h5Url.username !== ''
+          || h5Url.password !== ''
+        ) {
+          return null;
+        }
+        return Object.freeze({ kind: 'wechat_h5', h5Url: h5Url.toString() });
+      } catch {
+        return null;
+      }
+    }
+    if (
+      value.kind === 'alipay_wap'
+      && value.action === ALIPAY_WAP_GATEWAY
+      && value.method === 'POST'
+      && value.fields
+      && typeof value.fields === 'object'
+      && !Array.isArray(value.fields)
+    ) {
+      const fieldNames = Object.keys(value.fields);
+      if (
+        fieldNames.length < 1
+        || fieldNames.length > 32
+        || !fieldNames.every((name) => (
+          /^[a-z][a-z0-9_]*$/.test(name)
+          && typeof value.fields[name] === 'string'
+          && value.fields[name].length <= 8192
+        ))
+        || value.fields.method !== 'alipay.trade.wap.pay'
+        || value.fields.sign_type !== 'RSA2'
+        || typeof value.fields.sign !== 'string'
+        || value.fields.sign === ''
+      ) {
+        return null;
+      }
+      return Object.freeze({
+        kind: 'alipay_wap',
+        action: value.action,
+        method: 'POST',
+        fields: Object.freeze({ ...value.fields }),
+      });
+    }
+    return null;
+  }
+
+  function waitForWeixinJsBridge() {
+    if (
+      window.WeixinJSBridge
+      && typeof window.WeixinJSBridge.invoke === 'function'
+    ) {
+      return Promise.resolve(window.WeixinJSBridge);
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('WeixinJSBridge is unavailable'));
+        }
+      }, WECHAT_BRIDGE_TIMEOUT_MS);
+      document.addEventListener('WeixinJSBridgeReady', () => {
+        if (
+          settled
+          || !window.WeixinJSBridge
+          || typeof window.WeixinJSBridge.invoke !== 'function'
+        ) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(window.WeixinJSBridge);
+      }, { once: true });
+    });
+  }
+
+  async function launchWechatJsapi(checkout) {
+    const userAgent = window.navigator
+      && typeof window.navigator.userAgent === 'string'
+      ? window.navigator.userAgent
+      : '';
+    if (!/MicroMessenger/i.test(userAgent)) {
+      throw new Error('请在微信中打开本页面后再使用微信支付');
+    }
+    let bridge;
+    try {
+      bridge = await waitForWeixinJsBridge();
+    } catch {
+      throw new Error('请在微信中刷新页面后重试支付');
+    }
+    await new Promise((resolve) => {
+      bridge.invoke(
+        'getBrandWCPayRequest',
+        checkout.payload,
+        () => resolve()
+      );
+    });
+    setPaymentUiState('verifying-payment', '正在确认支付结果……');
+    startPaymentPolling();
+  }
+
+  function launchWechatH5(checkout, order) {
+    storePaymentOrderId(order.id);
+    window.location.assign(checkout.h5Url);
+  }
+
+  function launchAlipayWap(checkout, order) {
+    storePaymentOrderId(order.id);
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = checkout.action;
+    form.hidden = true;
+    Object.entries(checkout.fields).forEach(([name, value]) => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+  }
+
+  async function launchLiveCheckout(checkout, order) {
+    setPaymentUiState('launching-payment');
+    if (checkout.kind === 'wechat_jsapi') {
+      await launchWechatJsapi(checkout);
+      return;
+    }
+    if (checkout.kind === 'wechat_h5') {
+      launchWechatH5(checkout, order);
+      return;
+    }
+    if (checkout.kind === 'alipay_wap') {
+      launchAlipayWap(checkout, order);
+      return;
+    }
+    throw new Error('Unsupported live checkout');
   }
 
   function startPaymentPolling() {
@@ -1892,21 +2072,25 @@
       const order = parsePublicPaymentOrder(
         responseBody && responseBody.order
       );
-      const checkout = responseBody && responseBody.checkout;
+      const checkout = parsePaymentCheckout(
+        responseBody && responseBody.checkout
+      );
       if (
         !response.ok
         || !order
         || order.provider !== selectedPaymentMethod
         || order.amountCents !== selectedRechargeAmountCents
         || !checkout
-        || checkout.kind !== 'mock'
-        || checkout.notice !== '模拟支付，不会产生真实扣款'
       ) {
         const errorCode = responseBody
           && responseBody.error
           && responseBody.error.code;
         const message = errorCode === 'PAYMENT_PROVIDER_DISABLED'
           ? '当前未开启支付功能'
+          : errorCode === 'PAYMENT_PROVIDER_NOT_CONFIGURED'
+            ? '支付渠道正在配置中，请稍后再试'
+          : errorCode === 'WECHAT_OPENID_REQUIRED'
+            ? '微信身份尚未绑定，请稍后再试'
           : errorCode === 'INVALID_PAYMENT_AMOUNT'
             ? '请输入有效的充值金额'
             : '支付订单创建失败，请稍后重试';
@@ -1920,6 +2104,22 @@
       if (order.status === 'credited') {
         await handleCreditedPayment(order);
         return true;
+      }
+      if (checkout.kind !== 'mock') {
+        showRechargeResult('支付订单已创建，正在打开安全支付页面');
+        try {
+          await launchLiveCheckout(checkout, order);
+          return true;
+        } catch (error) {
+          const message = error && typeof error.message === 'string'
+            && error.message.startsWith('请在微信中')
+            ? error.message
+            : '支付渠道正在配置中，请稍后再试';
+          setPaymentUiState('payment-error', message);
+          showRechargeResult(message);
+          startPaymentPolling();
+          return false;
+        }
       }
       setPaymentUiState('awaiting-payment');
       showRechargeResult('支付订单已创建，请确认模拟支付');

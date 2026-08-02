@@ -24,6 +24,9 @@ const { createFortuneRouter } = require('./routes/fortune_routes');
 const { createRoleRouter } = require('./routes/role_routes');
 const { createPaymentRouter } = require('./routes/payment_routes');
 const {
+  createPaymentNotificationRouter,
+} = require('./routes/payment_notification_routes');
+const {
   createAuthService,
   maskChineseMobile,
 } = require('./services/auth_service');
@@ -34,7 +37,7 @@ const { createRoleService } = require('./services/role_service');
 const { createPaymentService } = require('./services/payment_service');
 const { createSessionService } = require('./services/session_service');
 const {
-  createPaymentProviderRegistry,
+  createConfiguredPaymentProviderRegistry,
 } = require('./payments/payment_provider_registry');
 const {
   MemoryAccountStore,
@@ -124,10 +127,16 @@ function createApp(options = {}) {
     && typeof businessStores.runInTransaction === 'function'
   );
   const paymentRuntimeConfig = options.paymentRuntimeConfig || {
+    alipay: { configured: false, enabled: false },
     mode: 'disabled',
     mockConfirmationEnabled: false,
     nodeEnv: '',
+    wechat: { configured: false, enabled: false },
   };
+  const paymentProviderRegistry = options.paymentProviderRegistry
+    || createConfiguredPaymentProviderRegistry({
+      runtimeConfig: paymentRuntimeConfig,
+    });
   const paymentService = hasPaymentStores
     ? createPaymentService({
       userStore,
@@ -136,9 +145,7 @@ function createApp(options = {}) {
       paymentNotificationStore:
         businessStores.paymentNotificationStore,
       accountLedgerStore: businessStores.accountLedgerStore,
-      providerRegistry: createPaymentProviderRegistry({
-        mode: paymentRuntimeConfig.mode,
-      }),
+      providerRegistry: paymentProviderRegistry,
       runInTransaction: businessStores.runInTransaction,
       clock: options.clock,
       idGenerator: options.paymentIdGenerator,
@@ -163,6 +170,12 @@ function createApp(options = {}) {
     app.use('/internal', createInternalCallRouter({
       requireInternalToken,
       callService,
+    }));
+  }
+  if (paymentService) {
+    app.use('/api', createPaymentNotificationRouter({
+      providerRegistry: paymentProviderRegistry,
+      paymentService,
     }));
   }
   app.use(express.json({ limit: '16kb' }));
@@ -229,6 +242,7 @@ function createApp(options = {}) {
       requireSession,
       userStore,
       paymentService,
+      resolveTrustedPaymentContext: options.resolveTrustedPaymentContext,
     }));
   }
   if (options.enableDevRecharge === true) {
