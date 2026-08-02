@@ -12,6 +12,7 @@ const {
 const {
   createBusinessStores,
 } = require('../stores/business_store_factory');
+const { MIGRATIONS } = require('../database/migrations');
 const { PUBLIC_ROLES } = require('../config/public_roles');
 const { createAccountService } = require('../services/account_service');
 const { createCallService } = require('../services/call_service');
@@ -280,7 +281,7 @@ test('migration application is idempotent across repeated opens', () => {
       secondDatabase.connection
         .prepare('SELECT COUNT(*) AS count FROM schema_migrations')
         .get().count,
-      1
+      MIGRATIONS.length
     );
     assert.equal(
       secondDatabase.connection

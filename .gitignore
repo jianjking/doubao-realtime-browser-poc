@@ -12,6 +12,8 @@ node_modules/
 *.pfx
 id_rsa
 id_rsa.*
+business_backend/secrets/
+payment_secrets/
 
 # Logs and runtime files
 *.log

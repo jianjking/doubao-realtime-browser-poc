@@ -62,6 +62,7 @@ class SQLiteAccountStore {
   #findStatement;
   #insertStatement;
   #replaceStatement;
+  #creditForPaymentStatement;
 
   constructor(database) {
     if (!database || typeof database.prepare !== 'function') {
@@ -101,6 +102,15 @@ class SQLiteAccountStore {
         user_id = ?
         AND currency = ?
         AND created_at = ?
+    `);
+    this.#creditForPaymentStatement = database.prepare(`
+      UPDATE accounts
+      SET balance_cents = ?, updated_at = ?
+      WHERE
+        user_id = ?
+        AND currency = 'CNY'
+        AND status = 'active'
+        AND balance_cents = ?
     `);
   }
 
@@ -161,6 +171,27 @@ class SQLiteAccountStore {
     if (result.changes !== 1) {
       throw new Error('Account identity fields cannot be changed');
     }
+  }
+
+  creditBalanceCentsForPayment({
+    userId,
+    balanceBeforeCents,
+    balanceAfterCents,
+    updatedAt,
+  }) {
+    if (
+      !Number.isSafeInteger(balanceBeforeCents)
+      || !Number.isSafeInteger(balanceAfterCents)
+      || balanceAfterCents < balanceBeforeCents
+    ) {
+      throw new TypeError('Payment balance values must be safe integers');
+    }
+    return this.#creditForPaymentStatement.run(
+      balanceAfterCents,
+      updatedAt,
+      userId,
+      balanceBeforeCents
+    ).changes;
   }
 }
 

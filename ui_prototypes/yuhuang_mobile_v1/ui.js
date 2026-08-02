@@ -6,8 +6,12 @@
   const ACCOUNT_API_URL = '/api/me';
   const CALL_API_URL = '/api/calls';
   const ROLE_CATALOG_API_URL = '/api/roles';
-  const DEV_RECHARGE_API_URL = '/api/dev/recharge';
-  const MAX_DEV_RECHARGE_AMOUNT_CENTS = 100000;
+  const PAYMENT_ORDERS_API_URL = '/api/payment-orders';
+  const MIN_PAYMENT_AMOUNT_CENTS = 1;
+  const MAX_PAYMENT_AMOUNT_CENTS = 100000;
+  const PAYMENT_ORDER_STORAGE_KEY = 'companion_pending_payment_order_v1';
+  const PAYMENT_POLL_INTERVAL_MS = 1000;
+  const PAYMENT_POLL_TIMEOUT_MS = 60000;
   const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
   const PENDING_ACTION_STORAGE_KEY = 'companion_pending_action_v1';
   const TOAST_DURATION_MS = 3200;
@@ -194,6 +198,12 @@
   let sessionAuthState = 'loading';
   let isStartingCall = false;
   let isSubmittingRecharge = false;
+  let paymentUiState = 'idle';
+  let currentPaymentOrder = null;
+  let activeClientRequestId = '';
+  let paymentPollTimer = null;
+  let paymentPollDeadline = 0;
+  let paymentRequestController = null;
   let roleCatalogState = 'loading';
   let roleCatalogLoadPromise = null;
   let rolePricingByKey = new Map();
@@ -271,6 +281,21 @@
   const customAmountField = document.querySelector('.custom-amount-field');
   const customAmountInput = document.querySelector('.custom-amount-input');
   const customAmountError = document.querySelector('.custom-amount-error');
+  const paymentOrderStatus = document.querySelector(
+    '.payment-order-status'
+  );
+  const paymentStatusCopy = document.querySelector(
+    '[data-payment-status-copy]'
+  );
+  const paymentOrderAmount = document.querySelector(
+    '[data-payment-order-amount]'
+  );
+  const paymentOrderProvider = document.querySelector(
+    '[data-payment-order-provider]'
+  );
+  const mockPaymentConfirmButton = document.querySelector(
+    '.mock-payment-confirm'
+  );
 
   function isStrictAuthState(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -534,6 +559,13 @@
     if (initialFocusTarget) {
       initialFocusTarget.focus();
     }
+    if (
+      overlay === rechargePanel
+      && currentPaymentOrder
+      && currentPaymentOrder.status === 'pending'
+    ) {
+      startPaymentPolling();
+    }
   }
 
   function closeOverlay(overlay, restoreFocus = true) {
@@ -542,6 +574,9 @@
     }
 
     const trigger = overlay === activeOverlay ? activeOverlayTrigger : null;
+    if (overlay === rechargePanel) {
+      stopPaymentPolling({ abortRequest: true });
+    }
     overlay.hidden = true;
     overlay.setAttribute('aria-hidden', 'true');
 
@@ -1218,8 +1253,22 @@
     rechargeResult.textContent = '';
   }
 
+  function clearClientPaymentIntent() {
+    activeClientRequestId = '';
+    if (!currentPaymentOrder || currentPaymentOrder.status !== 'pending') {
+      currentPaymentOrder = null;
+      if (paymentOrderStatus) {
+        paymentOrderStatus.hidden = true;
+      }
+      setPaymentUiState('idle');
+    }
+  }
+
   function formatRechargeAmountCents(amountCents) {
-    if (!Number.isSafeInteger(amountCents) || amountCents < 1) {
+    if (
+      !Number.isSafeInteger(amountCents)
+      || amountCents < MIN_PAYMENT_AMOUNT_CENTS
+    ) {
       return '';
     }
     const yuan = Math.floor(amountCents / 100);
@@ -1256,8 +1305,8 @@
     const amountCents = (yuan * 100) + cents;
     if (
       !Number.isSafeInteger(amountCents)
-      || amountCents < 1
-      || amountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS
+      || amountCents < MIN_PAYMENT_AMOUNT_CENTS
+      || amountCents > MAX_PAYMENT_AMOUNT_CENTS
     ) {
       return {
         amountCents: null,
@@ -1297,15 +1346,19 @@
     }
     rechargeSelectionSummary.textContent = Number.isSafeInteger(
       selectedRechargeAmountCents
-    ) && selectedRechargeAmountCents >= 1
-      && selectedRechargeAmountCents <= MAX_DEV_RECHARGE_AMOUNT_CENTS
+    ) && selectedRechargeAmountCents >= MIN_PAYMENT_AMOUNT_CENTS
+      && selectedRechargeAmountCents <= MAX_PAYMENT_AMOUNT_CENTS
       && selectedRechargeAmountDisplay
       && selectedPaymentName
-      ? `本次模拟充值：${selectedRechargeAmountDisplay}元 · ${selectedPaymentName}（仅界面演示）`
+      ? `本次充值：${selectedRechargeAmountDisplay}元 · ${selectedPaymentName}`
       : CUSTOM_AMOUNT_SUMMARY_ERROR;
   }
 
   function handlePackageSelection(event) {
+    if (currentPaymentOrder && currentPaymentOrder.status === 'pending') {
+      showToast('当前订单仍在等待支付，请先完成支付');
+      return;
+    }
     const selectedButton = event.currentTarget;
     const packageMode = selectedButton.dataset.packageMode;
 
@@ -1337,6 +1390,7 @@
         : '';
       renderCustomAmountError();
       clearRechargeResult();
+      clearClientPaymentIntent();
       updateRechargeSelectionSummary();
       if (customAmountInput) {
         customAmountInput.focus();
@@ -1347,8 +1401,8 @@
     const amountCents = Number(selectedButton.dataset.packageCents);
     if (
       !Number.isSafeInteger(amountCents)
-      || amountCents < 1
-      || amountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS
+      || amountCents < MIN_PAYMENT_AMOUNT_CENTS
+      || amountCents > MAX_PAYMENT_AMOUNT_CENTS
     ) {
       showToast('请选择有效的充值金额。');
       return;
@@ -1363,6 +1417,7 @@
     }
     renderCustomAmountError();
     clearRechargeResult();
+    clearClientPaymentIntent();
     updateRechargeSelectionSummary();
   }
 
@@ -1383,10 +1438,15 @@
       : '';
     renderCustomAmountError(parsedAmount.errorMessage);
     clearRechargeResult();
+    clearClientPaymentIntent();
     updateRechargeSelectionSummary();
   }
 
   function handlePaymentSelection(event) {
+    if (currentPaymentOrder && currentPaymentOrder.status === 'pending') {
+      showToast('当前订单仍在等待支付，请先完成支付');
+      return;
+    }
     const selectedButton = event.currentTarget;
     const paymentMethod = selectedButton.dataset.paymentMethod;
     const paymentName = selectedButton.dataset.paymentName;
@@ -1407,16 +1467,20 @@
       }
     });
     clearRechargeResult();
+    clearClientPaymentIntent();
     updateRechargeSelectionSummary();
   }
 
   function setSubmittingRecharge(submitting) {
     isSubmittingRecharge = submitting;
-    if (rechargeConfirmButton) {
-      rechargeConfirmButton.disabled = submitting;
-      rechargeConfirmButton.textContent = submitting
-        ? '正在模拟充值…'
-        : '模拟充值';
+    if (rechargeConfirmButton && submitting) {
+      rechargeConfirmButton.disabled = true;
+      rechargeConfirmButton.textContent = '正在处理……';
+    } else if (rechargeConfirmButton) {
+      setPaymentUiState(
+        paymentUiState,
+        paymentStatusCopy ? paymentStatusCopy.textContent : ''
+      );
     }
   }
 
@@ -1428,10 +1492,329 @@
     showToast(message);
   }
 
+  function setPaymentUiState(state, statusMessage = '') {
+    paymentUiState = state;
+    if (rechargePanel) {
+      rechargePanel.dataset.paymentState = state;
+    }
+    const statePresentation = {
+      idle: ['创建支付订单', false, ''],
+      'creating-order': ['正在创建支付订单……', true, '正在创建支付订单……'],
+      'awaiting-payment': ['订单已创建', true, '等待完成支付'],
+      'confirming-payment': ['订单已创建', true, '正在模拟支付确认……'],
+      'verifying-payment': ['订单已创建', true, '正在确认支付结果……'],
+      credited: ['再充一笔', false, '充值成功'],
+      'payment-error': ['重新创建订单', false, '暂时无法确认支付，请稍后重试'],
+    }[state];
+    if (!statePresentation) {
+      return;
+    }
+    if (rechargeConfirmButton) {
+      rechargeConfirmButton.textContent = statePresentation[0];
+      rechargeConfirmButton.disabled = statePresentation[1];
+    }
+    if (paymentStatusCopy) {
+      paymentStatusCopy.textContent = statusMessage
+        || statePresentation[2];
+    }
+    if (mockPaymentConfirmButton) {
+      const canConfirm = Boolean(
+        currentPaymentOrder
+        && currentPaymentOrder.status === 'pending'
+        && (state === 'awaiting-payment' || state === 'payment-error')
+      );
+      mockPaymentConfirmButton.hidden = !currentPaymentOrder;
+      mockPaymentConfirmButton.disabled = !canConfirm;
+      mockPaymentConfirmButton.textContent = state === 'confirming-payment'
+        ? '正在模拟完成支付……'
+        : state === 'verifying-payment'
+          ? '正在确认支付结果……'
+          : '模拟完成支付';
+    }
+  }
+
+  function parsePublicPaymentOrder(value) {
+    if (
+      !value
+      || typeof value !== 'object'
+      || Array.isArray(value)
+      || typeof value.id !== 'string'
+      || !['wechat', 'alipay'].includes(value.provider)
+      || !Number.isSafeInteger(value.amountCents)
+      || value.amountCents < MIN_PAYMENT_AMOUNT_CENTS
+      || value.amountCents > MAX_PAYMENT_AMOUNT_CENTS
+      || value.currency !== 'CNY'
+      || !['pending', 'paid', 'credited', 'closed', 'failed']
+        .includes(value.status)
+    ) {
+      return null;
+    }
+    return Object.freeze({ ...value });
+  }
+
+  function renderPaymentOrder(order) {
+    currentPaymentOrder = order;
+    if (!paymentOrderStatus || !order) {
+      return;
+    }
+    paymentOrderStatus.hidden = false;
+    if (paymentOrderAmount) {
+      paymentOrderAmount.textContent = `${formatRechargeAmountCents(
+        order.amountCents
+      )}元`;
+    }
+    if (paymentOrderProvider) {
+      paymentOrderProvider.textContent = order.provider === 'wechat'
+        ? '微信支付'
+        : '支付宝支付';
+    }
+  }
+
+  function readStoredPaymentOrderId() {
+    try {
+      return window.sessionStorage.getItem(PAYMENT_ORDER_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function storePaymentOrderId(orderId) {
+    try {
+      window.sessionStorage.setItem(PAYMENT_ORDER_STORAGE_KEY, orderId);
+    } catch {
+      // A blocked sessionStorage does not change payment authority.
+    }
+  }
+
+  function clearStoredPaymentOrderId() {
+    try {
+      window.sessionStorage.removeItem(PAYMENT_ORDER_STORAGE_KEY);
+    } catch {
+      // A blocked sessionStorage does not change payment authority.
+    }
+  }
+
+  function createClientRequestId() {
+    if (
+      window.crypto
+      && typeof window.crypto.randomUUID === 'function'
+    ) {
+      return window.crypto.randomUUID();
+    }
+    if (
+      window.crypto
+      && typeof window.crypto.getRandomValues === 'function'
+    ) {
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(
+        bytes,
+        (byte) => byte.toString(16).padStart(2, '0')
+      ).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-`
+        + `${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+    throw new Error('Secure random values are unavailable');
+  }
+
+  function stopPaymentPolling({ abortRequest = false } = {}) {
+    if (paymentPollTimer !== null) {
+      window.clearTimeout(paymentPollTimer);
+      paymentPollTimer = null;
+    }
+    paymentPollDeadline = 0;
+    if (abortRequest && paymentRequestController) {
+      paymentRequestController.abort();
+      paymentRequestController = null;
+    }
+  }
+
+  async function requestPaymentJson(url, options = {}) {
+    if (typeof window.fetch !== 'function') {
+      throw new TypeError('fetch is unavailable');
+    }
+    if (paymentRequestController) {
+      paymentRequestController.abort();
+    }
+    const controller = typeof AbortController === 'function'
+      ? new AbortController()
+      : null;
+    paymentRequestController = controller;
+    try {
+      const response = await window.fetch(url, {
+        ...options,
+        signal: controller ? controller.signal : undefined,
+      });
+      return {
+        response,
+        responseBody: await readJsonResponse(response),
+      };
+    } finally {
+      if (paymentRequestController === controller) {
+        paymentRequestController = null;
+      }
+    }
+  }
+
+  function handlePaymentAuthenticationError(response) {
+    if (response.status !== 401 && response.status !== 403) {
+      return false;
+    }
+    handleExpiredSession();
+    closeOverlay(rechargePanel, false);
+    openRechargeLoginPrompt(rechargeEntry);
+    showToast('登录状态已失效，请重新登录');
+    return true;
+  }
+
+  async function fetchPaymentOrder(orderId) {
+    const { response, responseBody } = await requestPaymentJson(
+      `${PAYMENT_ORDERS_API_URL}/${encodeURIComponent(orderId)}`,
+      { headers: { Accept: 'application/json' } }
+    );
+    if (handlePaymentAuthenticationError(response)) {
+      return null;
+    }
+    const order = parsePublicPaymentOrder(
+      responseBody && responseBody.order
+    );
+    if (!response.ok || !order) {
+      throw new Error('Payment order query failed');
+    }
+    return order;
+  }
+
+  async function handleCreditedPayment(order, account = null) {
+    stopPaymentPolling();
+    renderPaymentOrder(order);
+    clearStoredPaymentOrderId();
+    activeClientRequestId = '';
+    if (
+      account
+      && account.currency === 'CNY'
+      && Number.isSafeInteger(account.balanceCents)
+    ) {
+      accountLoadRequestId += 1;
+      setAccountBalanceState('ready', account.balanceCents);
+    }
+    setPaymentUiState('credited');
+    showRechargeResult('充值成功，话费已到账（模拟支付，未发生真实支付）');
+    await loadAccountState();
+  }
+
+  function startPaymentPolling() {
+    if (
+      !currentPaymentOrder
+      || !['pending', 'paid'].includes(currentPaymentOrder.status)
+      || activeOverlay !== rechargePanel
+      || paymentPollTimer !== null
+    ) {
+      return;
+    }
+    if (paymentPollDeadline === 0) {
+      paymentPollDeadline = Date.now() + PAYMENT_POLL_TIMEOUT_MS;
+    }
+
+    const poll = async () => {
+      paymentPollTimer = null;
+      if (
+        !currentPaymentOrder
+        || activeOverlay !== rechargePanel
+        || Date.now() >= paymentPollDeadline
+      ) {
+        setPaymentUiState(
+          'payment-error',
+          '仍在确认支付结果，请稍后重试'
+        );
+        return;
+      }
+      try {
+        const order = await fetchPaymentOrder(currentPaymentOrder.id);
+        if (!order) {
+          return;
+        }
+        renderPaymentOrder(order);
+        if (order.status === 'credited') {
+          await handleCreditedPayment(order);
+          return;
+        }
+        if (order.status === 'closed' || order.status === 'failed') {
+          clearStoredPaymentOrderId();
+          setPaymentUiState('payment-error', '订单已结束，请重新创建');
+          return;
+        }
+      } catch {
+        if (paymentStatusCopy) {
+          paymentStatusCopy.textContent = '仍在确认支付结果……';
+        }
+      }
+      if (
+        activeOverlay === rechargePanel
+        && Date.now() < paymentPollDeadline
+      ) {
+        paymentPollTimer = window.setTimeout(
+          poll,
+          PAYMENT_POLL_INTERVAL_MS
+        );
+      }
+    };
+    paymentPollTimer = window.setTimeout(poll, PAYMENT_POLL_INTERVAL_MS);
+  }
+
+  async function resumeStoredPaymentOrder() {
+    if (sessionAuthState !== 'authenticated') {
+      return false;
+    }
+    const orderId = readStoredPaymentOrderId();
+    if (!/^pay_[A-Za-z0-9_-]+$/.test(orderId)) {
+      if (orderId) {
+        clearStoredPaymentOrderId();
+      }
+      return false;
+    }
+    try {
+      const order = await fetchPaymentOrder(orderId);
+      if (!order) {
+        return false;
+      }
+      renderPaymentOrder(order);
+      if (order.status === 'credited') {
+        await handleCreditedPayment(order);
+      } else if (order.status === 'pending' || order.status === 'paid') {
+        setPaymentUiState('awaiting-payment');
+      } else {
+        clearStoredPaymentOrderId();
+        setPaymentUiState('payment-error', '订单已结束，请重新创建');
+      }
+      return true;
+    } catch {
+      clearStoredPaymentOrderId();
+      return false;
+    }
+  }
+
   async function handleRechargeConfirmation() {
     if (isSubmittingRecharge) {
       return false;
     }
+    if (
+      currentPaymentOrder
+      && ['pending', 'paid'].includes(currentPaymentOrder.status)
+    ) {
+      setPaymentUiState('awaiting-payment');
+      startPaymentPolling();
+      return false;
+    }
+    if (paymentUiState === 'credited' || paymentUiState === 'payment-error') {
+      currentPaymentOrder = null;
+      if (paymentOrderStatus) {
+        paymentOrderStatus.hidden = true;
+      }
+      setPaymentUiState('idle');
+    }
+
     setSubmittingRecharge(true);
     try {
       if (
@@ -1475,74 +1858,151 @@
         selectedRechargeAmountDisplay = parsedAmount.displayAmount;
         renderCustomAmountError();
       }
-
-      if (!Number.isSafeInteger(selectedRechargeAmountCents)
-        || selectedRechargeAmountCents < 1
-        || selectedRechargeAmountCents > MAX_DEV_RECHARGE_AMOUNT_CENTS) {
+      if (
+        !Number.isSafeInteger(selectedRechargeAmountCents)
+        || selectedRechargeAmountCents < MIN_PAYMENT_AMOUNT_CENTS
+        || selectedRechargeAmountCents > MAX_PAYMENT_AMOUNT_CENTS
+      ) {
         showToast(CUSTOM_AMOUNT_RANGE_ERROR);
         return false;
       }
 
       clearRechargeResult();
-      if (typeof window.fetch !== 'function') {
-        throw new TypeError('fetch is unavailable');
-      }
-      const response = await window.fetch(DEV_RECHARGE_API_URL, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amountCents: selectedRechargeAmountCents,
-        }),
-      });
-      const responseBody = await readJsonResponse(response);
-      const errorCode = responseBody
-        && responseBody.error
-        && responseBody.error.code;
-
-      if (response.status === 401 || response.status === 403) {
-        handleExpiredSession();
-        openRechargeLoginPrompt(rechargeEntry);
-        showToast('登录状态已失效，请重新登录');
+      activeClientRequestId = activeClientRequestId
+        || createClientRequestId();
+      setPaymentUiState('creating-order');
+      const { response, responseBody } = await requestPaymentJson(
+        PAYMENT_ORDERS_API_URL,
+        {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            provider: selectedPaymentMethod,
+            amountCents: selectedRechargeAmountCents,
+            clientRequestId: activeClientRequestId,
+          }),
+        }
+      );
+      if (handlePaymentAuthenticationError(response)) {
         return false;
       }
-      if (response.status === 404) {
-        showRechargeResult('当前未开启模拟充值');
-        return false;
-      }
-      if (
-        response.status === 400
-        && errorCode === 'INVALID_RECHARGE_AMOUNT'
-      ) {
-        showRechargeResult('请输入有效的充值金额');
-        return false;
-      }
-      if (errorCode === 'ACCOUNT_UNAVAILABLE') {
-        showRechargeResult('账户暂不可用，请稍后重试');
-        return false;
-      }
-
-      const account = responseBody && responseBody.account;
+      const order = parsePublicPaymentOrder(
+        responseBody && responseBody.order
+      );
+      const checkout = responseBody && responseBody.checkout;
       if (
         !response.ok
-        || !account
-        || account.currency !== 'CNY'
-        || !Number.isSafeInteger(account.balanceCents)
-        || !Number.isSafeInteger(account.remainingSeconds)
-        || account.remainingSeconds < 0
+        || !order
+        || order.provider !== selectedPaymentMethod
+        || order.amountCents !== selectedRechargeAmountCents
+        || !checkout
+        || checkout.kind !== 'mock'
+        || checkout.notice !== '模拟支付，不会产生真实扣款'
       ) {
-        showRechargeResult('模拟充值暂时失败，请稍后重试');
+        const errorCode = responseBody
+          && responseBody.error
+          && responseBody.error.code;
+        const message = errorCode === 'PAYMENT_PROVIDER_DISABLED'
+          ? '当前未开启支付功能'
+          : errorCode === 'INVALID_PAYMENT_AMOUNT'
+            ? '请输入有效的充值金额'
+            : '支付订单创建失败，请稍后重试';
+        setPaymentUiState('payment-error', message);
+        showRechargeResult(message);
         return false;
       }
 
-      accountLoadRequestId += 1;
-      setAccountBalanceState('ready', account.balanceCents);
-      showRechargeResult('模拟充值成功，未发生真实支付');
+      renderPaymentOrder(order);
+      storePaymentOrderId(order.id);
+      if (order.status === 'credited') {
+        await handleCreditedPayment(order);
+        return true;
+      }
+      setPaymentUiState('awaiting-payment');
+      showRechargeResult('支付订单已创建，请确认模拟支付');
+      startPaymentPolling();
       return true;
-    } catch {
-      showRechargeResult('模拟充值暂时失败，请稍后重试');
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        return false;
+      }
+      setPaymentUiState('payment-error');
+      showRechargeResult('支付订单创建失败，请稍后重试');
+      return false;
+    } finally {
+      setSubmittingRecharge(false);
+    }
+  }
+
+  async function handleMockPaymentConfirmation() {
+    if (
+      isSubmittingRecharge
+      || !currentPaymentOrder
+      || !['pending', 'paid'].includes(currentPaymentOrder.status)
+    ) {
+      return false;
+    }
+    setSubmittingRecharge(true);
+    stopPaymentPolling({ abortRequest: true });
+    setPaymentUiState('confirming-payment');
+    try {
+      const { response, responseBody } = await requestPaymentJson(
+        `${PAYMENT_ORDERS_API_URL}/${encodeURIComponent(
+          currentPaymentOrder.id
+        )}/mock-complete`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+        }
+      );
+      if (handlePaymentAuthenticationError(response)) {
+        return false;
+      }
+      if (!response.ok) {
+        const errorCode = responseBody
+          && responseBody.error
+          && responseBody.error.code;
+        const message = errorCode === 'PAYMENT_ORDER_EXPIRED'
+          ? '支付订单已过期，请重新创建'
+          : errorCode === 'PAYMENT_MOCK_CONFIRMATION_DISABLED'
+            ? '当前未开启模拟支付确认'
+            : '暂时无法确认支付，请稍后重试';
+        setPaymentUiState('payment-error', message);
+        showRechargeResult(message);
+        return false;
+      }
+
+      setPaymentUiState('verifying-payment');
+      const queriedOrder = await fetchPaymentOrder(currentPaymentOrder.id);
+      if (queriedOrder && queriedOrder.status === 'credited') {
+        await handleCreditedPayment(
+          queriedOrder,
+          responseBody && responseBody.account
+        );
+        return true;
+      }
+      if (queriedOrder) {
+        renderPaymentOrder(queriedOrder);
+      }
+      setPaymentUiState(
+        'verifying-payment',
+        '仍在确认支付结果……'
+      );
+      startPaymentPolling();
+      return false;
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        return false;
+      }
+      setPaymentUiState(
+        'payment-error',
+        '仍在确认支付结果，请稍后重试'
+      );
+      showRechargeResult('暂时无法确认支付，请稍后重试');
+      startPaymentPolling();
       return false;
     } finally {
       setSubmittingRecharge(false);
@@ -1708,7 +2168,12 @@
         void loadPublicRoleCatalog();
       }
     }
-    void loadAccountState().then(consumePendingAction);
+    void loadAccountState().then(async (hasAccountAccess) => {
+      consumePendingAction(hasAccountAccess);
+      if (hasAccountAccess) {
+        await resumeStoredPaymentOrder();
+      }
+    });
 
     if (accountSummaryButton && accountProfileOverlay) {
       accountSummaryButton.addEventListener('click', () => {
@@ -1788,6 +2253,12 @@
         handleRechargeConfirmation
       );
     }
+    if (mockPaymentConfirmButton) {
+      mockPaymentConfirmButton.addEventListener(
+        'click',
+        handleMockPaymentConfirmation
+      );
+    }
 
     document.querySelectorAll('.side-action[data-action]').forEach((button) => {
       button.addEventListener('click', handleAuxiliaryAction);
@@ -1818,6 +2289,10 @@
 
     document.addEventListener('keydown', handleEscapeKey);
     window.addEventListener('pageshow', handleHomePageShow);
+    window.addEventListener('beforeunload', () => {
+      stopPaymentPolling({ abortRequest: true });
+    });
+    setPaymentUiState('idle');
     updateRechargeSelectionSummary();
     if (homePage) {
       warmAdjacentCharacterImages(currentCharacterKey);

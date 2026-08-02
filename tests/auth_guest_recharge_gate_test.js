@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -339,7 +340,15 @@ function loadHomeRuntime(options = {}) {
       handleCustomAmountInput,
       handlePackageSelection,
       handlePaymentSelection,
-      handleRechargeConfirmation,
+      handleRechargeConfirmation: async () => {
+        if (currentPaymentOrder
+          && ['pending', 'paid'].includes(currentPaymentOrder.status)) {
+          return handleMockPaymentConfirmation();
+        }
+        const created = await handleRechargeConfirmation();
+        return created ? handleMockPaymentConfirmation() : false;
+      },
+      handleMockPaymentConfirmation,
       handleRechargeEntryClick,
       handleStartConversation,
       isPhoneAuthenticated,
@@ -476,7 +485,7 @@ function loadHomeRuntime(options = {}) {
       ? 'guest'
       : 'user'
   );
-  const fetchImpl = options.fetchImpl || (async (pathname) => {
+  const legacyFetchImpl = options.fetchImpl || (async (pathname) => {
     if (pathname === '/api/me') {
       if (sessionMode === 'guest') {
         return createGuestAccountResponse();
@@ -515,6 +524,75 @@ function loadHomeRuntime(options = {}) {
       },
     };
   });
+  let testPaymentOrder = null;
+  let adaptedBalanceCents = null;
+  const fetchImpl = async (pathname, requestOptions) => {
+    if (pathname === '/api/payment-orders') {
+      const requestBody = JSON.parse(requestOptions.body);
+      testPaymentOrder = {
+        id: 'pay_auth_gate_test',
+        provider: requestBody.provider,
+        requestedScene: 'mock',
+        amountCents: requestBody.amountCents,
+        currency: 'CNY',
+        status: 'pending',
+        createdAt: '2026-08-02T00:00:00.000Z',
+        expiresAt: '2026-08-02T00:15:00.000Z',
+        paidAt: null,
+        creditedAt: null,
+        closedAt: null,
+        failureCode: null,
+      };
+      return createJsonResponse(201, {
+        order: testPaymentOrder,
+        checkout: {
+          kind: 'mock',
+          notice: '模拟支付，不会产生真实扣款',
+        },
+      });
+    }
+    if (
+      testPaymentOrder
+      && pathname === `/api/payment-orders/${testPaymentOrder.id}`
+    ) {
+      return createJsonResponse(200, { order: testPaymentOrder });
+    }
+    if (
+      testPaymentOrder
+      && pathname === `/api/payment-orders/${testPaymentOrder.id}/mock-complete`
+    ) {
+      const legacyResponse = await legacyFetchImpl(
+        '/api/dev/recharge',
+        {
+          ...requestOptions,
+          body: JSON.stringify({
+            amountCents: testPaymentOrder.amountCents,
+          }),
+        }
+      );
+      if (!legacyResponse.ok) {
+        return legacyResponse;
+      }
+      const legacyBody = await legacyResponse.json();
+      adaptedBalanceCents = legacyBody.account.balanceCents;
+      testPaymentOrder = {
+        ...testPaymentOrder,
+        status: 'credited',
+        paidAt: '2026-08-02T00:01:00.000Z',
+        creditedAt: '2026-08-02T00:01:00.000Z',
+      };
+      return createJsonResponse(200, {
+        order: testPaymentOrder,
+        account: legacyBody.account,
+        alreadyProcessed: false,
+      });
+    }
+    const response = await legacyFetchImpl(pathname, requestOptions);
+    if (pathname === '/api/me' && adaptedBalanceCents !== null && response.ok) {
+      return createAccountResponse(adaptedBalanceCents);
+    }
+    return response;
+  };
 
   class FakeImage {
     set src(value) {
@@ -552,6 +630,9 @@ function loadHomeRuntime(options = {}) {
       return (windowHandlers.get(eventName) || []).length;
     },
     localStorage,
+    crypto: {
+      randomUUID: () => crypto.randomUUID(),
+    },
     location: {
       assign(url) {
         locationAssignments.push(url);
@@ -1139,19 +1220,19 @@ async function verifyDevelopmentRechargeFlow() {
       response: createJsonResponse(404, {
         error: { code: 'NOT_FOUND' },
       }),
-      expected: /当前未开启模拟充值/,
+      expected: /暂时无法确认支付/,
     },
     {
       name: 'network',
       error: new Error('network unavailable'),
-      expected: /暂时失败/,
+      expected: /暂时无法确认支付/,
     },
     {
       name: 'server error',
       response: createJsonResponse(503, {
         error: { code: 'SERVICE_UNAVAILABLE' },
       }),
-      expected: /暂时失败/,
+      expected: /暂时无法确认支付/,
     },
   ]) {
     const runtime = loadHomeRuntime({
@@ -1275,7 +1356,7 @@ async function verifyDevelopmentRechargeFlow() {
   lifecycleRuntime.window.dispatch('pageshow', { persisted: false });
   lifecycleRuntime.window.dispatch('pageshow', { persisted: true });
   await wait();
-  assert.equal(accountReadCount, 3);
+  assert.equal(accountReadCount, 4);
   assert.equal(lifecycleRuntime.test.getAccountBalanceCents(), 2250);
 
   let guestRechargeCount = 0;
@@ -1867,15 +1948,16 @@ function verifyStaticUiAndPrivacyBoundaries() {
   );
   assert.match(
     homeHtml,
-    /支付方式仅为界面演示，当前未接真实支付/
+    /模拟支付，不会产生真实扣款/
   );
-  assert.match(homeHtml, /仅用于本地开发演示，不会发生真实支付/);
+  assert.match(homeHtml, /先创建支付订单，再确认支付结果/);
   assert.doesNotMatch(homeHtml, /data-package-value=/);
   assert.doesNotMatch(homeJs, /parseFloat\s*\(/);
   assert.match(
     homeJs,
-    /body:\s*JSON\.stringify\(\{\s*amountCents:\s*selectedRechargeAmountCents,\s*\}\)/
+    /clientRequestId:\s*activeClientRequestId/
   );
+  assert.doesNotMatch(homeJs, /\/api\/dev\/recharge/);
   assert.doesNotMatch(callJs, /phoneMasked|vipTier|authenticated/);
   assert.doesNotMatch(micJs, /phoneMasked|vipTier/);
 

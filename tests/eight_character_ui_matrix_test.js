@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -434,7 +435,15 @@ function loadHomeRuntime(options = {}) {
       handleCharacterPointerUp,
       handlePackageSelection,
       handlePaymentSelection,
-      handleRechargeConfirmation,
+      handleRechargeConfirmation: async () => {
+        if (currentPaymentOrder
+          && ['pending', 'paid'].includes(currentPaymentOrder.status)) {
+          return handleMockPaymentConfirmation();
+        }
+        const created = await handleRechargeConfirmation();
+        return created ? handleMockPaymentConfirmation() : false;
+      },
+      handleMockPaymentConfirmation,
       handleEscapeKey,
       handleHomePageShow,
       handleOverlayBackdropClick,
@@ -495,7 +504,7 @@ function loadHomeRuntime(options = {}) {
   } catch {
     cachedAuthState = null;
   }
-  const fetchImpl = async (pathname, requestOptions) => {
+  const legacyFetchImpl = async (pathname, requestOptions) => {
     if (pathname === '/api/me') {
       return cachedAuthState && cachedAuthState.mode === 'guest'
         ? createGuestAccountResponse()
@@ -533,6 +542,82 @@ function loadHomeRuntime(options = {}) {
         };
       },
     };
+  };
+  let testPaymentOrder = null;
+  let adaptedBalanceCents = null;
+  const paymentResponse = (status, body) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return body;
+    },
+  });
+  const fetchImpl = async (pathname, requestOptions) => {
+    if (pathname === '/api/payment-orders') {
+      const requestBody = JSON.parse(requestOptions.body);
+      testPaymentOrder = {
+        id: 'pay_ui_matrix_test',
+        provider: requestBody.provider,
+        requestedScene: 'mock',
+        amountCents: requestBody.amountCents,
+        currency: 'CNY',
+        status: 'pending',
+        createdAt: '2026-08-02T00:00:00.000Z',
+        expiresAt: '2026-08-02T00:15:00.000Z',
+        paidAt: null,
+        creditedAt: null,
+        closedAt: null,
+        failureCode: null,
+      };
+      return paymentResponse(201, {
+        order: testPaymentOrder,
+        checkout: {
+          kind: 'mock',
+          notice: '模拟支付，不会产生真实扣款',
+        },
+      });
+    }
+    if (
+      testPaymentOrder
+      && pathname === `/api/payment-orders/${testPaymentOrder.id}`
+    ) {
+      return paymentResponse(200, { order: testPaymentOrder });
+    }
+    if (
+      testPaymentOrder
+      && pathname === `/api/payment-orders/${testPaymentOrder.id}/mock-complete`
+    ) {
+      const legacyResponse = await legacyFetchImpl(
+        '/api/dev/recharge',
+        {
+          ...requestOptions,
+          body: JSON.stringify({
+            amountCents: testPaymentOrder.amountCents,
+          }),
+        }
+      );
+      if (!legacyResponse.ok) {
+        return legacyResponse;
+      }
+      const legacyBody = await legacyResponse.json();
+      adaptedBalanceCents = legacyBody.account.balanceCents;
+      testPaymentOrder = {
+        ...testPaymentOrder,
+        status: 'credited',
+        paidAt: '2026-08-02T00:01:00.000Z',
+        creditedAt: '2026-08-02T00:01:00.000Z',
+      };
+      return paymentResponse(200, {
+        order: testPaymentOrder,
+        account: legacyBody.account,
+        alreadyProcessed: false,
+      });
+    }
+    const response = await legacyFetchImpl(pathname, requestOptions);
+    if (pathname === '/api/me' && adaptedBalanceCents !== null && response.ok) {
+      return createAccountResponse(adaptedBalanceCents);
+    }
+    return response;
   };
   const homePageUrl = new URL(
     options.homePageUrl || DEFAULT_HOME_URL
@@ -652,6 +737,9 @@ function loadHomeRuntime(options = {}) {
       return fetchImpl(pathname, requestOptions);
     },
     localStorage,
+    crypto: {
+      randomUUID: () => crypto.randomUUID(),
+    },
     location: {
       assign(url) {
         locationAssignments.push(url);

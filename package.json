@@ -7,6 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:business-backend": "node --test business_backend/tests/health_test.js business_backend/tests/guest_session_test.js business_backend/tests/phone_login_test.js business_backend/tests/account_model_test.js business_backend/tests/dev_recharge_test.js business_backend/tests/role_catalog_test.js business_backend/tests/call_session_test.js business_backend/tests/call_query_test.js business_backend/tests/call_state_machine_test.js business_backend/tests/internal_call_lifecycle_test.js business_backend/tests/fortune_session_test.js business_backend/tests/fortune_interpretation_client_test.js business_backend/tests/fortune_interpretation_test.js business_backend/tests/fortune_interpretation_audio_test.js business_backend/tests/fortune_tts_client_test.js",
     "test:business-database": "node --test business_backend/tests/business_database_test.js",
+    "test:payments": "node --test business_backend/tests/payment_service_test.js business_backend/tests/payment_routes_test.js business_backend/tests/payment_database_test.js tests/payment_ui_flow_test.js",
     "test:relay-internal-client": "node --test tests/internal_call_lifecycle_client_test.js",
     "test:relay-lifecycle-bootstrap": "node --test tests/relay_internal_call_lifecycle_bootstrap_test.js",
     "test:relay-lifecycle-coordinator": "node --test tests/relay_internal_call_lifecycle_coordinator_test.js",

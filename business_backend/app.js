@@ -22,6 +22,7 @@ const {
 } = require('./routes/internal_call_routes');
 const { createFortuneRouter } = require('./routes/fortune_routes');
 const { createRoleRouter } = require('./routes/role_routes');
+const { createPaymentRouter } = require('./routes/payment_routes');
 const {
   createAuthService,
   maskChineseMobile,
@@ -30,7 +31,11 @@ const { createAccountService } = require('./services/account_service');
 const { createCallService } = require('./services/call_service');
 const { createFortuneService } = require('./services/fortune_service');
 const { createRoleService } = require('./services/role_service');
+const { createPaymentService } = require('./services/payment_service');
 const { createSessionService } = require('./services/session_service');
+const {
+  createPaymentProviderRegistry,
+} = require('./payments/payment_provider_registry');
 const {
   MemoryAccountStore,
 } = require('./stores/memory_account_store');
@@ -112,6 +117,37 @@ function createApp(options = {}) {
     interpretationClient: options.fortuneInterpretationClient,
     ttsClient: options.fortuneTtsClient,
   });
+  const hasPaymentStores = Boolean(
+    businessStores.paymentOrderStore
+    && businessStores.paymentNotificationStore
+    && businessStores.accountLedgerStore
+    && typeof businessStores.runInTransaction === 'function'
+  );
+  const paymentRuntimeConfig = options.paymentRuntimeConfig || {
+    mode: 'disabled',
+    mockConfirmationEnabled: false,
+    nodeEnv: '',
+  };
+  const paymentService = hasPaymentStores
+    ? createPaymentService({
+      userStore,
+      accountStore,
+      paymentOrderStore: businessStores.paymentOrderStore,
+      paymentNotificationStore:
+        businessStores.paymentNotificationStore,
+      accountLedgerStore: businessStores.accountLedgerStore,
+      providerRegistry: createPaymentProviderRegistry({
+        mode: paymentRuntimeConfig.mode,
+      }),
+      runInTransaction: businessStores.runInTransaction,
+      clock: options.clock,
+      idGenerator: options.paymentIdGenerator,
+      mockConfirmationEnabled:
+        paymentRuntimeConfig.mockConfirmationEnabled,
+      nodeEnv: paymentRuntimeConfig.nodeEnv,
+      orderTtlMs: options.paymentOrderTtlMs,
+    })
+    : null;
   const requireSession = createRequireSession({ sessionService });
   const app = express();
 
@@ -188,6 +224,13 @@ function createApp(options = {}) {
     maskChineseMobile,
     accountService,
   }));
+  if (paymentService) {
+    app.use('/api', createPaymentRouter({
+      requireSession,
+      userStore,
+      paymentService,
+    }));
+  }
   if (options.enableDevRecharge === true) {
     app.use('/api', createDevRechargeRouter({
       requireSession,
@@ -225,10 +268,17 @@ function createApp(options = {}) {
         request.method === 'POST'
         && request.path === '/api/dev/recharge'
       );
+      const isPaymentRequest = (
+        request.path === '/api/payment-orders'
+        || /^\/api\/payment-orders\/[^/]+\/(?:mock-complete|close)$/
+          .test(request.path)
+      );
       response.status(400).json({
         error: {
           code: isCallRequest
             ? 'INVALID_CALL_REQUEST'
+            : isPaymentRequest
+              ? 'INVALID_PAYMENT_REQUEST'
             : isFortuneInterpretationAudioRequest
               ? 'INVALID_FORTUNE_INTERPRETATION_AUDIO_REQUEST'
             : isFortuneInterpretationRequest
@@ -240,6 +290,8 @@ function createApp(options = {}) {
               : 'INVALID_LOGIN_REQUEST',
           message: isCallRequest
             ? 'A valid roleSlug is required'
+            : isPaymentRequest
+              ? 'Payment request body must be valid JSON'
             : isFortuneInterpretationAudioRequest
               ? 'Interpretation audio request body must be empty'
             : isFortuneInterpretationRequest

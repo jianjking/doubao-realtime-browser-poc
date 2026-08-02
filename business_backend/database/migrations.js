@@ -12,6 +12,14 @@ const MIGRATIONS = Object.freeze([
       'utf8'
     ),
   }),
+  Object.freeze({
+    version: 2,
+    name: 'payment_foundation',
+    sql: fs.readFileSync(
+      path.join(__dirname, 'migrations', '002_payment_foundation.sql'),
+      'utf8'
+    ),
+  }),
 ]);
 
 function runMigrations(database, { clock = Date.now } = {}) {

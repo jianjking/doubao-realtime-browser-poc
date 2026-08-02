@@ -202,8 +202,8 @@
       <div class="overlay-card">
         <header class="overlay-header">
           <div>
-            <h2 id="recharge-panel-title">开发态模拟充值</h2>
-            <p>仅用于本地开发演示，不会发生真实支付</p>
+            <h2 id="recharge-panel-title">话费充值</h2>
+            <p>先创建支付订单，再确认支付结果</p>
           </div>
           <button class="overlay-close" type="button" aria-label="关闭话费充值" data-close-overlay>关闭</button>
         </header>
@@ -264,7 +264,7 @@
           <p class="package-note">实际可用时长以充值页面说明为准</p>
 
           <section class="payment-methods" aria-labelledby="payment-methods-title">
-            <h3 id="payment-methods-title">支付方式界面演示</h3>
+            <h3 id="payment-methods-title">选择支付方式</h3>
             <div class="payment-options" role="radiogroup" aria-label="选择支付方式">
               <button class="payment-option is-selected" type="button" role="radio" aria-checked="true" data-payment-method="wechat" data-payment-name="微信支付">
                 <img class="payment-icon" src="./assets/payment/wechat-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
@@ -277,15 +277,38 @@
                 <small class="selection-status">选择</small>
               </button>
             </div>
-            <p class="payment-demo-note">支付方式仅为界面演示，当前未接真实支付</p>
+            <p class="payment-demo-note" data-payment-mock-notice>
+              模拟支付，不会产生真实扣款
+            </p>
           </section>
         </div>
 
         <div class="recharge-actions">
           <p class="recharge-selection-summary" aria-live="polite">
-            本次模拟充值：10元 · 微信支付（仅界面演示）
+            本次充值：10元 · 微信支付
           </p>
-          <button class="recharge-confirm" type="button">模拟充值</button>
+          <button class="recharge-confirm" type="button">创建支付订单</button>
+          <section class="payment-order-status" aria-label="支付订单状态" hidden>
+            <p class="payment-status-copy" data-payment-status-copy>
+              等待完成支付
+            </p>
+            <dl class="payment-order-summary">
+              <div>
+                <dt>订单金额</dt>
+                <dd data-payment-order-amount>--</dd>
+              </div>
+              <div>
+                <dt>支付方式</dt>
+                <dd data-payment-order-provider>--</dd>
+              </div>
+            </dl>
+            <button class="mock-payment-confirm" type="button">
+              模拟完成支付
+            </button>
+            <p class="mock-payment-warning">
+              模拟支付，不会产生真实扣款
+            </p>
+          </section>
           <p class="recharge-result" role="status" aria-live="polite" aria-atomic="true" hidden></p>
         </div>
       </div>

@@ -12,6 +12,9 @@ const {
 const {
   createBusinessStores,
 } = require('./stores/business_store_factory');
+const {
+  parsePaymentRuntimeConfig,
+} = require('./config/payments');
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3002;
@@ -41,6 +44,7 @@ function parsePort(rawPort) {
 }
 
 function startServer() {
+  const paymentRuntimeConfig = parsePaymentRuntimeConfig(process.env);
   const configuredHost = process.env.BUSINESS_BACKEND_HOST;
   const host = typeof configuredHost === 'string'
     && configuredHost.trim() !== ''
@@ -76,6 +80,7 @@ function startServer() {
       ),
       fortuneInterpretationClient,
       fortuneTtsClient,
+      paymentRuntimeConfig,
     });
   } catch (error) {
     businessStores.close();
@@ -84,6 +89,11 @@ function startServer() {
 
   const server = app.listen(port, host, () => {
     console.log(`business-backend listening on ${host}:${port}`);
+    if (paymentRuntimeConfig.mode === 'mock') {
+      console.log('支付模式：Mock（不会产生真实扣款）');
+    } else {
+      console.log(`支付模式：${paymentRuntimeConfig.mode}`);
+    }
   });
   server.once('close', businessStores.close);
   server.on('error', (error) => {

@@ -38,6 +38,8 @@ const EXPECTED_ENVIRONMENT_NAMES = Object.freeze([
   'FORTUNE_TEXT_MODEL_TIMEOUT_MS',
   'FORTUNE_TTS_RESOURCE_ID',
   'FORTUNE_TTS_SPEAKER_ID',
+  'PAYMENT_PROVIDER_MODE',
+  'PAYMENT_MOCK_CONFIRMATION_ENABLED',
 ]);
 
 function findGitBash() {
@@ -82,6 +84,8 @@ function buildEnvironment(overrides = {}) {
     'FORTUNE_TTS_API_KEY',
     'FORTUNE_TTS_RESOURCE_ID',
     'FORTUNE_TTS_SPEAKER_ID',
+    'PAYMENT_PROVIDER_MODE',
+    'PAYMENT_MOCK_CONFIRMATION_ENABLED',
     'MOCK_BACKEND_MODE',
     'MOCK_EVENT_FILE',
     ...EXPECTED_ENVIRONMENT_NAMES.map((name) => `MOCK_EXPECT_${name}`),
@@ -271,6 +275,8 @@ ${scriptCommand}`;
   const environment = buildEnvironment(envOverrides);
   const effectiveExpectedEnvironment = {
     FORTUNE_TEXT_MODEL_TIMEOUT_MS: DEFAULT_FORTUNE_TIMEOUT_MS,
+    PAYMENT_PROVIDER_MODE: 'mock',
+    PAYMENT_MOCK_CONFIRMATION_ENABLED: '1',
     ...expectedEnvironment,
   };
   for (const [name, value] of Object.entries(
@@ -440,6 +446,15 @@ async function main() {
     source,
     /FORTUNE_TEXT_MODEL_TIMEOUT_MS:-30000/
   );
+  assert.match(
+    source,
+    /PAYMENT_PROVIDER_MODE="\$\{PAYMENT_PROVIDER_MODE:-mock\}"/
+  );
+  assert.match(
+    source,
+    /PAYMENT_MOCK_CONFIRMATION_ENABLED="\$\{PAYMENT_MOCK_CONFIRMATION_ENABLED:-1\}"/
+  );
+  assert.match(source, /生产环境禁止启用 Mock 支付/);
 
   let requestedUrl = null;
   const client = createInternalCallLifecycleClient({
@@ -498,6 +513,16 @@ async function main() {
     invalidThinking.result.stdout + invalidThinking.result.stderr
   );
 
+  const productionMock = runScript(bashPath, {
+    envOverrides: { NODE_ENV: 'production' },
+  });
+  assert.notEqual(productionMock.result.status, 0);
+  assert.match(productionMock.result.stderr, /生产环境禁止启用 Mock 支付/);
+  assert.equal(productionMock.events, '');
+  assertSecretsAbsent(
+    productionMock.result.stdout + productionMock.result.stderr
+  );
+
   for (const rawValue of [
     '0',
     '999',
@@ -541,6 +566,10 @@ async function main() {
     /手机端入口：http:\/\/127\.0\.0\.1:8765\//
   );
   assert.match(firstSuccess.capturedStdout, /Realtime Relay/);
+  assert.match(
+    firstSuccess.capturedStdout,
+    /支付模式：Mock（不会产生真实扣款）/
+  );
   assert.match(firstSuccess.capturedStdout, /求签 ASR/);
   assert.match(firstSuccess.events, /ready:backend:\d+/);
   assert.match(firstSuccess.events, /ready:relay:\d+/);
@@ -630,6 +659,7 @@ async function main() {
       + 'timeout-default,timeout-override,timeout-validation,'
       + 'two-key-input,voice-key-mapping,text-key-isolation,default-speaker,'
       + 'speaker-override,existing-env,partial-voice-env,no-secret-echo,'
+      + 'mock-payment-default,production-mock-rejection,'
       + 'child-failure-cleanup,readiness,'
       + 'ctrl-c-cleanup,restart-no-port-residue,no-external-network'
   );

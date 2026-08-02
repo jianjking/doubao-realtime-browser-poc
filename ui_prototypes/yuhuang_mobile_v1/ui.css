@@ -1498,6 +1498,79 @@ body[data-auth-ready="false"] .app-shell.is-startup-failed {
   background: #5f252a;
 }
 
+.recharge-confirm:disabled,
+.mock-payment-confirm:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.payment-order-status {
+  margin-top: 12px;
+  padding: 13px;
+  border: 2px solid rgba(115, 48, 53, 0.34);
+  border-radius: 16px;
+  background: #fff8e9;
+}
+
+.payment-status-copy {
+  margin: 0 0 10px;
+  color: #562f2c;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.payment-order-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 11px;
+}
+
+.payment-order-summary > div {
+  min-width: 0;
+  padding: 9px 7px;
+  border-radius: 12px;
+  background: #f0e2d5;
+  text-align: center;
+}
+
+.payment-order-summary dt {
+  color: #75635e;
+  font-size: 14px;
+}
+
+.payment-order-summary dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: #4b2d2a;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.mock-payment-confirm {
+  width: 100%;
+  min-height: 54px;
+  padding: 9px 14px;
+  border: 2px solid #39714c;
+  border-radius: 15px;
+  color: #ffffff;
+  background: #39714c;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.mock-payment-warning {
+  margin: 9px 0 0;
+  color: #8a3f24;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .recharge-result {
   margin: 12px 0 0;
   padding: 12px;

@@ -241,6 +241,9 @@ try {
   const {
     createFortuneTtsClientFromEnv,
   } = require('./business_backend/clients/fortune_tts_client');
+  const {
+    parsePaymentRuntimeConfig,
+  } = require('./business_backend/config/payments');
 
   createInternalCallLifecycleClientFromEnv({
     env: process.env,
@@ -261,6 +264,7 @@ try {
       throw new Error('configuration validation must not access the network');
     },
   });
+  parsePaymentRuntimeConfig(process.env);
 } catch (error) {
   const message = error instanceof Error
     ? error.message
@@ -371,6 +375,28 @@ else
   fi
 fi
 
+PAYMENT_PROVIDER_MODE="${PAYMENT_PROVIDER_MODE:-mock}"
+PAYMENT_MOCK_CONFIRMATION_ENABLED="${PAYMENT_MOCK_CONFIRMATION_ENABLED:-1}"
+if [[ "$PAYMENT_PROVIDER_MODE" != "disabled" \
+  && "$PAYMENT_PROVIDER_MODE" != "mock" \
+  && "$PAYMENT_PROVIDER_MODE" != "live" ]]; then
+  printf '错误：PAYMENT_PROVIDER_MODE 必须是 disabled、mock 或 live。\n' >&2
+  exit 1
+fi
+if [[ "$PAYMENT_MOCK_CONFIRMATION_ENABLED" != "0" \
+  && "$PAYMENT_MOCK_CONFIRMATION_ENABLED" != "1" ]]; then
+  printf '错误：PAYMENT_MOCK_CONFIRMATION_ENABLED 必须是 0 或 1。\n' >&2
+  exit 1
+fi
+if [[ "${NODE_ENV-}" == "production" \
+  && ( "$PAYMENT_PROVIDER_MODE" == "mock" \
+    || "$PAYMENT_MOCK_CONFIRMATION_ENABLED" == "1" ) ]]; then
+  printf '错误：生产环境禁止启用 Mock 支付。\n' >&2
+  exit 1
+fi
+export PAYMENT_PROVIDER_MODE
+export PAYMENT_MOCK_CONFIRMATION_ENABLED
+
 configure_voice_service_credentials
 require_sensitive_env \
   FORTUNE_TEXT_MODEL_API_KEY \
@@ -445,6 +471,7 @@ if ! wait_for_http_ready \
 fi
 
 printf '手机端入口：http://127.0.0.1:8765/\n'
+printf '支付模式：Mock（不会产生真实扣款）\n'
 printf 'Realtime Relay：http://127.0.0.1:3001/\n'
 printf '求签 ASR：ws://127.0.0.1:3001/fortune-asr\n'
 
