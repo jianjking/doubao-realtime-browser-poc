@@ -161,7 +161,7 @@
       window.location.href
     );
     callUrl.searchParams.set('characterKey', characterKey);
-    callUrl.searchParams.set('businessCallId', businessCallId);
+    callUrl.searchParams.set('callId', businessCallId);
     return callUrl.href;
   }
   const characterImagePreloadPromises = new Map();

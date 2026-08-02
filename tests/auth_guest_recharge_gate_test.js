@@ -836,7 +836,7 @@ async function verifyHomeGuardRechargeAndAccount() {
     guestCallUrl.searchParams.get('returnUrl'),
     DEFAULT_HOME_URL
   );
-  assert.equal(guestCallUrl.searchParams.has('businessCallId'), false);
+  assert.equal(guestCallUrl.searchParams.has('callId'), false);
 
   const phone = loadHomeRuntime({
     storageEntries: {
@@ -1382,8 +1382,12 @@ async function verifyRealAccountAndCallFlow() {
       character.realtimeCharacterKey
     );
     assert.equal(
-      navigationUrl.searchParams.get('businessCallId'),
+      navigationUrl.searchParams.get('callId'),
       `business-${character.key}`
+    );
+    assert.equal(
+      navigationUrl.searchParams.has('businessCallId'),
+      false
     );
     assert.equal(runtime.test.getAccountBalanceCents(), 1250);
     assert.equal(runtime.test.getIsStartingCall(), true);
@@ -1460,7 +1464,7 @@ async function verifyRealAccountAndCallFlow() {
   assert.equal(admissionCallCount, 2);
   assert.match(
     admissionRuntime.locationAssignments.at(-1),
-    /businessCallId=call-after-development-recharge/
+    /callId=call-after-development-recharge/
   );
 
   const otherConflictRuntime = loadHomeRuntime({
@@ -1578,7 +1582,7 @@ async function verifyRealAccountAndCallFlow() {
   await wait();
   assert.equal(await guestRuntime.test.handleStartConversation(), true);
   const guestUrl = new URL(guestRuntime.locationAssignments.at(-1));
-  assert.equal(guestUrl.searchParams.has('businessCallId'), false);
+  assert.equal(guestUrl.searchParams.has('callId'), false);
   assert.deepEqual(
     guestRuntime.fetchRequests.map((request) => request.pathname),
     ['/api/me']
