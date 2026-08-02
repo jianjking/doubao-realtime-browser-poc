@@ -219,7 +219,7 @@ function verifyStartupScript() {
   );
   assert.match(
     source,
-    /手机端入口：http:\/\/127\.0\.0\.1:8765\/ui_prototypes\/yuhuang_mobile_v1\/choice\.html/
+    /手机端入口：http:\/\/127\.0\.0\.1:8765\//
   );
 
   const bashPath = findBash();

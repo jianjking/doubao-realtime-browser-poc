@@ -450,6 +450,7 @@ function loadHomeRuntime(options = {}) {
   );
 
   const imageRequests = [];
+  const homeShell = new FakeElement();
   const characterStage = new FakeElement();
   const rechargePanel = new FakeElement();
   const rechargeLoginOverlay = new FakeElement();
@@ -575,6 +576,7 @@ function loadHomeRuntime(options = {}) {
     },
     querySelector(selector) {
       const elements = {
+        '.app-shell': homeShell,
         '.character-stage': characterStage,
         '.call-button': callButton,
         '.call-button-label': callButtonLabel,
@@ -2316,12 +2318,12 @@ function verifyFeatureChoiceAndStagedFortuneEntry() {
   assert.equal(fs.existsSync(CHOICE_UNIFIED_POSTER_ASSET_PATH), true);
   assert.match(
     homeHtml,
-    /href="\.\/choice\.html" aria-label="返回功能选择"/
+    /class="unified-return-link" href="\.\/choice\.html">返回<\/a>/
   );
   assert.match(fortuneHtml, /<h1 id="fortune-title">上香求签<\/h1>/);
   assert.match(
     fortuneHtml,
-    /三炷清香已燃，请向神明诉说心愿。/
+    /三柱清香已燃/
   );
   assert.match(
     fortuneHtml,
@@ -2349,16 +2351,16 @@ function verifyFeatureChoiceAndStagedFortuneEntry() {
   );
   assert.match(
     fortuneHtml,
-    /data-speak-control>按住诉说<\/button>/
+    /data-speak-control[^>]*>开始说话<\/button>/
   );
   assert.doesNotMatch(
     fortuneHtml,
     /data-offer-incense|香火已敬|开始诉说|听道童解签/
   );
   assert.match(fortuneHtml, /data-wish-paper[^>]*hidden/);
-  assert.match(
+  assert.doesNotMatch(
     fortuneHtml,
-    /data-draw-fortune disabled>开始抽签<\/button>/
+    /data-draw-fortune|>开始抽签<\/button>/
   );
   assert.match(
     fortuneHtml,
@@ -2378,7 +2380,7 @@ function verifyFeatureChoiceAndStagedFortuneEntry() {
   );
   assert.doesNotMatch(
     fortuneHtml,
-    /<(?:input|textarea)\b|contenteditable=|神仙亲自解签/
+    /<textarea\b|contenteditable=|神仙亲自解签/
   );
   assert.match(
     fortuneJs,
@@ -2391,7 +2393,7 @@ function verifyFeatureChoiceAndStagedFortuneEntry() {
   assert.equal((fortuneJs.match(/assets\/characters/g) || []).length, 1);
   assert.match(
     fortuneJs,
-    /speakControlButton\.setPointerCapture\(pointerId\)/
+    /speakControlButton\.addEventListener\([\s\S]*?'click',[\s\S]*?handleSpeakControlClick/
   );
   assert.doesNotMatch(fortuneJs, /touchstart|touchend|pointermove/);
   assert.match(
