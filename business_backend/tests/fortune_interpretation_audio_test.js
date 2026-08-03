@@ -22,6 +22,7 @@ const VALID_INTERPRETATION = Object.freeze({
 const TEST_AUDIO = Buffer.from([
   0x49, 0x44, 0x33, 0x04, 0x00, 0x00,
 ]);
+const cookiesByPort = new Map();
 
 function cloneLots() {
   return FORTUNE_LOTS.map((lot) => ({
@@ -128,9 +129,23 @@ function closeServer(server) {
 async function startApp(options = {}) {
   const server = http.createServer(createApp(options));
   await listenOnTemporaryPort(server);
+  const port = server.address().port;
+  const login = await requestJson({
+    port,
+    path: '/api/auth/login',
+    value: {
+      phone: '13800138000',
+      code: '123456',
+    },
+  });
+  assert.equal(login.statusCode, 200);
+  cookiesByPort.set(
+    port,
+    login.headers['set-cookie'][0].split(';', 1)[0]
+  );
   return {
     server,
-    port: server.address().port,
+    port,
   };
 }
 
@@ -141,6 +156,10 @@ function request({
   contentType,
 }) {
   const headers = {};
+  const cookie = cookiesByPort.get(port);
+  if (cookie) {
+    headers.Cookie = cookie;
+  }
   if (body !== undefined) {
     headers['Content-Length'] = Buffer.byteLength(body);
     if (contentType !== undefined) {
@@ -510,7 +529,8 @@ test('HTTP route accepts only session ID and returns binary audio', async () => 
       port: app.port,
       path: '/api/fortune-sessions',
       value: {
-        deityKey: 'yuhuang',
+        clientRequestId: '71111111-1111-4111-8111-111111111111',
+        characterKey: 'guanyin',
         situationText: '希望先安静下来。',
       },
     });
@@ -534,7 +554,7 @@ test('HTTP route accepts only session ID and returns binary audio', async () => 
     assert.equal(missing.statusCode, 404);
     assert.equal(
       parseJson(missing).error.code,
-      'FORTUNE_SESSION_NOT_FOUND'
+      'FORTUNE_SESSION_ACCESS_DENIED'
     );
 
     const notReady = await request({
@@ -644,7 +664,8 @@ test('unconfigured HTTP audio route remains retryable', async () => {
       port: app.port,
       path: '/api/fortune-sessions',
       value: {
-        deityKey: 'yuhuang',
+        clientRequestId: '72222222-2222-4222-8222-222222222222',
+        characterKey: 'guanyin',
         situationText: '希望稳步处理眼前的事。',
       },
     });
@@ -698,7 +719,8 @@ test('HTTP audio failure is sanitized and an explicit retry succeeds', async () 
       port: app.port,
       path: '/api/fortune-sessions',
       value: {
-        deityKey: 'yuhuang',
+        clientRequestId: '73333333-3333-4333-8333-333333333333',
+        characterKey: 'guanyin',
         situationText: '希望先完成眼前的一件小事。',
       },
     });

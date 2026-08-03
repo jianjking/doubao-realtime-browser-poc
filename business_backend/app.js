@@ -5,6 +5,9 @@ const {
   FORTUNE_CATALOG_VERSION,
   FORTUNE_LOTS,
 } = require('./config/fortune_lots');
+const {
+  DEFAULT_FORTUNE_DRAW_PRICE_CENTS,
+} = require('./config/fortune_pricing_config');
 const { PUBLIC_ROLES } = require('./config/public_roles');
 const {
   createRequireInternalToken,
@@ -47,6 +50,9 @@ const {
   MemoryFortuneSessionStore,
 } = require('./stores/memory_fortune_session_store');
 const {
+  MemoryFortunePurchaseStore,
+} = require('./stores/memory_fortune_purchase_store');
+const {
   MemorySessionStore,
 } = require('./stores/memory_session_store');
 const { MemoryUserStore } = require('./stores/memory_user_store');
@@ -58,6 +64,8 @@ function createApp(options = {}) {
       userStore: new MemoryUserStore(),
       accountStore: new MemoryAccountStore(),
       callStore: new MemoryCallStore(),
+      fortunePurchaseStore: new MemoryFortunePurchaseStore(),
+      runInTransaction: (operation) => operation(),
     }
     : options.businessStores;
   if (
@@ -77,6 +85,12 @@ function createApp(options = {}) {
     callStore,
   } = businessStores;
   const fortuneSessionStore = new MemoryFortuneSessionStore();
+  const fortunePurchaseStore = businessStores.fortunePurchaseStore
+    || new MemoryFortunePurchaseStore();
+  const fortuneRunInTransaction =
+    typeof businessStores.runInTransaction === 'function'
+      ? businessStores.runInTransaction
+      : (operation) => operation();
   const roleService = createRoleService({ roles: PUBLIC_ROLES });
   const sessionService = createSessionService({
     sessionStore,
@@ -108,6 +122,13 @@ function createApp(options = {}) {
   });
   const fortuneService = createFortuneService({
     fortuneSessionStore,
+    fortunePurchaseStore,
+    userStore,
+    accountStore,
+    runInTransaction: fortuneRunInTransaction,
+    drawPriceCents: options.fortuneDrawPriceCents === undefined
+      ? DEFAULT_FORTUNE_DRAW_PRICE_CENTS
+      : options.fortuneDrawPriceCents,
     catalogVersion: options.fortuneCatalogVersion === undefined
       ? FORTUNE_CATALOG_VERSION
       : options.fortuneCatalogVersion,
@@ -116,7 +137,9 @@ function createApp(options = {}) {
       : options.fortuneLots,
     clock: options.clock,
     idGenerator: options.fortuneSessionIdGenerator,
+    purchaseIdGenerator: options.fortunePurchaseIdGenerator,
     randomInt: options.fortuneRandomInt,
+    snapshotSerializer: options.fortuneSnapshotSerializer,
     interpretationClient: options.fortuneInterpretationClient,
     ttsClient: options.fortuneTtsClient,
   });
@@ -230,6 +253,11 @@ function createApp(options = {}) {
   app.use('/api', createFortuneRouter({
     fortuneService,
     sessionService,
+    pricingConfig: {
+      drawPriceCents: options.fortuneDrawPriceCents === undefined
+        ? DEFAULT_FORTUNE_DRAW_PRICE_CENTS
+        : options.fortuneDrawPriceCents,
+    },
   }));
   app.use('/api', createAccountRouter({
     requireSession,

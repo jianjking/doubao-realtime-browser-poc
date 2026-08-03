@@ -10,6 +10,67 @@
   --ink: #493431;
 }
 
+/* 付费求签价格与余额提示 */
+.fortune-price-summary {
+  position: absolute;
+  z-index: 24;
+  top: calc(env(safe-area-inset-top, 0px) + 86px);
+  left: 50%;
+  width: min(calc(100% - 32px), 398px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 225, 161, 0.48);
+  border-radius: 16px;
+  background: rgba(62, 20, 25, 0.86);
+  color: #fff4d1;
+  box-shadow: 0 8px 24px rgba(28, 5, 8, 0.22);
+  backdrop-filter: blur(8px);
+}
+
+.fortune-price-summary p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.fortune-price-summary strong {
+  color: #ffd98c;
+}
+
+.fortune-lot-result .fortune-charge-success {
+  margin: 12px 0;
+  color: #6d1b22;
+  font-weight: 700;
+}
+
+.fortune-recharge-button {
+  margin-left: 8px;
+  border: 1px solid rgba(109, 27, 34, 0.35);
+  border-radius: 999px;
+  padding: 9px 16px;
+  background: #f4d89b;
+  color: #551b22;
+  font: inherit;
+  font-weight: 700;
+}
+
+@media (max-width: 400px) {
+  .fortune-price-summary {
+    top: calc(env(safe-area-inset-top, 0px) + 82px);
+    gap: 2px 8px;
+    padding: 8px 10px;
+  }
+
+  .fortune-price-summary p {
+    font-size: 12px;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

@@ -49,6 +49,12 @@
       </div>
     </header>
 
+    <section class="fortune-price-summary" aria-label="本次求签费用">
+      <p>本次求签 <strong data-fortune-price>加载中</strong></p>
+      <p>仅在成功抽到签文后扣费</p>
+      <p>当前话费 <strong data-fortune-balance>--</strong></p>
+    </section>
+
     <div class="shrine-scene-background" aria-hidden="true">
       <img
         class="shrine-deity-visual"
@@ -140,9 +146,10 @@
             </div>
           </section>
           <section class="fortune-draw-error" data-fortune-error tabindex="-1" role="alert" hidden>
-            <h3>求签未成</h3>
-            <p>暂时未能求得签文，请稍后再试。</p>
-            <button class="fortune-retry-button" type="button" data-retry-fortune>重新求签</button>
+            <h3 data-fortune-error-title>求签未成</h3>
+            <p data-fortune-error-message>暂时未能求得签文，请稍后再试。</p>
+            <button class="fortune-retry-button" type="button" data-retry-fortune>再次请签</button>
+            <button class="fortune-recharge-button" type="button" data-fortune-recharge hidden>话费充值</button>
           </section>
           <section class="fortune-lot-result" data-fortune-result tabindex="-1" aria-live="polite" aria-atomic="true" hidden>
             <p class="fortune-lot-meta">
@@ -151,6 +158,7 @@
             </p>
             <h3 data-lot-title></h3>
             <div class="fortune-lot-verses" data-lot-verses></div>
+            <p class="fortune-charge-success" data-fortune-charge-success hidden></p>
             <button class="fortune-interpret-button" type="button" data-interpret-fortune>请道童解签</button>
             <section class="fortune-interpretation-error" data-interpretation-error tabindex="-1" role="alert" hidden>
               <h4>暂未解成</h4>
@@ -190,6 +198,28 @@
       </p>
     </footer>
   </main>
+
+  <section
+    class="fortune-login-overlay prototype-overlay"
+    id="fortune-login-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    hidden
+    aria-labelledby="fortune-login-title">
+    <div class="overlay-card compact-dialog">
+      <header class="overlay-header">
+        <div>
+          <h2 id="fortune-login-title">请先登录后求签</h2>
+          <p>手机号登录后，才能从当前话费中支付本次求签费用。</p>
+        </div>
+      </header>
+      <div class="dialog-actions">
+        <button class="dialog-primary-action" type="button" data-login-for-fortune>手机号登录</button>
+        <button class="dialog-secondary-action" type="button" data-close-fortune-login>暂不求签</button>
+      </div>
+    </div>
+  </section>
 
   <section
     class="recharge-panel prototype-overlay"
@@ -283,9 +313,30 @@
 
       <div class="recharge-actions">
         <p class="recharge-selection-summary" aria-live="polite">
-          本次模拟充值：10元 · 微信支付（仅界面演示）
+          本次充值：10元 · 微信支付
         </p>
-        <button class="recharge-confirm" type="button">模拟充值</button>
+        <button class="recharge-confirm" type="button">创建支付订单</button>
+        <section class="payment-order-status" aria-label="支付订单状态" hidden>
+          <p class="payment-status-copy" data-payment-status-copy>
+            等待完成支付
+          </p>
+          <dl class="payment-order-summary">
+            <div>
+              <dt>订单金额</dt>
+              <dd data-payment-order-amount>--</dd>
+            </div>
+            <div>
+              <dt>支付方式</dt>
+              <dd data-payment-order-provider>--</dd>
+            </div>
+          </dl>
+          <button class="mock-payment-confirm" type="button">
+            模拟完成支付
+          </button>
+          <p class="mock-payment-warning">
+            模拟支付，不会产生真实扣款
+          </p>
+        </section>
         <p class="recharge-result" role="status" aria-live="polite" aria-atomic="true" hidden></p>
       </div>
     </div>
@@ -303,7 +354,7 @@
       <header class="overlay-header">
         <div>
           <h2 id="recharge-login-title">充值前请先登录</h2>
-          <p>登录后才能充值和保存账户信息。游客仍可继续浏览和求签。</p>
+          <p>登录后才能充值和保存账户信息。游客可以继续浏览，但不能付费求签。</p>
         </div>
       </header>
       <div class="dialog-actions">

@@ -12,7 +12,11 @@
     'phoneMasked',
     'createdAt',
   ]);
-  const TRUSTED_PENDING_ACTIONS = new Set(['recharge', 'profile']);
+  const TRUSTED_PENDING_ACTIONS = new Set([
+    'recharge',
+    'profile',
+    'fortune',
+  ]);
 
   const form = document.querySelector('.phone-auth-form');
   const phoneInput = document.querySelector('#phone-input');
@@ -285,7 +289,29 @@
         );
       }
       codeInput.value = '';
-      window.location.assign('./choice.html');
+      if (trustedReturnAction === 'fortune') {
+        const characterKey = new URLSearchParams(
+          window.location.search
+        ).get('characterKey');
+        const safeCharacterKey = [
+          'yuhuang',
+          'sunwukong',
+          'guanyin',
+          'caishen',
+          'rulai',
+          'zhubajie',
+          'shawujing',
+          'tangseng',
+        ].includes(characterKey)
+          ? characterKey
+          : 'guanyin';
+        window.localStorage.removeItem(PENDING_ACTION_STORAGE_KEY);
+        window.location.assign(
+          `./fortune.html?characterKey=${encodeURIComponent(safeCharacterKey)}`
+        );
+      } else {
+        window.location.assign('./choice.html');
+      }
     } catch {
       authStatus.textContent = '网络连接失败，请稍后重试';
     } finally {

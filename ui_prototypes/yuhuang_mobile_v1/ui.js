@@ -810,6 +810,37 @@
     accountBalanceState = state;
     accountBalanceCents = state === 'ready' ? balanceCents : null;
     renderCreditBalance();
+    if (
+      state === 'ready'
+      && Number.isSafeInteger(balanceCents)
+      && typeof window.dispatchEvent === 'function'
+      && typeof window.CustomEvent === 'function'
+    ) {
+      window.dispatchEvent(new window.CustomEvent(
+        'companion:account-balance-updated',
+        {
+          detail: {
+            currency: 'CNY',
+            balanceCents,
+          },
+        }
+      ));
+    }
+  }
+
+  function handleAccountBalanceUpdated(event) {
+    const detail = event && event.detail;
+    if (
+      !detail
+      || detail.currency !== 'CNY'
+      || !Number.isSafeInteger(detail.balanceCents)
+      || detail.balanceCents < 0
+    ) {
+      return;
+    }
+    accountBalanceState = 'ready';
+    accountBalanceCents = detail.balanceCents;
+    renderCreditBalance();
   }
 
   function createGuestAuthState() {
@@ -2488,6 +2519,10 @@
     }
 
     document.addEventListener('keydown', handleEscapeKey);
+    window.addEventListener(
+      'companion:account-balance-updated',
+      handleAccountBalanceUpdated
+    );
     window.addEventListener('pageshow', handleHomePageShow);
     window.addEventListener('beforeunload', () => {
       stopPaymentPolling({ abortRequest: true });

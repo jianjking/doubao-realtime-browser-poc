@@ -15,6 +15,9 @@ const {
 const {
   SQLitePaymentOrderStore,
 } = require('./sqlite_payment_order_store');
+const {
+  SQLiteFortunePurchaseStore,
+} = require('./sqlite_fortune_purchase_store');
 
 function createBusinessStores({ databasePath, clock } = {}) {
   const database = createBusinessDatabase({ databasePath, clock });
@@ -27,6 +30,9 @@ function createBusinessStores({ databasePath, clock } = {}) {
       callStore: new SQLiteCallStore(database.connection),
       close: database.close,
       databasePath: database.databasePath,
+      fortunePurchaseStore: new SQLiteFortunePurchaseStore(
+        database.connection
+      ),
       paymentNotificationStore: new SQLitePaymentNotificationStore(
         database.connection
       ),

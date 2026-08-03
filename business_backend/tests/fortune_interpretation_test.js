@@ -347,8 +347,12 @@ function request({
   path,
   body,
   contentType = 'application/json',
+  cookie,
 }) {
   const headers = {};
+  if (cookie) {
+    headers.Cookie = cookie;
+  }
   if (body !== undefined) {
     headers['Content-Type'] = contentType;
     headers['Content-Length'] = Buffer.byteLength(body);
@@ -369,6 +373,7 @@ function request({
       response.on('end', () => {
         resolve({
           statusCode: response.statusCode,
+          headers: response.headers,
           body: JSON.parse(responseBody),
         });
       });
@@ -376,6 +381,19 @@ function request({
     clientRequest.on('error', reject);
     clientRequest.end(body);
   });
+}
+
+async function loginUser(port) {
+  const response = await request({
+    port,
+    path: '/api/auth/login',
+    body: JSON.stringify({
+      phone: '13800138000',
+      code: '123456',
+    }),
+  });
+  assert.equal(response.statusCode, 200);
+  return response.headers['set-cookie'][0].split(';', 1)[0];
 }
 
 test('HTTP route accepts only sessionId and returns a private projection', async () => {
@@ -390,11 +408,14 @@ test('HTTP route accepts only sessionId and returns a private projection', async
   const port = server.address().port;
 
   try {
+    const cookie = await loginUser(port);
     const drawResponse = await request({
       port,
       path: '/api/fortune-sessions',
+      cookie,
       body: JSON.stringify({
-        deityKey: 'yuhuang',
+        clientRequestId: '61111111-1111-4111-8111-111111111111',
+        characterKey: 'guanyin',
         situationText: '权威处境',
       }),
     });
@@ -403,6 +424,7 @@ test('HTTP route accepts only sessionId and returns a private projection', async
     const forgedResponse = await request({
       port,
       path: '/api/fortune-sessions/fortune-route-test/interpretation',
+      cookie,
       body: JSON.stringify({
         situationText: '伪造处境',
         deityKey: 'forged',
@@ -419,6 +441,7 @@ test('HTTP route accepts only sessionId and returns a private projection', async
     const response = await request({
       port,
       path: '/api/fortune-sessions/fortune-route-test/interpretation',
+      cookie,
     });
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, {
@@ -445,6 +468,7 @@ test('HTTP route accepts only sessionId and returns a private projection', async
     const repeated = await request({
       port,
       path: '/api/fortune-sessions/fortune-route-test/interpretation',
+      cookie,
       body: '{}',
     });
     assert.equal(repeated.statusCode, 200);
@@ -454,6 +478,7 @@ test('HTTP route accepts only sessionId and returns a private projection', async
     const malformed = await request({
       port,
       path: '/api/fortune-sessions/fortune-route-test/interpretation',
+      cookie,
       body: '{"forged":',
     });
     assert.equal(malformed.statusCode, 400);
@@ -486,11 +511,14 @@ test('HTTP route keeps model failure diagnostics out of the public 502', async (
   const port = server.address().port;
 
   try {
+    const cookie = await loginUser(port);
     const drawResponse = await request({
       port,
       path: '/api/fortune-sessions',
+      cookie,
       body: JSON.stringify({
-        deityKey: 'yuhuang',
+        clientRequestId: '62222222-2222-4222-8222-222222222222',
+        characterKey: 'guanyin',
         situationText: 'route-private-situation',
       }),
     });
@@ -500,6 +528,7 @@ test('HTTP route keeps model failure diagnostics out of the public 502', async (
       port,
       path:
         '/api/fortune-sessions/fortune-route-failure/interpretation',
+      cookie,
     });
     assert.equal(response.statusCode, 502);
     assert.deepEqual(response.body, {
@@ -536,11 +565,14 @@ test('HTTP route reports unconfigured text model as 503', async () => {
   const port = server.address().port;
 
   try {
+    const cookie = await loginUser(port);
     const drawResponse = await request({
       port,
       path: '/api/fortune-sessions',
+      cookie,
       body: JSON.stringify({
-        deityKey: 'yuhuang',
+        clientRequestId: '63333333-3333-4333-8333-333333333333',
+        characterKey: 'guanyin',
         situationText: '等待解签',
       }),
     });
@@ -549,6 +581,7 @@ test('HTTP route reports unconfigured text model as 503', async () => {
       port,
       path:
         '/api/fortune-sessions/fortune-unconfigured/interpretation',
+      cookie,
     });
     assert.equal(response.statusCode, 503);
     assert.deepEqual(response.body, {

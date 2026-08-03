@@ -15,6 +15,10 @@ const {
 const {
   parsePaymentRuntimeConfig,
 } = require('./config/payments');
+const {
+  formatCnyCents,
+  readFortunePricingConfig,
+} = require('./config/fortune_pricing_config');
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3002;
@@ -45,6 +49,7 @@ function parsePort(rawPort) {
 
 function startServer() {
   const paymentRuntimeConfig = parsePaymentRuntimeConfig(process.env);
+  const fortunePricingConfig = readFortunePricingConfig(process.env);
   const configuredHost = process.env.BUSINESS_BACKEND_HOST;
   const host = typeof configuredHost === 'string'
     && configuredHost.trim() !== ''
@@ -80,6 +85,7 @@ function startServer() {
       ),
       fortuneInterpretationClient,
       fortuneTtsClient,
+      fortuneDrawPriceCents: fortunePricingConfig.drawPriceCents,
       paymentRuntimeConfig,
     });
   } catch (error) {
@@ -94,6 +100,9 @@ function startServer() {
     } else {
       console.log(`支付模式：${paymentRuntimeConfig.mode}`);
     }
+    console.log(
+      `求签价格：${formatCnyCents(fortunePricingConfig.drawPriceCents)} / 次`
+    );
   });
   server.once('close', businessStores.close);
   server.on('error', (error) => {

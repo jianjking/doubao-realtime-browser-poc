@@ -20,6 +20,14 @@ const MIGRATIONS = Object.freeze([
       'utf8'
     ),
   }),
+  Object.freeze({
+    version: 3,
+    name: 'paid_fortune_draw',
+    sql: fs.readFileSync(
+      path.join(__dirname, 'migrations', '003_paid_fortune_draw.sql'),
+      'utf8'
+    ),
+  }),
 ]);
 
 function runMigrations(database, { clock = Date.now } = {}) {

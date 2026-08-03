@@ -5,8 +5,26 @@ const {
   MAX_INTERPRETATION_TEXT_LENGTH,
   normalizeInterpretationCandidate,
 } = require('../contracts/fortune_interpretation_contract');
+const {
+  DEFAULT_FORTUNE_DRAW_PRICE_CENTS,
+  MAX_FORTUNE_DRAW_PRICE_CENTS,
+} = require('../config/fortune_pricing_config');
 
 const ALLOWED_DEITY_KEYS = new Set(['yuhuang']);
+const ALLOWED_CHARACTER_KEYS = new Set([
+  'yuhuang',
+  'sunwukong',
+  'guanyin',
+  'caishen',
+  'rulai',
+  'zhubajie',
+  'shawujing',
+  'tangseng',
+]);
+const CLIENT_REQUEST_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RECOVERY_SITUATION_TEXT =
+  '用户已在殿前诚心许愿，请依据签文作温和解读。';
 const MAX_SITUATION_TEXT_LENGTH = 1000;
 const INTERPRETATION_SCHEMA_VERSION = 'fortune-interpretation-v2';
 const SUPPORTED_INTERPRETATION_AUDIO_TYPES = new Set([
@@ -66,6 +84,22 @@ function createInterpretationAudioError(
   error.statusCode = statusCode;
   error.code = code;
   error.publicMessage = publicMessage;
+  return error;
+}
+
+function createFortuneServiceError(
+  statusCode,
+  code,
+  publicMessage,
+  publicDetails = null
+) {
+  const error = new Error(publicMessage);
+  error.statusCode = statusCode;
+  error.code = code;
+  error.publicMessage = publicMessage;
+  if (publicDetails !== null) {
+    error.publicDetails = publicDetails;
+  }
   return error;
 }
 
@@ -236,11 +270,18 @@ function buildPublicInterpretationAudio(session) {
 
 function createFortuneService({
   fortuneSessionStore,
+  fortunePurchaseStore = null,
+  userStore = null,
+  accountStore = null,
+  runInTransaction = null,
+  drawPriceCents = DEFAULT_FORTUNE_DRAW_PRICE_CENTS,
   catalogVersion,
   lots,
   clock = Date.now,
   idGenerator = () => `fortune_${crypto.randomUUID()}`,
+  purchaseIdGenerator = () => `fortune_purchase_${crypto.randomUUID()}`,
   randomInt = crypto.randomInt,
+  snapshotSerializer = JSON.stringify,
   interpretationClient = null,
   ttsClient = null,
 } = {}) {
@@ -253,8 +294,39 @@ function createFortuneService({
   if (typeof idGenerator !== 'function') {
     throw new TypeError('idGenerator must be a function');
   }
+  if (typeof purchaseIdGenerator !== 'function') {
+    throw new TypeError('purchaseIdGenerator must be a function');
+  }
   if (typeof randomInt !== 'function') {
     throw new TypeError('randomInt must be a function');
+  }
+  if (typeof snapshotSerializer !== 'function') {
+    throw new TypeError('snapshotSerializer must be a function');
+  }
+  if (
+    !Number.isSafeInteger(drawPriceCents)
+    || drawPriceCents < 1
+    || drawPriceCents > MAX_FORTUNE_DRAW_PRICE_CENTS
+  ) {
+    throw new TypeError('drawPriceCents must be a positive safe integer');
+  }
+  const paidDependencies = [
+    fortunePurchaseStore,
+    userStore,
+    accountStore,
+    runInTransaction,
+  ];
+  if (
+    paidDependencies.some((dependency) => dependency !== null)
+    && (
+      !fortunePurchaseStore
+      || !userStore
+      || !accountStore
+      || typeof runInTransaction !== 'function'
+      || typeof accountStore.debitBalanceCentsForFortune !== 'function'
+    )
+  ) {
+    throw new TypeError('Paid Fortune service dependencies are required');
   }
   if (
     interpretationClient !== null
@@ -284,6 +356,47 @@ function createFortuneService({
     .map((lot) => cloneLot(lot));
   const interpretationRequestsBySessionId = new Map();
   const interpretationAudioRequestsBySessionId = new Map();
+
+  function selectEnabledLot() {
+    const selectedIndex = randomInt(enabledLots.length);
+    if (
+      !Number.isSafeInteger(selectedIndex)
+      || selectedIndex < 0
+      || selectedIndex >= enabledLots.length
+    ) {
+      throw new RangeError(
+        'fortune randomInt returned an invalid index'
+      );
+    }
+    return cloneLot(enabledLots[selectedIndex]);
+  }
+
+  function buildDrawnSession({
+    deityKey,
+    characterKey,
+    situationText,
+    ownerType,
+    ownerId,
+  }) {
+    const drawnAt = new Date(clock()).toISOString();
+    return {
+      id: idGenerator(),
+      status: 'drawn',
+      deityKey,
+      characterKey,
+      situationText,
+      catalogVersion,
+      lotSnapshot: selectEnabledLot(),
+      ownerType,
+      ownerId,
+      createdAt: drawnAt,
+      drawnAt,
+      interpretationStatus: 'not_requested',
+      interpretation: null,
+      interpretationAudioStatus: 'not_requested',
+      interpretationAudio: null,
+    };
+  }
 
   function createDrawnSession({
     deityKey,
@@ -322,45 +435,394 @@ function createFortuneService({
       throw new TypeError('fortune owner is invalid');
     }
 
-    const selectedIndex = randomInt(enabledLots.length);
-    if (
-      !Number.isSafeInteger(selectedIndex)
-      || selectedIndex < 0
-      || selectedIndex >= enabledLots.length
-    ) {
-      throw new RangeError(
-        'fortune randomInt returned an invalid index'
-      );
-    }
-
-    const drawnAt = new Date(clock()).toISOString();
-    const session = {
-      id: idGenerator(),
-      status: 'drawn',
+    const session = buildDrawnSession({
       deityKey,
+      characterKey: deityKey,
       situationText: normalizedSituationText,
-      catalogVersion,
-      lotSnapshot: cloneLot(enabledLots[selectedIndex]),
       ownerType,
       ownerId,
-      createdAt: drawnAt,
-      drawnAt,
+    });
+    fortuneSessionStore.save(session);
+    return buildPublicFortuneSession(session);
+  }
+
+  function validatePaidDrawRequest({
+    userId,
+    clientRequestId,
+    characterKey,
+    situationText,
+  }) {
+    if (typeof userId !== 'string' || userId === '') {
+      throw createFortuneServiceError(
+        401,
+        'USER_LOGIN_REQUIRED',
+        'Phone login is required for Fortune drawing'
+      );
+    }
+    if (
+      typeof clientRequestId !== 'string'
+      || !CLIENT_REQUEST_ID_PATTERN.test(clientRequestId)
+    ) {
+      throw createFortuneServiceError(
+        400,
+        'INVALID_CLIENT_REQUEST_ID',
+        'A valid clientRequestId is required'
+      );
+    }
+    if (
+      typeof characterKey !== 'string'
+      || !ALLOWED_CHARACTER_KEYS.has(characterKey)
+    ) {
+      throw createFortuneServiceError(
+        400,
+        'INVALID_FORTUNE_REQUEST',
+        'A valid characterKey is required'
+      );
+    }
+    if (typeof situationText !== 'string') {
+      throw createFortuneServiceError(
+        400,
+        'INVALID_FORTUNE_REQUEST',
+        'situationText must be a string'
+      );
+    }
+    const normalizedSituationText = situationText.trim();
+    if (
+      normalizedSituationText === ''
+      || normalizedSituationText.length > MAX_SITUATION_TEXT_LENGTH
+    ) {
+      throw createFortuneServiceError(
+        400,
+        'INVALID_FORTUNE_REQUEST',
+        'situationText must contain 1 to 1000 characters'
+      );
+    }
+    return normalizedSituationText;
+  }
+
+  function buildPersistedSnapshot(session) {
+    return {
+      schemaVersion: 'paid-fortune-v1',
+      session: {
+        ...session,
+        situationText: RECOVERY_SITUATION_TEXT,
+        lotSnapshot: cloneLot(session.lotSnapshot),
+        interpretationStatus: 'not_requested',
+        interpretation: null,
+        interpretationAudioStatus: 'not_requested',
+        interpretationAudio: null,
+      },
+    };
+  }
+
+  function restoreSessionFromPurchase(purchase) {
+    let snapshot;
+    try {
+      snapshot = fortunePurchaseStore.getPublicSessionSnapshot(
+        purchase.fortuneSessionId
+      );
+    } catch {
+      throw createFortuneServiceError(
+        500,
+        'FORTUNE_CHARGE_FAILED',
+        'Stored Fortune Session could not be restored'
+      );
+    }
+    const session = snapshot && snapshot.session;
+    if (
+      !snapshot
+      || snapshot.schemaVersion !== 'paid-fortune-v1'
+      || !session
+      || typeof session !== 'object'
+      || Array.isArray(session)
+      || session.id !== purchase.fortuneSessionId
+      || session.ownerType !== 'user'
+      || session.ownerId !== purchase.userId
+      || session.characterKey !== purchase.characterKey
+      || session.catalogVersion !== purchase.catalogVersion
+      || session.status !== 'drawn'
+      || !session.lotSnapshot
+      || typeof session.lotSnapshot !== 'object'
+      || !Array.isArray(session.lotSnapshot.verseLines)
+    ) {
+      throw createFortuneServiceError(
+        500,
+        'FORTUNE_CHARGE_FAILED',
+        'Stored Fortune Session could not be restored'
+      );
+    }
+    return {
+      ...session,
+      lotSnapshot: cloneLot(session.lotSnapshot),
+      situationText: RECOVERY_SITUATION_TEXT,
       interpretationStatus: 'not_requested',
       interpretation: null,
       interpretationAudioStatus: 'not_requested',
       interpretationAudio: null,
     };
-    fortuneSessionStore.save(session);
-    return buildPublicFortuneSession(session);
   }
 
-  async function interpretSession(sessionId) {
+  function rememberSession(session) {
+    const existing = fortuneSessionStore.findById(session.id);
+    if (!existing) {
+      fortuneSessionStore.save(session);
+      return session;
+    }
     if (
-      typeof sessionId !== 'string'
+      existing.ownerType !== session.ownerType
+      || existing.ownerId !== session.ownerId
+    ) {
+      throw createFortuneServiceError(
+        500,
+        'FORTUNE_CHARGE_FAILED',
+        'Fortune Session could not be restored'
+      );
+    }
+    return existing;
+  }
+
+  function buildPaidDrawResult(purchase, session, alreadyProcessed) {
+    return {
+      fortuneSession: buildPublicFortuneSession(session),
+      charge: {
+        priceCents: purchase.priceCents,
+        currency: purchase.currency,
+        balanceBeforeCents: purchase.balanceBeforeCents,
+        balanceAfterCents: purchase.balanceAfterCents,
+        alreadyProcessed,
+      },
+    };
+  }
+
+  function createPaidFortuneSession({
+    userId,
+    clientRequestId,
+    characterKey,
+    situationText,
+  } = {}) {
+    if (!fortunePurchaseStore) {
+      throw createFortuneServiceError(
+        503,
+        'FORTUNE_CHARGE_FAILED',
+        'Paid Fortune drawing is temporarily unavailable'
+      );
+    }
+    const normalizedSituationText = validatePaidDrawRequest({
+      userId,
+      clientRequestId,
+      characterKey,
+      situationText,
+    });
+
+    let transactionResult;
+    runInTransaction(() => {
+      const existingPurchase =
+        fortunePurchaseStore.findByUserAndClientRequestId(
+          userId,
+          clientRequestId
+        );
+      if (existingPurchase) {
+        transactionResult = {
+          purchase: existingPurchase,
+          session: restoreSessionFromPurchase(existingPurchase),
+          alreadyProcessed: true,
+        };
+        return;
+      }
+
+      const user = userStore.findById(userId);
+      if (!user || user.status !== 'active') {
+        throw createFortuneServiceError(
+          401,
+          'USER_LOGIN_REQUIRED',
+          'Phone login is required for Fortune drawing'
+        );
+      }
+      const account = accountStore.findByUserId(userId);
+      if (
+        !account
+        || account.status !== 'active'
+        || account.currency !== 'CNY'
+      ) {
+        throw createFortuneServiceError(
+          409,
+          'ACCOUNT_UNAVAILABLE',
+          'User account is unavailable'
+        );
+      }
+      if (account.balanceCents < drawPriceCents) {
+        throw createFortuneServiceError(
+          409,
+          'INSUFFICIENT_ACCOUNT_BALANCE',
+          'Account balance is insufficient for this Fortune drawing',
+          {
+            priceCents: drawPriceCents,
+            balanceCents: account.balanceCents,
+            shortfallCents: drawPriceCents - account.balanceCents,
+          }
+        );
+      }
+
+      const session = buildDrawnSession({
+        deityKey: 'yuhuang',
+        characterKey,
+        situationText: normalizedSituationText,
+        ownerType: 'user',
+        ownerId: userId,
+      });
+      let fortuneSnapshotJson;
+      try {
+        fortuneSnapshotJson = snapshotSerializer(
+          buildPersistedSnapshot(session)
+        );
+      } catch {
+        throw createFortuneServiceError(
+          500,
+          'FORTUNE_CHARGE_FAILED',
+          'Fortune Session could not be persisted'
+        );
+      }
+      if (typeof fortuneSnapshotJson !== 'string' || fortuneSnapshotJson === '') {
+        throw createFortuneServiceError(
+          500,
+          'FORTUNE_CHARGE_FAILED',
+          'Fortune Session could not be persisted'
+        );
+      }
+
+      const chargedAt = session.drawnAt;
+      const balanceAfterCents = account.balanceCents - drawPriceCents;
+      const updatedRows = accountStore.debitBalanceCentsForFortune({
+        userId,
+        amountCents: drawPriceCents,
+        updatedAt: chargedAt,
+      });
+      if (updatedRows !== 1) {
+        throw createFortuneServiceError(
+          409,
+          'FORTUNE_CHARGE_FAILED',
+          'Fortune charge could not be completed'
+        );
+      }
+
+      const purchase = {
+        id: purchaseIdGenerator(),
+        userId,
+        accountId: account.userId,
+        clientRequestId,
+        fortuneSessionId: session.id,
+        characterKey,
+        catalogVersion,
+        fortuneSnapshotJson,
+        priceCents: drawPriceCents,
+        currency: 'CNY',
+        status: 'charged',
+        balanceBeforeCents: account.balanceCents,
+        balanceAfterCents,
+        createdAt: chargedAt,
+        chargedAt,
+      };
+      if (fortunePurchaseStore.createChargedPurchase(purchase) !== 1) {
+        throw createFortuneServiceError(
+          500,
+          'FORTUNE_CHARGE_FAILED',
+          'Fortune Session could not be persisted'
+        );
+      }
+      transactionResult = {
+        purchase,
+        session,
+        alreadyProcessed: false,
+      };
+    });
+
+    if (!transactionResult) {
+      throw createFortuneServiceError(
+        500,
+        'FORTUNE_CHARGE_FAILED',
+        'Fortune charge could not be completed'
+      );
+    }
+    const rememberedSession = rememberSession(transactionResult.session);
+    return buildPaidDrawResult(
+      transactionResult.purchase,
+      rememberedSession,
+      transactionResult.alreadyProcessed
+    );
+  }
+
+  function requireOwnedSession(userId, sessionId) {
+    const legacyLookup = sessionId === undefined;
+    const requestedSessionId = legacyLookup ? userId : sessionId;
+    const requestedUserId = legacyLookup ? null : userId;
+    let session = fortuneSessionStore.findById(requestedSessionId);
+    if (
+      session
+      && (
+        requestedUserId === null
+          ? session.ownerType !== 'user'
+          : session.ownerType === 'user'
+            && session.ownerId === requestedUserId
+      )
+    ) {
+      return session;
+    }
+    if (requestedUserId === null || !fortunePurchaseStore) {
+      throw createInterpretationError(
+        404,
+        'FORTUNE_SESSION_NOT_FOUND',
+        'Requested Fortune Session was not found'
+      );
+    }
+    const purchase = fortunePurchaseStore.findByFortuneSessionId(
+      requestedSessionId
+    );
+    if (!purchase || purchase.userId !== requestedUserId) {
+      throw createInterpretationError(
+        404,
+        'FORTUNE_SESSION_ACCESS_DENIED',
+        'Requested Fortune Session was not found'
+      );
+    }
+    session = rememberSession(restoreSessionFromPurchase(purchase));
+    return session;
+  }
+
+  function getPaidFortuneSession(userId, sessionId) {
+    if (
+      typeof userId !== 'string'
+      || userId === ''
+      || typeof sessionId !== 'string'
       || sessionId === ''
-      || sessionId.trim() !== sessionId
       || sessionId.length > 128
       || !/^[A-Za-z0-9_-]+$/.test(sessionId)
+    ) {
+      throw createFortuneServiceError(
+        404,
+        'FORTUNE_SESSION_NOT_FOUND',
+        'Requested Fortune Session was not found'
+      );
+    }
+    const purchase = fortunePurchaseStore.findByFortuneSessionId(sessionId);
+    if (!purchase || purchase.userId !== userId) {
+      throw createFortuneServiceError(
+        404,
+        'FORTUNE_SESSION_ACCESS_DENIED',
+        'Requested Fortune Session was not found'
+      );
+    }
+    const session = rememberSession(restoreSessionFromPurchase(purchase));
+    return buildPaidDrawResult(purchase, session, true);
+  }
+
+  async function interpretSession(userId, sessionId) {
+    const requestedSessionId = sessionId === undefined ? userId : sessionId;
+    if (
+      typeof requestedSessionId !== 'string'
+      || requestedSessionId === ''
+      || requestedSessionId.trim() !== requestedSessionId
+      || requestedSessionId.length > 128
+      || !/^[A-Za-z0-9_-]+$/.test(requestedSessionId)
     ) {
       throw createInterpretationError(
         400,
@@ -369,14 +831,7 @@ function createFortuneService({
       );
     }
 
-    let session = fortuneSessionStore.findById(sessionId);
-    if (!session) {
-      throw createInterpretationError(
-        404,
-        'FORTUNE_SESSION_NOT_FOUND',
-        'Requested Fortune Session was not found'
-      );
-    }
+    let session = requireOwnedSession(userId, sessionId);
     if (session.status !== 'drawn' || !session.lotSnapshot) {
       throw createInterpretationError(
         409,
@@ -392,7 +847,7 @@ function createFortuneService({
     }
 
     const existingRequest =
-      interpretationRequestsBySessionId.get(sessionId);
+      interpretationRequestsBySessionId.get(requestedSessionId);
     if (existingRequest) {
       return existingRequest;
     }
@@ -443,7 +898,7 @@ function createFortuneService({
         return buildPublicInterpretation(completedSession);
       } catch (error) {
         const currentSession =
-          fortuneSessionStore.findById(sessionId);
+          fortuneSessionStore.findById(requestedSessionId);
         if (
           currentSession
           && currentSession.interpretationStatus === 'generating'
@@ -477,7 +932,7 @@ function createFortuneService({
       }
     })();
     interpretationRequestsBySessionId.set(
-      sessionId,
+      requestedSessionId,
       generationPromise
     );
 
@@ -485,21 +940,22 @@ function createFortuneService({
       return await generationPromise;
     } finally {
       if (
-        interpretationRequestsBySessionId.get(sessionId)
+        interpretationRequestsBySessionId.get(requestedSessionId)
         === generationPromise
       ) {
-        interpretationRequestsBySessionId.delete(sessionId);
+        interpretationRequestsBySessionId.delete(requestedSessionId);
       }
     }
   }
 
-  async function synthesizeInterpretationAudio(sessionId) {
+  async function synthesizeInterpretationAudio(userId, sessionId) {
+    const requestedSessionId = sessionId === undefined ? userId : sessionId;
     if (
-      typeof sessionId !== 'string'
-      || sessionId === ''
-      || sessionId.trim() !== sessionId
-      || sessionId.length > 128
-      || !/^[A-Za-z0-9_-]+$/.test(sessionId)
+      typeof requestedSessionId !== 'string'
+      || requestedSessionId === ''
+      || requestedSessionId.trim() !== requestedSessionId
+      || requestedSessionId.length > 128
+      || !/^[A-Za-z0-9_-]+$/.test(requestedSessionId)
     ) {
       throw createInterpretationAudioError(
         400,
@@ -508,13 +964,24 @@ function createFortuneService({
       );
     }
 
-    let session = fortuneSessionStore.findById(sessionId);
-    if (!session) {
-      throw createInterpretationAudioError(
-        404,
-        'FORTUNE_SESSION_NOT_FOUND',
-        'Requested Fortune Session was not found'
-      );
+    let session;
+    try {
+      session = requireOwnedSession(userId, sessionId);
+    } catch (error) {
+      if (
+        error
+        && (
+          error.code === 'FORTUNE_SESSION_NOT_FOUND'
+          || error.code === 'FORTUNE_SESSION_ACCESS_DENIED'
+        )
+      ) {
+        throw createInterpretationAudioError(
+          404,
+          error.code,
+          'Requested Fortune Session was not found'
+        );
+      }
+      throw error;
     }
     if (
       session.interpretationStatus !== 'completed'
@@ -534,7 +1001,7 @@ function createFortuneService({
     }
 
     const existingRequest =
-      interpretationAudioRequestsBySessionId.get(sessionId);
+      interpretationAudioRequestsBySessionId.get(requestedSessionId);
     if (existingRequest) {
       const result = await existingRequest;
       return {
@@ -584,7 +1051,7 @@ function createFortuneService({
         return buildPublicInterpretationAudio(completedSession);
       } catch {
         const currentSession =
-          fortuneSessionStore.findById(sessionId);
+          fortuneSessionStore.findById(requestedSessionId);
         if (
           currentSession
           && currentSession.interpretationAudioStatus
@@ -604,7 +1071,7 @@ function createFortuneService({
       }
     })();
     interpretationAudioRequestsBySessionId.set(
-      sessionId,
+      requestedSessionId,
       generationPromise
     );
 
@@ -612,16 +1079,18 @@ function createFortuneService({
       return await generationPromise;
     } finally {
       if (
-        interpretationAudioRequestsBySessionId.get(sessionId)
+        interpretationAudioRequestsBySessionId.get(requestedSessionId)
         === generationPromise
       ) {
-        interpretationAudioRequestsBySessionId.delete(sessionId);
+        interpretationAudioRequestsBySessionId.delete(requestedSessionId);
       }
     }
   }
 
   return {
     createDrawnSession,
+    createPaidFortuneSession,
+    getPaidFortuneSession,
     interpretSession,
     synthesizeInterpretationAudio,
   };
@@ -636,4 +1105,5 @@ module.exports = {
   createFortuneService,
   validateCatalog,
   validateInterpretationCandidate,
+  RECOVERY_SITUATION_TEXT,
 };

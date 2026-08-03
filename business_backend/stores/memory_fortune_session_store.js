@@ -37,6 +37,7 @@ function serializeIdentity(session) {
     deityKey: session.deityKey,
     situationText: session.situationText,
     catalogVersion: session.catalogVersion,
+    characterKey: session.characterKey,
     lotSnapshot: session.lotSnapshot,
     ownerType: session.ownerType,
     ownerId: session.ownerId,

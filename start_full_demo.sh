@@ -244,6 +244,9 @@ try {
   const {
     parsePaymentRuntimeConfig,
   } = require('./business_backend/config/payments');
+  const {
+    readFortunePricingConfig,
+  } = require('./business_backend/config/fortune_pricing_config');
 
   createInternalCallLifecycleClientFromEnv({
     env: process.env,
@@ -265,6 +268,7 @@ try {
     },
   });
   parsePaymentRuntimeConfig(process.env);
+  readFortunePricingConfig(process.env);
 } catch (error) {
   const message = error instanceof Error
     ? error.message
@@ -377,6 +381,7 @@ fi
 
 PAYMENT_PROVIDER_MODE="${PAYMENT_PROVIDER_MODE:-mock}"
 PAYMENT_MOCK_CONFIRMATION_ENABLED="${PAYMENT_MOCK_CONFIRMATION_ENABLED:-1}"
+FORTUNE_DRAW_PRICE_CENTS="${FORTUNE_DRAW_PRICE_CENTS:-200}"
 if [[ "$PAYMENT_PROVIDER_MODE" != "disabled" \
   && "$PAYMENT_PROVIDER_MODE" != "mock" \
   && "$PAYMENT_PROVIDER_MODE" != "live" ]]; then
@@ -396,6 +401,7 @@ if [[ "${NODE_ENV-}" == "production" \
 fi
 export PAYMENT_PROVIDER_MODE
 export PAYMENT_MOCK_CONFIRMATION_ENABLED
+export FORTUNE_DRAW_PRICE_CENTS
 
 configure_voice_service_credentials
 require_sensitive_env \
@@ -472,6 +478,9 @@ fi
 
 printf '手机端入口：http://127.0.0.1:8765/\n'
 printf '支付模式：Mock（不会产生真实扣款）\n'
+printf '求签价格：¥%d.%02d / 次\n' \
+  "$((FORTUNE_DRAW_PRICE_CENTS / 100))" \
+  "$((FORTUNE_DRAW_PRICE_CENTS % 100))"
 printf 'Realtime Relay：http://127.0.0.1:3001/\n'
 printf '求签 ASR：ws://127.0.0.1:3001/fortune-asr\n'
 

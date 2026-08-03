@@ -63,6 +63,7 @@ class SQLiteAccountStore {
   #insertStatement;
   #replaceStatement;
   #creditForPaymentStatement;
+  #debitForFortuneStatement;
 
   constructor(database) {
     if (!database || typeof database.prepare !== 'function') {
@@ -111,6 +112,15 @@ class SQLiteAccountStore {
         AND currency = 'CNY'
         AND status = 'active'
         AND balance_cents = ?
+    `);
+    this.#debitForFortuneStatement = database.prepare(`
+      UPDATE accounts
+      SET balance_cents = balance_cents - ?, updated_at = ?
+      WHERE
+        user_id = ?
+        AND currency = 'CNY'
+        AND status = 'active'
+        AND balance_cents >= ?
     `);
   }
 
@@ -191,6 +201,18 @@ class SQLiteAccountStore {
       updatedAt,
       userId,
       balanceBeforeCents
+    ).changes;
+  }
+
+  debitBalanceCentsForFortune({ userId, amountCents, updatedAt }) {
+    if (!Number.isSafeInteger(amountCents) || amountCents < 1) {
+      throw new TypeError('Fortune debit amount must be a positive integer');
+    }
+    return this.#debitForFortuneStatement.run(
+      amountCents,
+      updatedAt,
+      userId,
+      amountCents
     ).changes;
   }
 }

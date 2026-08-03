@@ -38,6 +38,7 @@ const EXPECTED_ENVIRONMENT_NAMES = Object.freeze([
   'FORTUNE_TEXT_MODEL_TIMEOUT_MS',
   'FORTUNE_TTS_RESOURCE_ID',
   'FORTUNE_TTS_SPEAKER_ID',
+  'FORTUNE_DRAW_PRICE_CENTS',
   'PAYMENT_PROVIDER_MODE',
   'PAYMENT_MOCK_CONFIRMATION_ENABLED',
 ]);
@@ -84,6 +85,7 @@ function buildEnvironment(overrides = {}) {
     'FORTUNE_TTS_API_KEY',
     'FORTUNE_TTS_RESOURCE_ID',
     'FORTUNE_TTS_SPEAKER_ID',
+    'FORTUNE_DRAW_PRICE_CENTS',
     'PAYMENT_PROVIDER_MODE',
     'PAYMENT_MOCK_CONFIRMATION_ENABLED',
     'MOCK_BACKEND_MODE',
@@ -277,6 +279,7 @@ ${scriptCommand}`;
     FORTUNE_TEXT_MODEL_TIMEOUT_MS: DEFAULT_FORTUNE_TIMEOUT_MS,
     PAYMENT_PROVIDER_MODE: 'mock',
     PAYMENT_MOCK_CONFIRMATION_ENABLED: '1',
+    FORTUNE_DRAW_PRICE_CENTS: '200',
     ...expectedEnvironment,
   };
   for (const [name, value] of Object.entries(
@@ -455,6 +458,12 @@ async function main() {
     /PAYMENT_MOCK_CONFIRMATION_ENABLED="\$\{PAYMENT_MOCK_CONFIRMATION_ENABLED:-1\}"/
   );
   assert.match(source, /生产环境禁止启用 Mock 支付/);
+  assert.match(
+    source,
+    /FORTUNE_DRAW_PRICE_CENTS="\$\{FORTUNE_DRAW_PRICE_CENTS:-200\}"/
+  );
+  assert.match(source, /^export FORTUNE_DRAW_PRICE_CENTS$/m);
+  assert.match(source, /求签价格：¥%d\.%02d \/ 次/);
 
   let requestedUrl = null;
   const client = createInternalCallLifecycleClient({

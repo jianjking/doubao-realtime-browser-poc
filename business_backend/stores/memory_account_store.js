@@ -78,6 +78,27 @@ class MemoryAccountStore {
     }
     this.#accountsByUserId.set(account.userId, { ...account });
   }
+
+  debitBalanceCentsForFortune({ userId, amountCents, updatedAt }) {
+    if (!Number.isSafeInteger(amountCents) || amountCents < 1) {
+      throw new TypeError('Fortune debit amount must be a positive integer');
+    }
+    const account = this.#accountsByUserId.get(userId);
+    if (
+      !account
+      || account.status !== 'active'
+      || account.currency !== 'CNY'
+      || account.balanceCents < amountCents
+    ) {
+      return 0;
+    }
+    this.#accountsByUserId.set(userId, {
+      ...account,
+      balanceCents: account.balanceCents - amountCents,
+      updatedAt,
+    });
+    return 1;
+  }
 }
 
 module.exports = {

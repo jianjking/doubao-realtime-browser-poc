@@ -7,6 +7,8 @@
   const DRAW_REVEAL_DURATION_MS = 1250;
   const REDUCED_DRAW_DURATION_MS = 120;
   const FORTUNE_SESSION_API_URL = '/api/fortune-sessions';
+  const FORTUNE_CONFIG_API_URL = '/api/fortune-config';
+  const ACCOUNT_API_URL = '/api/me';
   const FORTUNE_DEITY_KEY = 'yuhuang';
   const DEFAULT_FORTUNE_CHARACTER_KEY = 'guanyin';
   const FORTUNE_CHARACTER_KEYS = new Set([
@@ -46,6 +48,7 @@
     OFFERING_WISH: 'offering-wish',
     DRAW_READY: 'draw-ready',
     DRAWING_LOT: 'drawing-lot',
+    INSUFFICIENT_BALANCE: 'insufficient-balance',
     LOT_DRAWN: 'lot-drawn',
     LOT_ERROR: 'lot-error',
     INTERPRETING_LOT: 'interpreting-lot',
@@ -141,6 +144,29 @@
   const interpretationAudioControl = document.querySelector(
     '[data-interpretation-audio-control]'
   );
+  const fortunePrice = document.querySelector('[data-fortune-price]');
+  const fortuneBalance = document.querySelector('[data-fortune-balance]');
+  const fortuneErrorTitle = document.querySelector(
+    '[data-fortune-error-title]'
+  );
+  const fortuneErrorMessage = document.querySelector(
+    '[data-fortune-error-message]'
+  );
+  const fortuneRechargeButton = document.querySelector(
+    '[data-fortune-recharge]'
+  );
+  const fortuneChargeSuccess = document.querySelector(
+    '[data-fortune-charge-success]'
+  );
+  const fortuneLoginOverlay = document.querySelector(
+    '#fortune-login-overlay'
+  );
+  const loginForFortuneButton = document.querySelector(
+    '[data-login-for-fortune]'
+  );
+  const closeFortuneLoginButton = document.querySelector(
+    '[data-close-fortune-login]'
+  );
 
   if (
     !page
@@ -211,6 +237,203 @@
   let fortuneSceneSwipePointerId = null;
   let fortuneSceneSwipeStartX = 0;
   let fortuneSceneSwipeStartY = 0;
+  const paidUiEnabled = Boolean(fortunePrice && fortuneBalance);
+  let drawPriceCents = null;
+  let accountBalanceCents = null;
+  let accountAccessState = 'loading';
+  let paidInitializationPromise = null;
+  let activeFortuneClientRequestId = '';
+  let currentCharge = null;
+
+  function formatCny(cents) {
+    if (!Number.isSafeInteger(cents)) {
+      return '--';
+    }
+    const absoluteCents = Math.abs(cents);
+    const yuan = Math.floor(absoluteCents / 100);
+    const remainder = String(absoluteCents % 100).padStart(2, '0');
+    return `${cents < 0 ? '-' : ''}¥${yuan}.${remainder}`;
+  }
+
+  function renderPaidSummary() {
+    if (!paidUiEnabled) {
+      return;
+    }
+    fortunePrice.textContent = Number.isSafeInteger(drawPriceCents)
+      ? formatCny(drawPriceCents)
+      : '加载中';
+    fortuneBalance.textContent = accountAccessState === 'authenticated'
+      && Number.isSafeInteger(accountBalanceCents)
+      ? formatCny(accountBalanceCents)
+      : accountAccessState === 'error'
+        ? '加载失败'
+        : '--';
+  }
+
+  async function readJson(response) {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadFortunePrice() {
+    const response = await window.fetch(FORTUNE_CONFIG_API_URL, {
+      headers: { Accept: 'application/json' },
+    });
+    const body = await readJson(response);
+    if (
+      !response.ok
+      || !body
+      || !Number.isSafeInteger(body.drawPriceCents)
+      || body.drawPriceCents < 1
+      || body.currency !== 'CNY'
+      || body.chargeTiming !== 'fortune_session_created'
+    ) {
+      throw new Error('Fortune pricing is unavailable');
+    }
+    drawPriceCents = body.drawPriceCents;
+    renderPaidSummary();
+    return true;
+  }
+
+  async function refreshFortuneAccount() {
+    const response = await window.fetch(ACCOUNT_API_URL, {
+      headers: { Accept: 'application/json' },
+    });
+    const body = await readJson(response);
+    if (response.status === 401 || response.status === 403) {
+      accountAccessState = 'guest';
+      accountBalanceCents = null;
+      renderPaidSummary();
+      return false;
+    }
+    if (
+      response.ok
+      && body
+      && body.principal
+      && body.principal.type === 'guest'
+    ) {
+      accountAccessState = 'guest';
+      accountBalanceCents = null;
+      renderPaidSummary();
+      return false;
+    }
+    if (
+      !response.ok
+      || !body
+      || !body.principal
+      || body.principal.type !== 'user'
+      || !body.account
+      || body.account.currency !== 'CNY'
+      || !Number.isSafeInteger(body.account.balanceCents)
+    ) {
+      accountAccessState = 'error';
+      renderPaidSummary();
+      return false;
+    }
+    accountAccessState = 'authenticated';
+    accountBalanceCents = body.account.balanceCents;
+    renderPaidSummary();
+    return true;
+  }
+
+  function publishAccountBalance(balanceCents) {
+    if (
+      !Number.isSafeInteger(balanceCents)
+      || typeof window.dispatchEvent !== 'function'
+      || typeof window.CustomEvent !== 'function'
+    ) {
+      return;
+    }
+    window.dispatchEvent(new window.CustomEvent(
+      'companion:account-balance-updated',
+      {
+        detail: {
+          currency: 'CNY',
+          balanceCents,
+        },
+      }
+    ));
+  }
+
+  function createClientRequestId() {
+    if (
+      window.crypto
+      && typeof window.crypto.randomUUID === 'function'
+    ) {
+      return window.crypto.randomUUID();
+    }
+    if (
+      window.crypto
+      && typeof window.crypto.getRandomValues === 'function'
+    ) {
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(
+        bytes,
+        (byte) => byte.toString(16).padStart(2, '0')
+      ).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-`
+        + `${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+    throw new Error('Secure random values are unavailable');
+  }
+
+  function replaceFortuneUrlState({ requestId = '', sessionId = '' }) {
+    if (
+      !window.location
+      || typeof window.location.href !== 'string'
+      || !window.history
+      || typeof window.history.replaceState !== 'function'
+    ) {
+      return;
+    }
+    const nextUrl = new URL(window.location.href);
+    if (requestId) {
+      nextUrl.searchParams.set('fortuneRequestId', requestId);
+    } else {
+      nextUrl.searchParams.delete('fortuneRequestId');
+    }
+    if (sessionId) {
+      nextUrl.searchParams.set('fortuneSessionId', sessionId);
+    } else {
+      nextUrl.searchParams.delete('fortuneSessionId');
+    }
+    window.history.replaceState(null, '', nextUrl.href);
+  }
+
+  function openFortuneLoginGate() {
+    if (!fortuneLoginOverlay) {
+      return;
+    }
+    fortuneLoginOverlay.hidden = false;
+    fortuneLoginOverlay.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeFortuneLoginGate() {
+    if (!fortuneLoginOverlay) {
+      return;
+    }
+    fortuneLoginOverlay.hidden = true;
+    fortuneLoginOverlay.setAttribute('aria-hidden', 'true');
+  }
+
+  function openFortuneRecharge() {
+    const rechargeEntry = document.querySelector('.time-recharge-entry');
+    if (
+      rechargeEntry
+      && typeof rechargeEntry.dispatchEvent === 'function'
+      && typeof window.Event === 'function'
+    ) {
+      rechargeEntry.dispatchEvent(new window.Event('click', {
+        bubbles: true,
+      }));
+    }
+  }
 
   function resolveRequestedCharacterKey() {
     const searchParams = new URLSearchParams(window.location.search);
@@ -799,6 +1022,12 @@
     fortuneError.hidden = true;
     fortuneResult.hidden = true;
     retryFortuneButton.disabled = true;
+    if (fortuneRechargeButton) {
+      fortuneRechargeButton.hidden = true;
+    }
+    if (fortuneChargeSuccess) {
+      fortuneChargeSuccess.hidden = true;
+    }
     interpretFortuneButton.hidden = true;
     interpretFortuneButton.disabled = true;
     interpretFortuneButton.textContent = '请道童解签';
@@ -930,6 +1159,42 @@
       wishPaper.setAttribute('aria-hidden', 'true');
       fortuneError.hidden = false;
       retryFortuneButton.disabled = false;
+      retryFortuneButton.textContent = '再次请签';
+      if (fortuneErrorTitle) {
+        fortuneErrorTitle.textContent = '求签未成';
+      }
+      if (fortuneErrorMessage) {
+        fortuneErrorMessage.textContent =
+          '暂时未能求得签文，请稍后再试。';
+      }
+      return;
+    }
+
+    if (interactionState === INTERACTION_STATES.INSUFFICIENT_BALANCE) {
+      page.classList.add('has-offered-wish');
+      fortuneError.hidden = false;
+      retryFortuneButton.disabled = !(
+        transcriptIsFinal
+        && currentTranscript.trim() !== ''
+        && activeFortuneClientRequestId !== ''
+      );
+      retryFortuneButton.textContent = '充值后继续求签';
+      if (fortuneRechargeButton) {
+        fortuneRechargeButton.hidden = false;
+      }
+      if (fortuneErrorTitle) {
+        fortuneErrorTitle.textContent = '当前话费不足';
+      }
+      if (
+        fortuneErrorMessage
+        && Number.isSafeInteger(drawPriceCents)
+        && Number.isSafeInteger(accountBalanceCents)
+      ) {
+        fortuneErrorMessage.textContent =
+          `本次求签需要 ${formatCny(drawPriceCents)}，`
+          + `当前话费 ${formatCny(accountBalanceCents)}，`
+          + `还差 ${formatCny(drawPriceCents - accountBalanceCents)}。`;
+      }
       return;
     }
 
@@ -949,6 +1214,12 @@
       lotTitle.textContent = publicFortuneSession.lot.title;
       lotVerses.textContent =
         publicFortuneSession.lot.verseLines.join('\n');
+      if (fortuneChargeSuccess && currentCharge) {
+        fortuneChargeSuccess.textContent =
+          `本次已扣 ${formatCny(currentCharge.priceCents)}，`
+          + `当前话费 ${formatCny(currentCharge.balanceAfterCents)}。`;
+        fortuneChargeSuccess.hidden = false;
+      }
       if (interactionState === INTERACTION_STATES.LOT_DRAWN) {
         interpretFortuneButton.hidden = false;
         interpretFortuneButton.disabled = false;
@@ -1028,6 +1299,127 @@
       && typeof value.createdAt === 'string'
       && typeof value.drawnAt === 'string'
     );
+  }
+
+  function isPublicCharge(value) {
+    return Boolean(
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && Number.isSafeInteger(value.priceCents)
+      && value.priceCents > 0
+      && value.currency === 'CNY'
+      && Number.isSafeInteger(value.balanceBeforeCents)
+      && Number.isSafeInteger(value.balanceAfterCents)
+      && value.balanceAfterCents
+        === value.balanceBeforeCents - value.priceCents
+      && typeof value.alreadyProcessed === 'boolean'
+    );
+  }
+
+  function readSessionIdFromUrl() {
+    if (!window.location || typeof window.location.search !== 'string') {
+      return '';
+    }
+    const value = new URLSearchParams(window.location.search).get(
+      'fortuneSessionId'
+    );
+    return typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value)
+      ? value
+      : '';
+  }
+
+  function restoreClientRequestIdFromUrl() {
+    if (!window.location || typeof window.location.search !== 'string') {
+      return;
+    }
+    const value = new URLSearchParams(window.location.search).get(
+      'fortuneRequestId'
+    );
+    if (
+      typeof value === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ) {
+      activeFortuneClientRequestId = value;
+    }
+  }
+
+  async function restorePaidFortuneFromUrl() {
+    const sessionId = readSessionIdFromUrl();
+    if (sessionId === '' || accountAccessState !== 'authenticated') {
+      return false;
+    }
+    const response = await window.fetch(
+      `${FORTUNE_SESSION_API_URL}/${encodeURIComponent(sessionId)}`,
+      { headers: { Accept: 'application/json' } }
+    );
+    const body = await readJson(response);
+    if (
+      !response.ok
+      || !body
+      || !isPublicFortuneSession(body.fortuneSession)
+      || !isPublicCharge(body.charge)
+    ) {
+      return false;
+    }
+    publicFortuneSession = body.fortuneSession;
+    currentCharge = body.charge;
+    accountAccessState = 'authenticated';
+    interactionState = INTERACTION_STATES.LOT_DRAWN;
+    renderPaidSummary();
+    renderSpeechState();
+    return true;
+  }
+
+  function initializePaidFortuneState() {
+    if (!paidUiEnabled) {
+      accountAccessState = 'authenticated';
+      return Promise.resolve(true);
+    }
+    if (paidInitializationPromise) {
+      return paidInitializationPromise;
+    }
+    restoreClientRequestIdFromUrl();
+    paidInitializationPromise = Promise.all([
+      loadFortunePrice(),
+      refreshFortuneAccount(),
+    ]).then(async () => {
+      await restorePaidFortuneFromUrl();
+      return accountAccessState === 'authenticated';
+    }).catch(() => {
+      if (!Number.isSafeInteger(drawPriceCents)) {
+        drawPriceCents = null;
+      }
+      if (accountAccessState === 'loading') {
+        accountAccessState = 'error';
+      }
+      renderPaidSummary();
+      return false;
+    });
+    return paidInitializationPromise;
+  }
+
+  async function ensurePaidFortuneAccess() {
+    await initializePaidFortuneState();
+    if (accountAccessState === 'guest') {
+      openFortuneLoginGate();
+      speechMessage.textContent = '请先登录后求签。';
+      return false;
+    }
+    if (
+      accountAccessState !== 'authenticated'
+      || !Number.isSafeInteger(drawPriceCents)
+      || !Number.isSafeInteger(accountBalanceCents)
+    ) {
+      speechMessage.textContent = '暂时无法确认当前话费，请稍后重试。';
+      return false;
+    }
+    if (accountBalanceCents < drawPriceCents) {
+      interactionState = INTERACTION_STATES.INSUFFICIENT_BALANCE;
+      renderSpeechState();
+      return false;
+    }
+    return true;
   }
 
   function isPublicInterpretationResponse(value, sessionId) {
@@ -1365,6 +1757,15 @@
       return false;
     }
 
+    if (activeFortuneClientRequestId === '') {
+      activeFortuneClientRequestId = paidUiEnabled
+        ? createClientRequestId()
+        : '00000000-0000-4000-8000-000000000001';
+      replaceFortuneUrlState({
+        requestId: activeFortuneClientRequestId,
+      });
+    }
+    currentCharge = null;
     closeActiveAsrSession();
     resetWishPaper();
     finishRequested = false;
@@ -1555,7 +1956,15 @@
       || interactionState === INTERACTION_STATES.MICROPHONE_ERROR
       || interactionState === INTERACTION_STATES.ASR_ERROR
     ) {
-      startSpeakingSession();
+      if (!paidUiEnabled) {
+        startSpeakingSession();
+        return;
+      }
+      void ensurePaidFortuneAccess().then((hasAccess) => {
+        if (hasAccess) {
+          startSpeakingSession();
+        }
+      });
       return;
     }
 
@@ -1649,9 +2058,11 @@
       (
         interactionState !== INTERACTION_STATES.DRAW_READY
         && interactionState !== INTERACTION_STATES.LOT_ERROR
+        && interactionState !== INTERACTION_STATES.INSUFFICIENT_BALANCE
       )
       || !transcriptIsFinal
       || currentTranscript.trim() === ''
+      || activeFortuneClientRequestId === ''
       || fortuneRequestController !== null
     ) {
       return;
@@ -1675,18 +2086,25 @@
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          deityKey: FORTUNE_DEITY_KEY,
+          clientRequestId: activeFortuneClientRequestId,
+          characterKey: resolveRequestedCharacterKey(),
           situationText: currentTranscript.trim(),
         }),
         signal: fortuneRequestController.signal,
       });
       const responseBody = await response.json();
+      if (!response.ok) {
+        const requestError = new Error('Fortune Session request failed');
+        requestError.responseStatus = response.status;
+        requestError.responseBody = responseBody;
+        throw requestError;
+      }
       if (
-        !response.ok
-        || !responseBody
+        !responseBody
         || !isPublicFortuneSession(responseBody.fortuneSession)
+        || !isPublicCharge(responseBody.charge)
       ) {
-        throw new Error('Fortune Session request failed');
+        throw new Error('Fortune Session response was invalid');
       }
       if (
         !pageIsActive
@@ -1697,6 +2115,17 @@
       }
 
       publicFortuneSession = responseBody.fortuneSession;
+      currentCharge = responseBody.charge;
+      accountBalanceCents = responseBody.charge.balanceAfterCents;
+      accountAccessState = 'authenticated';
+      renderPaidSummary();
+      publishAccountBalance(accountBalanceCents);
+      replaceFortuneUrlState({
+        sessionId: publicFortuneSession.id,
+      });
+      if (paidUiEnabled) {
+        void refreshFortuneAccount();
+      }
       if (drawShakeComplete) {
         startFortuneReveal(requestGeneration);
       }
@@ -1706,6 +2135,41 @@
         || requestGeneration !== fortuneRequestGeneration
         || interactionState !== INTERACTION_STATES.DRAWING_LOT
       ) {
+        return;
+      }
+      const errorCode = error
+        && error.responseBody
+        && error.responseBody.error
+        && error.responseBody.error.code;
+      if (errorCode === 'USER_LOGIN_REQUIRED') {
+        clearDrawAnimation();
+        accountAccessState = 'guest';
+        renderPaidSummary();
+        interactionState = INTERACTION_STATES.DRAW_READY;
+        renderSpeechState();
+        openFortuneLoginGate();
+        return;
+      }
+      if (errorCode === 'INSUFFICIENT_ACCOUNT_BALANCE') {
+        const details = error.responseBody.error;
+        if (
+          Number.isSafeInteger(details.priceCents)
+          && Number.isSafeInteger(details.balanceCents)
+          && Number.isSafeInteger(details.shortfallCents)
+          && details.shortfallCents
+            === details.priceCents - details.balanceCents
+        ) {
+          drawPriceCents = details.priceCents;
+          accountBalanceCents = details.balanceCents;
+          accountAccessState = 'authenticated';
+          renderPaidSummary();
+        }
+        clearDrawAnimation();
+        interactionState = INTERACTION_STATES.INSUFFICIENT_BALANCE;
+        renderSpeechState();
+        if (typeof fortuneError.focus === 'function') {
+          fortuneError.focus();
+        }
         return;
       }
       clearDrawAnimation();
@@ -1829,6 +2293,49 @@
     }
   }
 
+  async function handleAccountBalanceUpdated(event) {
+    if (!paidUiEnabled) {
+      return;
+    }
+    const detail = event && event.detail;
+    if (
+      detail
+      && detail.currency === 'CNY'
+      && Number.isSafeInteger(detail.balanceCents)
+    ) {
+      accountAccessState = 'authenticated';
+      accountBalanceCents = detail.balanceCents;
+      renderPaidSummary();
+    } else {
+      await refreshFortuneAccount();
+    }
+    if (
+      interactionState === INTERACTION_STATES.INSUFFICIENT_BALANCE
+      && Number.isSafeInteger(drawPriceCents)
+      && Number.isSafeInteger(accountBalanceCents)
+      && accountBalanceCents >= drawPriceCents
+    ) {
+      if (
+        transcriptIsFinal
+        && currentTranscript.trim() !== ''
+        && activeFortuneClientRequestId !== ''
+      ) {
+        void handleFortuneDraw();
+      } else {
+        interactionState = INTERACTION_STATES.READY_TO_SPEAK;
+        renderSpeechState();
+      }
+    }
+  }
+
+  function navigateToFortuneLogin() {
+    const characterKey = resolveRequestedCharacterKey();
+    window.location.assign(
+      './index.html?mode=phone&returnAction=fortune'
+        + `&characterKey=${encodeURIComponent(characterKey)}`
+    );
+  }
+
   page.addEventListener(
     'pointerdown',
     handleFortuneSceneSwipePointerDown
@@ -1851,6 +2358,18 @@
     handleSpeakControlClick
   );
   retryFortuneButton.addEventListener('click', handleFortuneDraw);
+  if (fortuneRechargeButton) {
+    fortuneRechargeButton.addEventListener('click', openFortuneRecharge);
+  }
+  if (loginForFortuneButton) {
+    loginForFortuneButton.addEventListener('click', navigateToFortuneLogin);
+  }
+  if (closeFortuneLoginButton) {
+    closeFortuneLoginButton.addEventListener(
+      'click',
+      closeFortuneLoginGate
+    );
+  }
   interpretFortuneButton.addEventListener(
     'click',
     handleFortuneInterpretation
@@ -1869,6 +2388,12 @@
     '点击下方“开始说话”，说完后再点击“结束说话”。';
   resetWishPaper();
   renderSpeechState();
+  renderPaidSummary();
+  void initializePaidFortuneState();
+  window.addEventListener(
+    'companion:account-balance-updated',
+    handleAccountBalanceUpdated
+  );
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
   window.addEventListener('pageshow', handlePageShow);

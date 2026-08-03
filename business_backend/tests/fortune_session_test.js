@@ -130,6 +130,25 @@ function extractCookie(response) {
   return response.headers['set-cookie'][0].split(';', 1)[0];
 }
 
+async function loginUser(port, {
+  phone = '13800138000',
+  code = '123456',
+} = {}) {
+  const body = JSON.stringify({ phone, code });
+  const response = await request({
+    port,
+    path: '/api/auth/login',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    },
+    body,
+  });
+  assert.equal(response.statusCode, 200);
+  return extractCookie(response);
+}
+
 test('prototype fortune catalog has a valid immutable shape', () => {
   assert.equal(FORTUNE_CATALOG_VERSION, 'prototype-v1');
   assert.equal(Object.isFrozen(FORTUNE_LOTS), true);
@@ -242,26 +261,37 @@ test('draw stores an immutable snapshot and public copies', () => {
 test('fortune request validation rejects invalid input', async () => {
   const { port, server } = await startApp();
   try {
+    const userCookie = await loginUser(port);
+    const clientRequestId = '11111111-1111-4111-8111-111111111111';
     const invalidBodies = [
-      {},
-      { deityKey: 'yuhuang', situationText: '' },
-      { deityKey: 'yuhuang', situationText: ' '.repeat(5) },
-      { deityKey: 'yuhuang', situationText: '愿'.repeat(1001) },
-      { deityKey: 'yuhuang', situationText: null },
-      { deityKey: 'yuhuang', situationText: [] },
-      { deityKey: 'yuhuang', situationText: {} },
-      { deityKey: '../yuhuang', situationText: '愿平安' },
-      { deityKey: '<b>玉皇</b>', situationText: '愿平安' },
-      { deityKey: 'guanyin', situationText: '愿平安' },
+      { clientRequestId, characterKey: 'guanyin', situationText: '' },
+      { clientRequestId, characterKey: 'guanyin', situationText: ' '.repeat(5) },
+      { clientRequestId, characterKey: 'guanyin', situationText: '愿'.repeat(1001) },
+      { clientRequestId, characterKey: 'guanyin', situationText: null },
+      { clientRequestId, characterKey: 'guanyin', situationText: [] },
+      { clientRequestId, characterKey: 'guanyin', situationText: {} },
+      { clientRequestId, characterKey: '../guanyin', situationText: '愿平安' },
+      { clientRequestId, characterKey: '<b>观音</b>', situationText: '愿平安' },
+      { clientRequestId, characterKey: 'unknown', situationText: '愿平安' },
+      { clientRequestId, characterKey: 'guanyin', situationText: '愿平安', priceCents: 1 },
     ];
     for (const body of invalidBodies) {
-      const response = await requestJson(port, body);
+      const response = await requestJson(port, body, userCookie);
       assert.equal(response.statusCode, 400);
       assert.equal(
         parseJson(response).error.code,
         'INVALID_FORTUNE_REQUEST'
       );
     }
+    const missingClientRequestId = await requestJson(port, {
+      characterKey: 'guanyin',
+      situationText: '愿平安',
+    }, userCookie);
+    assert.equal(missingClientRequestId.statusCode, 400);
+    assert.equal(
+      parseJson(missingClientRequestId).error.code,
+      'INVALID_CLIENT_REQUEST_ID'
+    );
 
     const malformed = await request({
       port,
@@ -269,6 +299,7 @@ test('fortune request validation rejects invalid input', async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Cookie: userCookie,
       },
       body: '{"deityKey":',
     });
@@ -282,25 +313,22 @@ test('fortune request validation rejects invalid input', async () => {
   }
 });
 
-test('anonymous request returns only the public fixed-lot projection', async () => {
+test('logged-in request returns only the paid public fixed-lot projection', async () => {
   const { port, server } = await startApp({
     clock: () => Date.parse('2026-07-28T06:00:00.000Z'),
     fortuneSessionIdGenerator: () => 'fortune-api',
     fortuneRandomInt: () => 1,
   });
   try {
+    const userCookie = await loginUser(port);
     const response = await requestJson(port, {
-      deityKey: 'yuhuang',
+      clientRequestId: '22222222-2222-4222-8222-222222222222',
+      characterKey: 'guanyin',
       situationText: '  愿家中安稳  ',
-      lotId: FORTUNE_LOTS[5].id,
-      lotNumber: 6,
-      level: '上吉',
-      status: 'changed',
-      userId: 'forged-user',
-    });
+    }, userCookie);
     assert.equal(response.statusCode, 201);
     const body = parseJson(response);
-    assert.deepEqual(Object.keys(body), ['fortuneSession']);
+    assert.deepEqual(Object.keys(body), ['fortuneSession', 'charge']);
     assert.equal(body.fortuneSession.id, 'fortune-api');
     assert.equal(body.fortuneSession.status, 'drawn');
     assert.equal(body.fortuneSession.deityKey, 'yuhuang');
@@ -313,12 +341,19 @@ test('anonymous request returns only the public fixed-lot projection', async () 
     assert.equal('ownerType' in body.fortuneSession, false);
     assert.equal('ownerId' in body.fortuneSession, false);
     assert.equal('randomIndex' in body.fortuneSession, false);
+    assert.deepEqual(body.charge, {
+      priceCents: 200,
+      currency: 'CNY',
+      balanceBeforeCents: 1250,
+      balanceAfterCents: 1050,
+      alreadyProcessed: false,
+    });
   } finally {
     await closeServer(server);
   }
 });
 
-test('guest and logged-in user can draw without Call or balance effects', async () => {
+test('guest is denied and logged-in user is charged exactly once', async () => {
   let nextFortuneId = 1;
   const { port, server } = await startApp({
     developmentVerificationCode: '654321',
@@ -335,10 +370,15 @@ test('guest and logged-in user can draw without Call or balance effects', async 
     });
     const guestDraw = await requestJson(
       port,
-      { deityKey: 'yuhuang', situationText: '愿心安' },
+      {
+        clientRequestId: '33333333-3333-4333-8333-333333333333',
+        characterKey: 'guanyin',
+        situationText: '愿心安',
+      },
       extractCookie(guestResponse)
     );
-    assert.equal(guestDraw.statusCode, 201);
+    assert.equal(guestDraw.statusCode, 401);
+    assert.equal(parseJson(guestDraw).error.code, 'USER_LOGIN_REQUIRED');
 
     const loginBody = JSON.stringify({
       phone: '13800138000',
@@ -363,7 +403,11 @@ test('guest and logged-in user can draw without Call or balance effects', async 
     });
     const userDraw = await requestJson(
       port,
-      { deityKey: 'yuhuang', situationText: '愿事顺遂' },
+      {
+        clientRequestId: '44444444-4444-4444-8444-444444444444',
+        characterKey: 'guanyin',
+        situationText: '愿事顺遂',
+      },
       userCookie
     );
     const accountAfter = await request({
@@ -372,7 +416,10 @@ test('guest and logged-in user can draw without Call or balance effects', async 
       headers: { Cookie: userCookie },
     });
     assert.equal(userDraw.statusCode, 201);
-    assert.deepEqual(parseJson(accountAfter), parseJson(accountBefore));
+    assert.equal(
+      parseJson(accountAfter).account.balanceCents,
+      parseJson(accountBefore).account.balanceCents - 200
+    );
   } finally {
     await closeServer(server);
   }
@@ -385,10 +432,12 @@ test('service failures return a sanitized 500 response', async () => {
     },
   });
   try {
+    const userCookie = await loginUser(port);
     const response = await requestJson(port, {
-      deityKey: 'yuhuang',
+      clientRequestId: '55555555-5555-4555-8555-555555555555',
+      characterKey: 'guanyin',
       situationText: '愿平安',
-    });
+    }, userCookie);
     assert.equal(response.statusCode, 500);
     assert.deepEqual(parseJson(response), {
       error: {

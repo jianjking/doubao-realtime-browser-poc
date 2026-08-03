@@ -115,6 +115,11 @@ class FakeElement {
     }
   }
 
+  dispatchEvent(event) {
+    this.trigger(event.type, event);
+    return true;
+  }
+
   getAttribute(name) {
     return this.attributes.has(name)
       ? this.attributes.get(name)
@@ -272,6 +277,22 @@ function loadFortuneRuntime(options = {}) {
   const interpretationAudioControl = new FakeElement({
     textContent: '听道童解签',
   });
+  const fortunePrice = options.paidUi ? new FakeElement() : null;
+  const fortuneBalance = options.paidUi ? new FakeElement() : null;
+  const fortuneErrorTitle = options.paidUi ? new FakeElement() : null;
+  const fortuneErrorMessage = options.paidUi ? new FakeElement() : null;
+  const fortuneRechargeButton = options.paidUi
+    ? new FakeElement({ hidden: true })
+    : null;
+  const fortuneChargeSuccess = options.paidUi
+    ? new FakeElement({ hidden: true })
+    : null;
+  const fortuneLoginOverlay = options.paidUi
+    ? new FakeElement({ hidden: true })
+    : null;
+  const loginForFortuneButton = options.paidUi ? new FakeElement() : null;
+  const closeFortuneLoginButton = options.paidUi ? new FakeElement() : null;
+  const rechargeEntry = options.paidUi ? new FakeElement() : null;
   const elements = new Map([
     ['.fortune-page', page],
     ['[data-fortune-character-image]', fortuneCharacterImage],
@@ -312,6 +333,18 @@ function loadFortuneRuntime(options = {}) {
     ['[data-interpretation-audio-status]', interpretationAudioStatus],
     ['[data-interpretation-audio-control]', interpretationAudioControl],
   ]);
+  if (options.paidUi) {
+    elements.set('[data-fortune-price]', fortunePrice);
+    elements.set('[data-fortune-balance]', fortuneBalance);
+    elements.set('[data-fortune-error-title]', fortuneErrorTitle);
+    elements.set('[data-fortune-error-message]', fortuneErrorMessage);
+    elements.set('[data-fortune-recharge]', fortuneRechargeButton);
+    elements.set('[data-fortune-charge-success]', fortuneChargeSuccess);
+    elements.set('#fortune-login-overlay', fortuneLoginOverlay);
+    elements.set('[data-login-for-fortune]', loginForFortuneButton);
+    elements.set('[data-close-fortune-login]', closeFortuneLoginButton);
+    elements.set('.time-recharge-entry', rechargeEntry);
+  }
   const timers = [];
   const windowListeners = new Map();
   const microphoneRequests = [];
@@ -449,6 +482,7 @@ function loadFortuneRuntime(options = {}) {
 
   context = {
     Image: class FakeImage {},
+    URL,
     URLSearchParams,
     document: {
       querySelector(selector) {
@@ -472,13 +506,46 @@ function loadFortuneRuntime(options = {}) {
       innerHeight: 932,
       innerWidth: 430,
       location: {
+        href: `http://127.0.0.1/fortune.html${options.locationSearch || ''}`,
         search: options.locationSearch || '',
+        assign() {},
+      },
+      history: {
+        replaceState(_state, _title, href) {
+          const parsed = new URL(href);
+          context.window.location.href = parsed.href;
+          context.window.location.search = parsed.search;
+        },
+      },
+      crypto: {
+        randomUUID() {
+          return options.clientRequestId
+            || 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        },
+      },
+      Event: class FakeEvent {
+        constructor(type, init = {}) {
+          this.type = type;
+          this.bubbles = init.bubbles === true;
+        }
+      },
+      CustomEvent: class FakeCustomEvent {
+        constructor(type, init = {}) {
+          this.type = type;
+          this.detail = init.detail;
+        }
       },
       addEventListener(eventName, handler) {
         if (!windowListeners.has(eventName)) {
           windowListeners.set(eventName, []);
         }
         windowListeners.get(eventName).push(handler);
+      },
+      dispatchEvent(event) {
+        for (const handler of windowListeners.get(event.type) || []) {
+          handler(event);
+        }
+        return true;
       },
       matchMedia(query) {
         assert.equal(
@@ -552,8 +619,15 @@ function loadFortuneRuntime(options = {}) {
     defaultStream,
     fetchRequests,
     fortuneError,
+    fortuneErrorMessage,
+    fortuneErrorTitle,
     fortuneDrawAnimation,
     fortuneResult,
+    fortunePrice,
+    fortuneBalance,
+    fortuneRechargeButton,
+    fortuneChargeSuccess,
+    fortuneLoginOverlay,
     fortuneCharacterImage,
     fortuneCharacterUnavailable,
     flyingWishPaper,
@@ -575,6 +649,7 @@ function loadFortuneRuntime(options = {}) {
     page,
     retryFortuneButton,
     retryInterpretationButton,
+    rechargeEntry,
     speakControlButton,
     speechDetail,
     speechMessage,
@@ -583,9 +658,9 @@ function loadFortuneRuntime(options = {}) {
     transcriptStatus,
     transcriptText,
     asrSessions,
-    triggerWindow(eventName) {
+    triggerWindow(eventName, event = {}) {
       for (const handler of windowListeners.get(eventName) || []) {
-        handler();
+        handler(event);
       }
     },
     waitingState,
@@ -665,7 +740,16 @@ function createFortuneResponse(overrides = {}) {
     ok: true,
     status: 201,
     async json() {
-      return { fortuneSession };
+      return {
+        fortuneSession,
+        charge: {
+          priceCents: 200,
+          currency: 'CNY',
+          balanceBeforeCents: 1250,
+          balanceAfterCents: 1050,
+          alreadyProcessed: false,
+        },
+      };
     },
   };
 }
@@ -932,7 +1016,7 @@ function verifyStaticSceneAndSafety() {
   assert.match(js, /window\.URL\.revokeObjectURL\(objectUrl\)/);
   assert.match(
     js,
-    /body:\s*JSON\.stringify\(\{\s*deityKey:\s*FORTUNE_DEITY_KEY,\s*situationText:\s*currentTranscript\.trim\(\),\s*\}\)/
+    /body:\s*JSON\.stringify\(\{\s*clientRequestId:\s*activeFortuneClientRequestId,\s*characterKey:\s*resolveRequestedCharacterKey\(\),\s*situationText:\s*currentTranscript\.trim\(\),\s*\}\)/
   );
   assert.doesNotMatch(
     asrJs,
@@ -2250,7 +2334,8 @@ async function verifyFortuneDrawFlowAndRetry() {
   assert.deepEqual(
     JSON.parse(JSON.stringify(requestBody)),
     {
-      deityKey: 'yuhuang',
+      clientRequestId: '00000000-0000-4000-8000-000000000001',
+      characterKey: 'guanyin',
       situationText: confirmedText.trim(),
     }
   );
@@ -3322,6 +3407,208 @@ async function verifyTtsFailureAndPendingRequestCleanup() {
   assert.equal(pendingAudioRuntime.audioElements.length, 0);
 }
 
+function createJsonResponse(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return body;
+    },
+  };
+}
+
+function createAccountApiResponse(balanceCents) {
+  return createJsonResponse(200, {
+    principal: { type: 'user', id: 'paid-ui-user' },
+    profile: { phoneMasked: '138****8000' },
+    account: {
+      currency: 'CNY',
+      balanceCents,
+      remainingSeconds: 0,
+    },
+    permissions: { canRecharge: true },
+  });
+}
+
+function createPricingApiResponse() {
+  return createJsonResponse(200, {
+    drawPriceCents: 200,
+    currency: 'CNY',
+    chargeTiming: 'fortune_session_created',
+  });
+}
+
+async function verifyPaidFortuneUiFlow() {
+  let guestSessionRequests = 0;
+  const guestRuntime = loadFortuneRuntime({
+    paidUi: true,
+    fetchImpl(pathname) {
+      if (pathname === '/api/fortune-config') {
+        return Promise.resolve(createPricingApiResponse());
+      }
+      if (pathname === '/api/me') {
+        return Promise.resolve(createJsonResponse(200, {
+          principal: { type: 'guest', id: 'guest-ui' },
+          account: null,
+          permissions: { canRecharge: false },
+        }));
+      }
+      guestSessionRequests += 1;
+      throw new Error('guest must not create a Fortune Session');
+    },
+  });
+  await flushPromises();
+  await flushPromises();
+  assert.equal(guestRuntime.fortunePrice.textContent, '¥2.00');
+  assert.equal(guestRuntime.fortuneBalance.textContent, '--');
+  clickSpeakControl(guestRuntime);
+  await flushPromises();
+  assert.equal(guestRuntime.asrSessions.length, 0);
+  assert.equal(guestSessionRequests, 0);
+  assert.equal(guestRuntime.fortuneLoginOverlay.hidden, false);
+  assert.match(guestRuntime.speechMessage.textContent, /请先登录后求签/);
+
+  let sufficientBalance = 1250;
+  const sufficientRuntime = loadFortuneRuntime({
+    paidUi: true,
+    fetchImpl(pathname) {
+      if (pathname === '/api/fortune-config') {
+        return Promise.resolve(createPricingApiResponse());
+      }
+      if (pathname === '/api/me') {
+        return Promise.resolve(createAccountApiResponse(sufficientBalance));
+      }
+      if (pathname === '/api/fortune-sessions') {
+        sufficientBalance = 1050;
+        return Promise.resolve(createFortuneResponse());
+      }
+      throw new Error(`unexpected request ${pathname}`);
+    },
+  });
+  await flushPromises();
+  await flushPromises();
+  assert.equal(sufficientRuntime.fortuneBalance.textContent, '¥12.50');
+  clickSpeakControl(sufficientRuntime);
+  await flushPromises();
+  assert.equal(sufficientRuntime.asrSessions.length, 1);
+  clickSpeakControl(sufficientRuntime);
+  sufficientRuntime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: sufficientRuntime.wishOfferingStage,
+  });
+  await flushPromises();
+  await flushPromises();
+  const sufficientDraws = sufficientRuntime.fetchRequests.filter(
+    (request) => request.pathname === '/api/fortune-sessions'
+  );
+  assert.equal(sufficientDraws.length, 1);
+  const sufficientBody = JSON.parse(sufficientDraws[0].body);
+  assert.deepEqual(sufficientBody, {
+    clientRequestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    characterKey: 'guanyin',
+    situationText: '测试识别结果',
+  });
+  assert.equal(sufficientRuntime.fortuneBalance.textContent, '¥10.50');
+  sufficientRuntime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-cylinder-shake',
+    target: sufficientRuntime.fortuneDrawAnimation,
+  });
+  sufficientRuntime.fortuneDrawAnimation.trigger('animationend', {
+    animationName: 'lot-slip-reveal',
+    target: sufficientRuntime.fortuneDrawAnimation,
+  });
+  assert.equal(sufficientRuntime.page.dataset.fortuneState, 'lot-drawn');
+  assert.match(sufficientRuntime.fortuneChargeSuccess.textContent, /本次已扣 ¥2.00/);
+
+  let insufficientAttempt = 0;
+  let insufficientBalance = 1250;
+  const insufficientRuntime = loadFortuneRuntime({
+    paidUi: true,
+    clientRequestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    fetchImpl(pathname) {
+      if (pathname === '/api/fortune-config') {
+        return Promise.resolve(createPricingApiResponse());
+      }
+      if (pathname === '/api/me') {
+        return Promise.resolve(createAccountApiResponse(insufficientBalance));
+      }
+      if (pathname === '/api/fortune-sessions') {
+        insufficientAttempt += 1;
+        if (insufficientAttempt === 1) {
+          insufficientBalance = 199;
+          return Promise.resolve(createJsonResponse(409, {
+            error: {
+              code: 'INSUFFICIENT_ACCOUNT_BALANCE',
+              message: 'insufficient',
+              priceCents: 200,
+              balanceCents: 199,
+              shortfallCents: 1,
+            },
+          }));
+        }
+        insufficientBalance = 999;
+        return Promise.resolve(createJsonResponse(201, {
+          fortuneSession: {
+            id: 'fortune-ui-test',
+            status: 'drawn',
+            deityKey: 'yuhuang',
+            catalogVersion: 'prototype-v1',
+            lot: {
+              id: 'prototype-002',
+              number: 2,
+              level: '中吉',
+              title: '守心待时',
+              verseLines: ['眼前云淡风初定', '守得心安路自明'],
+            },
+            createdAt: '2026-07-28T06:00:00.000Z',
+            drawnAt: '2026-07-28T06:00:00.000Z',
+          },
+          charge: {
+            priceCents: 200,
+            currency: 'CNY',
+            balanceBeforeCents: 1199,
+            balanceAfterCents: 999,
+            alreadyProcessed: false,
+          },
+        }));
+      }
+      throw new Error(`unexpected request ${pathname}`);
+    },
+  });
+  await flushPromises();
+  await flushPromises();
+  clickSpeakControl(insufficientRuntime);
+  await flushPromises();
+  clickSpeakControl(insufficientRuntime);
+  insufficientRuntime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: insufficientRuntime.wishOfferingStage,
+  });
+  await flushPromises();
+  await flushPromises();
+  assert.equal(
+    insufficientRuntime.page.dataset.fortuneState,
+    'insufficient-balance'
+  );
+  assert.match(insufficientRuntime.fortuneErrorMessage.textContent, /还差 ¥0.01/);
+  assert.equal(insufficientRuntime.fortuneRechargeButton.hidden, false);
+  insufficientRuntime.triggerWindow('companion:account-balance-updated', {
+    detail: { currency: 'CNY', balanceCents: 1199 },
+  });
+  await flushPromises();
+  await flushPromises();
+  const insufficientDraws = insufficientRuntime.fetchRequests.filter(
+    (request) => request.pathname === '/api/fortune-sessions'
+  );
+  assert.equal(insufficientDraws.length, 2);
+  assert.equal(
+    JSON.parse(insufficientDraws[0].body).clientRequestId,
+    JSON.parse(insufficientDraws[1].body).clientRequestId
+  );
+  assert.equal(insufficientRuntime.asrSessions.length, 1);
+  assert.equal(insufficientRuntime.fortuneBalance.textContent, '¥9.99');
+}
+
 async function main() {
   verifyStagedRitualStaticContract();
   verifyInitialReadyState();
@@ -3335,6 +3622,7 @@ async function main() {
   await verifyTailFinishFinalAndCleanup();
   await verifyAsrErrorsTimeoutAndIdempotentClose();
   await verifyModulePageExitAndFailureBoundaries();
+  await verifyPaidFortuneUiFlow();
 
   process.stdout.write('fortune_incense_interaction_test: PASS\n');
   process.stdout.write(
@@ -3351,7 +3639,8 @@ async function main() {
       + 'interpretation-audio,automatic-audio-attempt,autoplay-fallback,'
       + 'blob-url-cleanup,'
       + 'final-timeout,asr-error,'
-      + 'abnormal-close,stale-session\n'
+      + 'abnormal-close,stale-session,paid-login-gate,paid-balance-gate,'
+      + 'paid-idempotent-recharge-resume\n'
   );
 }
 
