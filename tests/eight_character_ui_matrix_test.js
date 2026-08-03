@@ -2133,7 +2133,8 @@ function verifyStaticSafetyAndCurrentUi() {
   assert.match(authHtml, /class="phone-auth-form"/);
   assert.match(authHtml, /以游客身份进入/);
   assert.match(authJs, /const AUTH_STORAGE_KEY = 'companion_auth_state_v1'/);
-  assert.match(authJs, /const DEMO_CODE = '123456'/);
+  assert.doesNotMatch(authJs, /DEMO_CODE|development_mock_phone/);
+  assert.match(authJs, /\/api\/auth\/sms\/send/);
   assert.match(homeJs, /function getValidatedAuthState\(\)/);
   assert.match(homeJs, /function isPhoneAuthenticated\(/);
   assert.match(homeJs, /function renderAccountSummary\(/);

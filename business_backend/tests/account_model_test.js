@@ -9,8 +9,12 @@ const { createAccountService } = require('../services/account_service');
 const {
   MemoryAccountStore,
 } = require('../stores/memory_account_store');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
-const TEST_DEVELOPMENT_CODE = '654321';
 const PUBLIC_TEST_PHONE = '13800138000';
 const AUTH_REQUIRED_RESPONSE = {
   error: {
@@ -144,16 +148,22 @@ function extractSessionCookie(response) {
 }
 
 function createTestApp(options = {}) {
+  const clock = options.clock || Date.now;
   return createApp({
-    developmentVerificationCode: TEST_DEVELOPMENT_CODE,
+    ...createMockSmsTestOptions({ clock }),
     ...options,
   });
 }
 
-function login(port, additionalFields = {}) {
+async function login(port, additionalFields = {}) {
+  const { challengeId } = await requestSmsChallenge(
+    port,
+    PUBLIC_TEST_PHONE
+  );
   return requestJson(port, '/api/auth/login', {
     phone: PUBLIC_TEST_PHONE,
-    code: TEST_DEVELOPMENT_CODE,
+    challengeId,
+    code: TEST_SMS_CODE,
     ...additionalFields,
   });
 }
@@ -395,13 +405,16 @@ test('user /api/me returns server-configured account values', async () => {
 });
 
 test('repeated phone login reuses the same account', async () => {
+  let now = Date.parse('2026-08-03T00:00:00.000Z');
   const { port, server } = await startApp(createTestApp({
+    clock: () => now,
     initialBalanceCents: 888,
     initialRemainingSeconds: 600,
   }));
 
   try {
     const firstLogin = await login(port);
+    now += 60001;
     const secondLogin = await login(port);
     const firstBody = parseJson(firstLogin.body);
     const secondBody = parseJson(secondLogin.body);

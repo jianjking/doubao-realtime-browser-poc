@@ -17,10 +17,14 @@ const {
 const {
   createRelayInternalCallLifecycleCoordinator,
 } = require('../relay_internal_call_lifecycle_coordinator');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('../business_backend/tests/sms_test_helpers');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const SERVER_PATH = path.join(PROJECT_DIR, 'server_doubao_realtime.js');
-const TEST_DEVELOPMENT_CODE = '654321';
 const TEST_PHONE = '13800138000';
 const STATUS_TIMEOUT_MS = 3000;
 const EVENT = Object.freeze({
@@ -146,13 +150,14 @@ function createLifecycleRequestRecorder() {
 
 async function startBusinessBackend(internalToken) {
   let now = Date.parse('2026-07-27T00:00:00.000Z');
+  const clock = () => {
+    const currentTime = now;
+    now += 1000;
+    return currentTime;
+  };
   const app = createApp({
-    clock() {
-      const currentTime = now;
-      now += 1000;
-      return currentTime;
-    },
-    developmentVerificationCode: TEST_DEVELOPMENT_CODE,
+    clock,
+    ...createMockSmsTestOptions({ clock }),
     initialBalanceCents: 100,
     internalApiToken: internalToken,
   });
@@ -254,12 +259,14 @@ function extractSessionCookie(response) {
 }
 
 async function login(port) {
+  const { challengeId } = await requestSmsChallenge(port, TEST_PHONE);
   const response = await requestJson({
     port,
     requestPathname: '/api/auth/login',
     requestBody: {
       phone: TEST_PHONE,
-      code: TEST_DEVELOPMENT_CODE,
+      challengeId,
+      code: TEST_SMS_CODE,
     },
   });
   parseJsonResponse(response, 200);

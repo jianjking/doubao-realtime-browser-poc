@@ -13,8 +13,12 @@ const {
 const {
   MemoryAccountStore,
 } = require('../stores/memory_account_store');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
-const TEST_DEVELOPMENT_CODE = '654321';
 const TEST_INTERNAL_TOKEN =
   'test_dev_recharge_internal_token_1234567890';
 const PHONE_A = '13800138000';
@@ -52,8 +56,9 @@ function closeServer(server) {
 }
 
 async function startApp(options = {}) {
+  const clock = options.clock || Date.now;
   const server = http.createServer(createApp({
-    developmentVerificationCode: TEST_DEVELOPMENT_CODE,
+    ...createMockSmsTestOptions({ clock }),
     ...options,
   }));
   await listenOnTemporaryPort(server);
@@ -139,12 +144,14 @@ function extractSessionCookie(response) {
 }
 
 async function login(port, phone = PHONE_A) {
+  const { challengeId } = await requestSmsChallenge(port, phone);
   const response = await requestJson({
     port,
     path: '/api/auth/login',
     requestBody: {
       phone,
-      code: TEST_DEVELOPMENT_CODE,
+      challengeId,
+      code: TEST_SMS_CODE,
     },
   });
   assert.equal(response.statusCode, 200);

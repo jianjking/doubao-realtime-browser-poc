@@ -6,8 +6,12 @@ const test = require('node:test');
 
 const { createApp } = require('../app');
 const { MemoryUserStore } = require('../stores/memory_user_store');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
-const TEST_DEVELOPMENT_CODE = '654321';
 const PUBLIC_TEST_PHONE = '13800138000';
 const AUTH_REQUIRED_RESPONSE = {
   error: {
@@ -133,9 +137,11 @@ function extractSessionCookie(response) {
   };
 }
 
-function createTestApp() {
+function createTestApp(options = {}) {
+  const clock = options.clock || Date.now;
   return createApp({
-    developmentVerificationCode: TEST_DEVELOPMENT_CODE,
+    ...createMockSmsTestOptions({ clock }),
+    ...options,
   });
 }
 
@@ -144,10 +150,12 @@ async function login(
   phone = PUBLIC_TEST_PHONE,
   additionalFields = {}
 ) {
+  const { challengeId } = await requestSmsChallenge(port, phone);
   return requestJson(port, '/api/auth/login', {
     ...additionalFields,
     phone,
-    code: TEST_DEVELOPMENT_CODE,
+    challengeId,
+    code: TEST_SMS_CODE,
   });
 }
 
@@ -196,7 +204,7 @@ test('phone login returns a sanitized user identity and session', async () => {
     assert.equal(loginResponse.statusCode, 200);
 
     const loginBody = parseJson(loginResponse.body);
-    assert.equal(loginBody.authMode, 'development_mock_phone');
+    assert.equal(loginBody.authMode, 'sms_phone');
     assert.equal(loginBody.principal.type, 'user');
     assert.equal(typeof loginBody.principal.id, 'string');
     assert.notEqual(loginBody.principal.id, '');
@@ -217,7 +225,7 @@ test('phone login returns a sanitized user identity and session', async () => {
     assert.equal(loginResponse.body.includes(rawToken), false);
     assert.equal(loginResponse.body.includes('tokenHash'), false);
     assert.equal(loginResponse.body.includes('+8613800138000'), false);
-    assert.equal(loginResponse.body.includes(TEST_DEVELOPMENT_CODE), false);
+    assert.equal(loginResponse.body.includes(TEST_SMS_CODE), false);
     assert.equal(Object.hasOwn(loginBody, 'account'), false);
 
     const meResponse = await requestPath({
@@ -251,7 +259,10 @@ test('phone login returns a sanitized user identity and session', async () => {
 });
 
 test('accepted phone formats resolve to the same user', async () => {
-  const { port, server } = await startApp(createTestApp());
+  let now = Date.parse('2026-08-03T00:00:00.000Z');
+  const { port, server } = await startApp(createTestApp({
+    clock: () => now,
+  }));
   const acceptedPhones = [
     '13800138000',
     '+8613800138000',
@@ -265,6 +276,7 @@ test('accepted phone formats resolve to the same user', async () => {
       const response = await login(port, phone);
       assert.equal(response.statusCode, 200);
       userIds.push(parseJson(response.body).principal.id);
+      now += 60001;
     }
     assert.equal(new Set(userIds).size, 1);
   } finally {
@@ -273,10 +285,14 @@ test('accepted phone formats resolve to the same user', async () => {
 });
 
 test('repeated logins reuse the user and create distinct sessions', async () => {
-  const { port, server } = await startApp(createTestApp());
+  let now = Date.parse('2026-08-03T01:00:00.000Z');
+  const { port, server } = await startApp(createTestApp({
+    clock: () => now,
+  }));
 
   try {
     const firstResponse = await login(port);
+    now += 60001;
     const secondResponse = await login(port);
     const firstBody = parseJson(firstResponse.body);
     const secondBody = parseJson(secondResponse.body);
@@ -318,7 +334,11 @@ test('invalid phone numbers and request shapes return stable errors', async () =
 
   try {
     for (const phone of invalidPhones) {
-      const response = await login(port, phone);
+      const response = await requestJson(port, '/api/auth/login', {
+        phone,
+        challengeId: 'invalid-phone-challenge',
+        code: TEST_SMS_CODE,
+      });
       assert.equal(response.statusCode, 400);
       assert.deepEqual(parseJson(response.body), {
         error: {
@@ -331,25 +351,25 @@ test('invalid phone numbers and request shapes return stable errors', async () =
     const missingResponse = await requestJson(
       port,
       '/api/auth/login',
-      { code: TEST_DEVELOPMENT_CODE }
+      { code: TEST_SMS_CODE }
     );
     assert.equal(missingResponse.statusCode, 400);
     assert.deepEqual(parseJson(missingResponse.body), {
       error: {
         code: 'INVALID_LOGIN_REQUEST',
-        message: 'Phone and verification code are required',
+        message: 'Phone, challengeId, and a six-digit code are required',
       },
     });
 
     const typeResponse = await requestJson(port, '/api/auth/login', {
       phone: 13800138000,
-      code: TEST_DEVELOPMENT_CODE,
+      code: TEST_SMS_CODE,
     });
     assert.equal(typeResponse.statusCode, 400);
     assert.deepEqual(parseJson(typeResponse.body), {
       error: {
         code: 'INVALID_LOGIN_REQUEST',
-        message: 'Phone and verification code are required',
+        message: 'Phone, challengeId, and a six-digit code are required',
       },
     });
   } finally {
@@ -357,22 +377,27 @@ test('invalid phone numbers and request shapes return stable errors', async () =
   }
 });
 
-test('an incorrect development code is rejected without disclosure', async () => {
+test('an incorrect SMS code is rejected without disclosure', async () => {
   const { port, server } = await startApp(createTestApp());
 
   try {
+    const { challengeId } = await requestSmsChallenge(
+      port,
+      PUBLIC_TEST_PHONE
+    );
     const response = await requestJson(port, '/api/auth/login', {
       phone: PUBLIC_TEST_PHONE,
-      code: 'incorrect',
+      challengeId,
+      code: '000000',
     });
     assert.equal(response.statusCode, 401);
     assert.deepEqual(parseJson(response.body), {
       error: {
         code: 'INVALID_VERIFICATION_CODE',
-        message: 'Verification code is invalid',
+        message: 'The verification code is incorrect',
       },
     });
-    assert.equal(response.body.includes(TEST_DEVELOPMENT_CODE), false);
+    assert.equal(response.body.includes(TEST_SMS_CODE), false);
   } finally {
     await closeServer(server);
   }

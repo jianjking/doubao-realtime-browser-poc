@@ -13,8 +13,12 @@ const {
   MemoryAccountStore,
 } = require('../stores/memory_account_store');
 const { MemoryCallStore } = require('../stores/memory_call_store');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
-const TEST_DEVELOPMENT_CODE = '654321';
 const OWNER_PHONE = '13800138000';
 const OTHER_PHONE = '13900139000';
 const FIXED_TIME = '2026-07-25T00:00:00.000Z';
@@ -193,8 +197,9 @@ function extractSessionCookie(response) {
 }
 
 function createTestApp(options = {}) {
+  const clock = options.clock || Date.now;
   return createApp({
-    developmentVerificationCode: TEST_DEVELOPMENT_CODE,
+    ...createMockSmsTestOptions({ clock }),
     ...options,
   });
 }
@@ -210,10 +215,12 @@ function createAccountServiceForUsers(userIds) {
   return accountService;
 }
 
-function login(port, phone = OWNER_PHONE) {
+async function login(port, phone = OWNER_PHONE) {
+  const { challengeId } = await requestSmsChallenge(port, phone);
   return requestJson(port, '/api/auth/login', {
     phone,
-    code: TEST_DEVELOPMENT_CODE,
+    challengeId,
+    code: TEST_SMS_CODE,
   });
 }
 

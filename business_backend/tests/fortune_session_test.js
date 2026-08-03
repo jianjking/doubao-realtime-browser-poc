@@ -17,6 +17,11 @@ const {
 const {
   MemoryFortuneSessionStore,
 } = require('../stores/memory_fortune_session_store');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
 function cloneLots() {
   return FORTUNE_LOTS.map((lot) => ({
@@ -63,7 +68,11 @@ function closeServer(server) {
 }
 
 async function startApp(options = {}) {
-  const server = http.createServer(createApp(options));
+  const clock = options.clock || Date.now;
+  const server = http.createServer(createApp({
+    ...createMockSmsTestOptions({ clock }),
+    ...options,
+  }));
   await listenOnTemporaryPort(server);
   return {
     server,
@@ -132,9 +141,13 @@ function extractCookie(response) {
 
 async function loginUser(port, {
   phone = '13800138000',
-  code = '123456',
 } = {}) {
-  const body = JSON.stringify({ phone, code });
+  const { challengeId } = await requestSmsChallenge(port, phone);
+  const body = JSON.stringify({
+    phone,
+    challengeId,
+    code: TEST_SMS_CODE,
+  });
   const response = await request({
     port,
     path: '/api/auth/login',
@@ -356,7 +369,6 @@ test('logged-in request returns only the paid public fixed-lot projection', asyn
 test('guest is denied and logged-in user is charged exactly once', async () => {
   let nextFortuneId = 1;
   const { port, server } = await startApp({
-    developmentVerificationCode: '654321',
     fortuneSessionIdGenerator: () => (
       `fortune-owner-${nextFortuneId++}`
     ),
@@ -380,22 +392,7 @@ test('guest is denied and logged-in user is charged exactly once', async () => {
     assert.equal(guestDraw.statusCode, 401);
     assert.equal(parseJson(guestDraw).error.code, 'USER_LOGIN_REQUIRED');
 
-    const loginBody = JSON.stringify({
-      phone: '13800138000',
-      code: '654321',
-    });
-    const loginResponse = await request({
-      port,
-      path: '/api/auth/login',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(loginBody),
-      },
-      body: loginBody,
-    });
-    assert.equal(loginResponse.statusCode, 200);
-    const userCookie = extractCookie(loginResponse);
+    const userCookie = await loginUser(port);
     const accountBefore = await request({
       port,
       path: '/api/me',

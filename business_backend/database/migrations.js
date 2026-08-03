@@ -28,6 +28,14 @@ const MIGRATIONS = Object.freeze([
       'utf8'
     ),
   }),
+  Object.freeze({
+    version: 4,
+    name: 'sms_challenges',
+    sql: fs.readFileSync(
+      path.join(__dirname, 'migrations', '004_sms_challenges.sql'),
+      'utf8'
+    ),
+  }),
 ]);
 
 function runMigrations(database, { clock = Date.now } = {}) {

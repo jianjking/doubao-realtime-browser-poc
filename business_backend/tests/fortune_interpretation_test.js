@@ -16,6 +16,11 @@ const {
 const {
   MemoryFortuneSessionStore,
 } = require('../stores/memory_fortune_session_store');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
 const VALID_INTERPRETATION = Object.freeze({
   text: '这支签提醒您先稳住心绪，再辨明方向。眼下的担忧值得被看见，可先把可控之事理清，今天写下一件最需要核实的小事，慢慢去做。',
@@ -384,12 +389,17 @@ function request({
 }
 
 async function loginUser(port) {
+  const { challengeId } = await requestSmsChallenge(
+    port,
+    '13800138000'
+  );
   const response = await request({
     port,
     path: '/api/auth/login',
     body: JSON.stringify({
       phone: '13800138000',
-      code: '123456',
+      challengeId,
+      code: TEST_SMS_CODE,
     }),
   });
   assert.equal(response.statusCode, 200);
@@ -399,6 +409,7 @@ async function loginUser(port) {
 test('HTTP route accepts only sessionId and returns a private projection', async () => {
   const modelClient = new FakeInterpretationClient();
   const app = createApp({
+    ...createMockSmsTestOptions(),
     fortuneInterpretationClient: modelClient,
     fortuneSessionIdGenerator: () => 'fortune-route-test',
     fortuneRandomInt: () => 0,
@@ -502,6 +513,7 @@ test('HTTP route keeps model failure diagnostics out of the public 502', async (
     throw error;
   });
   const app = createApp({
+    ...createMockSmsTestOptions(),
     fortuneInterpretationClient: modelClient,
     fortuneSessionIdGenerator: () => 'fortune-route-failure',
     fortuneRandomInt: () => 0,
@@ -557,6 +569,7 @@ test('HTTP route keeps model failure diagnostics out of the public 502', async (
 
 test('HTTP route reports unconfigured text model as 503', async () => {
   const app = createApp({
+    ...createMockSmsTestOptions(),
     fortuneSessionIdGenerator: () => 'fortune-unconfigured',
     fortuneRandomInt: () => 0,
   });

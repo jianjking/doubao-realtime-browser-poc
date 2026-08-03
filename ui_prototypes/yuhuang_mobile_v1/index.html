@@ -50,7 +50,7 @@
               autocomplete="one-time-code"
               maxlength="6"
               placeholder="请输入6位验证码"
-              aria-describedby="code-error demo-code-note">
+              aria-describedby="code-error mock-code-note">
             <button class="send-code-button" type="button">发送验证码</button>
           </div>
           <p class="auth-field-error" id="code-error" role="alert" hidden></p>
@@ -68,10 +68,9 @@
       <div class="auth-separator" aria-hidden="true"><span>或</span></div>
       <button class="guest-entry-button" type="button">以游客身份进入</button>
 
-      <aside class="prototype-note" id="demo-code-note">
-        <strong>演示说明</strong>
-        <p>当前为本地原型，验证码不会通过真实短信发送。</p>
-        <p>演示验证码：<span>123456</span></p>
+      <aside class="prototype-note mock-code-note" id="mock-code-note" hidden>
+        <strong>模拟环境</strong>
+        <p>模拟验证码：<span></span></p>
       </aside>
 
       <p class="auth-status" role="status" aria-live="polite" aria-atomic="true"></p>

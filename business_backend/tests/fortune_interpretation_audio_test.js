@@ -15,6 +15,11 @@ const {
 const {
   MemoryFortuneSessionStore,
 } = require('../stores/memory_fortune_session_store');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
 const VALID_INTERPRETATION = Object.freeze({
   text: '先安住心绪，再看眼前可做之事。这份牵挂值得被看见，也可以慢慢理清，今天先完成一件力所能及的小事。',
@@ -127,15 +132,24 @@ function closeServer(server) {
 }
 
 async function startApp(options = {}) {
-  const server = http.createServer(createApp(options));
+  const clock = options.clock || Date.now;
+  const server = http.createServer(createApp({
+    ...createMockSmsTestOptions({ clock }),
+    ...options,
+  }));
   await listenOnTemporaryPort(server);
   const port = server.address().port;
+  const { challengeId } = await requestSmsChallenge(
+    port,
+    '13800138000'
+  );
   const login = await requestJson({
     port,
     path: '/api/auth/login',
     value: {
       phone: '13800138000',
-      code: '123456',
+      challengeId,
+      code: TEST_SMS_CODE,
     },
   });
   assert.equal(login.statusCode, 200);

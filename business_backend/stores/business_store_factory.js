@@ -18,6 +18,9 @@ const {
 const {
   SQLiteFortunePurchaseStore,
 } = require('./sqlite_fortune_purchase_store');
+const {
+  SQLiteSmsChallengeStore,
+} = require('./sqlite_sms_challenge_store');
 
 function createBusinessStores({ databasePath, clock } = {}) {
   const database = createBusinessDatabase({ databasePath, clock });
@@ -40,6 +43,9 @@ function createBusinessStores({ databasePath, clock } = {}) {
         database.connection
       ),
       runInTransaction: database.runInTransaction,
+      smsChallengeStore: new SQLiteSmsChallengeStore(
+        database.connection
+      ),
       userStore: new SQLiteUserStore(database.connection),
     };
   } catch (error) {

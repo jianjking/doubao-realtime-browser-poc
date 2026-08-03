@@ -6,6 +6,9 @@ const { createApp } = require('../app');
 const {
   createBusinessStores,
 } = require('../stores/business_store_factory');
+const {
+  createMockSmsTestOptions,
+} = require('./sms_test_helpers');
 
 const TEST_INTERPRETATION = Object.freeze({
   text: '这支签提醒您先安住心绪，再看清眼前能做的事。把最重要的一件小事写下来，稳稳完成，再继续前行。',
@@ -62,7 +65,7 @@ function startAcceptanceServer() {
   const stores = createBusinessStores({ databasePath });
   const app = createApp({
     businessStores: stores,
-    developmentVerificationCode: '123456',
+    ...createMockSmsTestOptions(),
     fortuneDrawPriceCents: 200,
     fortuneInterpretationClient: {
       async generateInterpretation() {

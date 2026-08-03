@@ -286,6 +286,10 @@ button {
   letter-spacing: 0.08em;
 }
 
+.prototype-note[hidden] {
+  display: none;
+}
+
 .auth-status {
   min-height: 22px;
   margin: 12px 0 0;

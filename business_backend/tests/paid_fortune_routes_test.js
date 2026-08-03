@@ -8,6 +8,11 @@ const { createApp } = require('../app');
 const {
   createBusinessStores,
 } = require('../stores/business_store_factory');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -29,7 +34,7 @@ async function startApp(options = {}) {
   let nextPurchaseId = 1;
   const server = http.createServer(createApp({
     businessStores: stores,
-    developmentVerificationCode: '654321',
+    ...createMockSmsTestOptions(),
     fortuneDrawPriceCents: 200,
     fortuneRandomInt: () => 0,
     fortuneSessionIdGenerator: () => `fortune-route-paid-${nextFortuneId++}`,
@@ -89,11 +94,12 @@ function parseJson(response) {
 }
 
 async function login(port, phone) {
+  const { challengeId } = await requestSmsChallenge(port, phone);
   const response = await request({
     port,
     path: '/api/auth/login',
     method: 'POST',
-    json: { phone, code: '654321' },
+    json: { phone, challengeId, code: TEST_SMS_CODE },
   });
   assert.equal(response.statusCode, 200);
   return {

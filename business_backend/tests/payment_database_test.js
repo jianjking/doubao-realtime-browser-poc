@@ -98,6 +98,7 @@ if (CHILD_MODE && CHILD_MODE.startsWith('child:')) {
           { version: 1, name: 'initial_schema' },
           { version: 2, name: 'payment_foundation' },
           { version: 3, name: 'paid_fortune_draw' },
+          { version: 4, name: 'sms_challenges' },
         ]
       );
       for (const tableName of [

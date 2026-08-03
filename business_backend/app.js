@@ -55,7 +55,16 @@ const {
 const {
   MemorySessionStore,
 } = require('./stores/memory_session_store');
+const {
+  MemorySmsChallengeStore,
+} = require('./stores/memory_sms_challenge_store');
 const { MemoryUserStore } = require('./stores/memory_user_store');
+const {
+  parseSmsRuntimeConfig,
+} = require('./config/sms');
+const {
+  createConfiguredSmsVerificationProvider,
+} = require('./sms/sms_verification_provider_factory');
 
 function createApp(options = {}) {
   const sessionStore = new MemorySessionStore();
@@ -84,6 +93,15 @@ function createApp(options = {}) {
     accountStore,
     callStore,
   } = businessStores;
+  const smsChallengeStore = businessStores.smsChallengeStore
+    || new MemorySmsChallengeStore();
+  const smsRuntimeConfig = options.smsRuntimeConfig
+    || parseSmsRuntimeConfig({});
+  const smsProvider = options.smsVerificationProvider
+    || createConfiguredSmsVerificationProvider({
+      clock: options.clock,
+      runtimeConfig: smsRuntimeConfig,
+    });
   const fortuneSessionStore = new MemoryFortuneSessionStore();
   const fortunePurchaseStore = businessStores.fortunePurchaseStore
     || new MemoryFortunePurchaseStore();
@@ -110,7 +128,13 @@ function createApp(options = {}) {
     accountService,
     clock: options.clock,
     idGenerator: options.idGenerator,
-    developmentVerificationCode: options.developmentVerificationCode,
+    challengeIdGenerator: options.smsChallengeIdGenerator,
+    runInTransaction: typeof businessStores.runInTransaction === 'function'
+      ? businessStores.runInTransaction
+      : (operation) => operation(),
+    smsChallengeStore,
+    smsProvider,
+    smsRuntimeConfig,
   });
   const callService = createCallService({
     callStore,
@@ -310,26 +334,38 @@ function createApp(options = {}) {
         request.method === 'POST'
         && request.path === '/api/dev/recharge'
       );
+      const isSmsSendRequest = (
+        request.method === 'POST'
+        && request.path === '/api/auth/sms/send'
+      );
+      const isLoginRequest = (
+        request.method === 'POST'
+        && request.path === '/api/auth/login'
+      );
       const isPaymentRequest = (
         request.path === '/api/payment-orders'
         || /^\/api\/payment-orders\/[^/]+\/(?:mock-complete|close)$/
           .test(request.path)
       );
       response.status(400).json({
-        error: {
-          code: isCallRequest
-            ? 'INVALID_CALL_REQUEST'
-            : isPaymentRequest
-              ? 'INVALID_PAYMENT_REQUEST'
+          error: {
+            code: isCallRequest
+              ? 'INVALID_CALL_REQUEST'
+              : isSmsSendRequest
+                ? 'INVALID_SMS_SEND_REQUEST'
+              : isPaymentRequest
+                ? 'INVALID_PAYMENT_REQUEST'
             : isFortuneInterpretationAudioRequest
               ? 'INVALID_FORTUNE_INTERPRETATION_AUDIO_REQUEST'
             : isFortuneInterpretationRequest
               ? 'INVALID_FORTUNE_INTERPRETATION_REQUEST'
             : isFortuneRequest
               ? 'INVALID_FORTUNE_REQUEST'
-            : isDevRechargeRequest
-              ? 'INVALID_RECHARGE_AMOUNT'
-              : 'INVALID_LOGIN_REQUEST',
+              : isDevRechargeRequest
+                ? 'INVALID_RECHARGE_AMOUNT'
+              : isLoginRequest
+                ? 'INVALID_LOGIN_REQUEST'
+                : 'INVALID_REQUEST',
           message: isCallRequest
             ? 'A valid roleSlug is required'
             : isPaymentRequest
@@ -340,9 +376,13 @@ function createApp(options = {}) {
               ? 'Interpretation request body must be empty'
             : isFortuneRequest
               ? 'A valid fortune request is required'
-            : isDevRechargeRequest
-              ? 'A valid recharge amount is required'
-              : 'Phone and verification code are required',
+              : isDevRechargeRequest
+                ? 'A valid recharge amount is required'
+              : isSmsSendRequest
+                ? 'A mobile phone number is required'
+              : isLoginRequest
+                ? 'Phone, challengeId, and a six-digit code are required'
+                : 'Request body must be valid JSON',
         },
       });
       return;

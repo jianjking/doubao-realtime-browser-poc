@@ -21,6 +21,29 @@ function setSessionCookie(response, rawToken) {
 function createAuthRouter({ sessionService, authService }) {
   const authRouter = express.Router();
 
+  function sendPublicError(response, error) {
+    if (
+      !Number.isInteger(error.statusCode)
+      || typeof error.code !== 'string'
+      || typeof error.publicMessage !== 'string'
+    ) {
+      return false;
+    }
+    if (Number.isInteger(error.retryAfterSeconds)) {
+      response.setHeader('Retry-After', error.retryAfterSeconds);
+    }
+    response.status(error.statusCode).json({
+      error: {
+        code: error.code,
+        message: error.publicMessage,
+        ...(Number.isInteger(error.retryAfterSeconds)
+          ? { retryAfterSeconds: error.retryAfterSeconds }
+          : {}),
+      },
+    });
+    return true;
+  }
+
   authRouter.post('/auth/guest', (_request, response) => {
     const {
       rawToken,
@@ -37,7 +60,20 @@ function createAuthRouter({ sessionService, authService }) {
     });
   });
 
-  authRouter.post('/auth/login', (request, response, next) => {
+  authRouter.post('/auth/sms/send', async (request, response, next) => {
+    try {
+      const result = await authService.sendSmsCode(request.body, {
+        requestIp: request.ip || request.socket.remoteAddress,
+      });
+      response.status(201).json(result);
+    } catch (error) {
+      if (!sendPublicError(response, error)) {
+        next(error);
+      }
+    }
+  });
+
+  authRouter.post('/auth/login', async (request, response, next) => {
     try {
       const {
         rawToken,
@@ -45,7 +81,8 @@ function createAuthRouter({ sessionService, authService }) {
         principal,
         profile,
         session,
-      } = authService.login(request.body);
+        verifyResult,
+      } = await authService.login(request.body);
 
       setSessionCookie(response, rawToken);
       response.status(200).json({
@@ -53,22 +90,14 @@ function createAuthRouter({ sessionService, authService }) {
         principal,
         profile,
         session,
+        verification: {
+          verifyResult,
+        },
       });
     } catch (error) {
-      if (
-        Number.isInteger(error.statusCode)
-        && typeof error.code === 'string'
-        && typeof error.publicMessage === 'string'
-      ) {
-        response.status(error.statusCode).json({
-          error: {
-            code: error.code,
-            message: error.publicMessage,
-          },
-        });
-        return;
+      if (!sendPublicError(response, error)) {
+        next(error);
       }
-      next(error);
     }
   });
 

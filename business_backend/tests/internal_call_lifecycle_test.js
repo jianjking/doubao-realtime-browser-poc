@@ -8,8 +8,12 @@ const { createApp } = require('../app');
 const {
   createRequireInternalToken,
 } = require('../middleware/require_internal_token');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
-const TEST_DEVELOPMENT_CODE = '654321';
 const TEST_INTERNAL_TOKEN =
   'internal_test_token_0123456789ABCDEF';
 const OTHER_INTERNAL_TOKEN =
@@ -164,20 +168,23 @@ function extractSessionCookie(response) {
 }
 
 function createTestApp(options = {}) {
+  const clock = options.clock || Date.now;
   return createApp({
-    developmentVerificationCode: TEST_DEVELOPMENT_CODE,
+    ...createMockSmsTestOptions({ clock }),
     internalApiToken: TEST_INTERNAL_TOKEN,
     ...options,
   });
 }
 
-function login(port, phone = TEST_PHONE) {
+async function login(port, phone = TEST_PHONE) {
+  const { challengeId } = await requestSmsChallenge(port, phone);
   return requestJson({
     port,
     path: '/api/auth/login',
     requestBody: {
       phone,
-      code: TEST_DEVELOPMENT_CODE,
+      challengeId,
+      code: TEST_SMS_CODE,
     },
   });
 }

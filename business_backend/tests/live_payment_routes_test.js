@@ -21,6 +21,11 @@ const {
   createWechatNotification,
   startFakePaymentPlatform,
 } = require('./payment_live_test_helpers');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
 function request(port, {
   method = 'GET',
@@ -86,11 +91,12 @@ async function listen(app) {
 }
 
 async function login(port, phone = '13800000000') {
+  const { challengeId } = await requestSmsChallenge(port, phone);
   const response = await request(port, {
     method: 'POST',
     path: '/api/auth/login',
     contentType: 'application/json',
-    body: JSON.stringify({ phone, code: '123456' }),
+    body: JSON.stringify({ phone, challengeId, code: TEST_SMS_CODE }),
   });
   assert.equal(response.statusCode, 200);
   return {
@@ -136,7 +142,7 @@ async function startLiveHarness() {
   });
   const app = createApp({
     businessStores: stores,
-    developmentVerificationCode: '123456',
+    ...createMockSmsTestOptions(),
     paymentProviderRegistry: providerRegistry,
     paymentRuntimeConfig: {
       alipay: { configured: true, enabled: true },
@@ -437,7 +443,7 @@ test('live configuration gaps and disabled mode both fail closed', async () => {
   const stores = createBusinessStores({ databasePath: ':memory:' });
   const app = createApp({
     businessStores: stores,
-    developmentVerificationCode: '123456',
+    ...createMockSmsTestOptions(),
     paymentRuntimeConfig: {
       alipay: { configured: false, enabled: false },
       mode: 'live',
@@ -473,7 +479,7 @@ test('live configuration gaps and disabled mode both fail closed', async () => {
   const disabledStores = createBusinessStores({ databasePath: ':memory:' });
   const disabledApp = createApp({
     businessStores: disabledStores,
-    developmentVerificationCode: '123456',
+    ...createMockSmsTestOptions(),
     paymentRuntimeConfig: {
       alipay: { configured: false, enabled: false },
       mode: 'disabled',

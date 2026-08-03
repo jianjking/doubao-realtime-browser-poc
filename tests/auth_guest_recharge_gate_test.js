@@ -226,6 +226,10 @@ function loadAuthRuntime(options = {}) {
   const guestEntryButton = new FakeElement();
   const phoneLoginButton = new FakeElement();
   const authStatus = new FakeElement();
+  const mockCodeNote = new FakeElement();
+  const mockCodeValue = new FakeElement();
+  mockCodeNote.hidden = true;
+  mockCodeNote.queryMap.set('span', mockCodeValue);
   const selectorMap = new Map([
     ['.phone-auth-form', form],
     ['#phone-input', phoneInput],
@@ -238,6 +242,7 @@ function loadAuthRuntime(options = {}) {
     ['.guest-entry-button', guestEntryButton],
     ['.phone-login-button', phoneLoginButton],
     ['.auth-status', authStatus],
+    ['.mock-code-note', mockCodeNote],
   ]);
   form.querySelector = (selector) => {
     if (selector !== '[aria-invalid="true"]') {
@@ -259,9 +264,23 @@ function loadAuthRuntime(options = {}) {
         status: 200,
         async json() {
           return {
-            authMode: 'development_mock_phone',
+            authMode: 'sms_phone',
             principal: { type: 'user', id: 'user-test' },
             profile: { phoneMasked: '138****1234' },
+          };
+        },
+      };
+    }
+    if (pathname === '/api/auth/sms/send') {
+      return {
+        ok: true,
+        status: 201,
+        async json() {
+          return {
+            challengeId: 'challenge-test',
+            expiresInSeconds: 300,
+            mockCode: '654321',
+            resendAfterSeconds: 60,
           };
         },
       };
@@ -727,22 +746,130 @@ async function verifyAuthValidationAndPrivacy() {
 
   const noConsent = loadAuthRuntime();
   noConsent.phoneInput.value = '13800001234';
-  noConsent.codeInput.value = '123456';
+  noConsent.codeInput.value = '654321';
   noConsent.form.dispatch('submit');
   assert.equal(noConsent.consentError.hidden, false);
 
   const sendCode = loadAuthRuntime();
   sendCode.phoneInput.value = '13800001234';
-  sendCode.sendCodeButton.click();
-  assert.equal(sendCode.authStatus.textContent, '演示验证码为123456');
+  await sendCode.sendCodeButton.click();
+  assert.notEqual(sendCode.authStatus.textContent, '');
   assert.equal(sendCode.sendCodeButton.disabled, true);
   assert.equal(sendCode.sendCodeButton.textContent, '60秒后重发');
+
+  let releaseSend;
+  const pendingSend = new Promise((resolve) => {
+    releaseSend = resolve;
+  });
+  const doubleSend = loadAuthRuntime({
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/auth/sms/send') {
+        return pendingSend;
+      }
+      throw new Error('unexpected request');
+    },
+  });
+  doubleSend.phoneInput.value = '13800001234';
+  const firstSend = doubleSend.sendCodeButton.click();
+  const secondSend = doubleSend.sendCodeButton.click();
+  await Promise.resolve();
+  assert.equal(doubleSend.fetchRequests.length, 1);
+  releaseSend({
+    ok: true,
+    status: 201,
+    async json() {
+      return {
+        challengeId: 'double-send-challenge',
+        expiresInSeconds: 300,
+        resendAfterSeconds: 60,
+      };
+    },
+  });
+  await Promise.all([firstSend, secondSend]);
+
+  const failedSend = loadAuthRuntime({
+    fetchImpl: async (pathname) => pathname === '/api/auth/sms/send'
+      ? {
+        ok: false,
+        status: 502,
+        async json() {
+          return { error: { code: 'SMS_SEND_FAILED' } };
+        },
+      }
+      : { ok: false, status: 500, async json() { return {}; } },
+  });
+  failedSend.phoneInput.value = '13800001234';
+  await failedSend.sendCodeButton.click();
+  assert.equal(failedSend.sendCodeButton.disabled, false);
+  assert.equal(failedSend.sendCodeButton.textContent, '发送验证码');
+
+  const changedPhone = loadAuthRuntime();
+  changedPhone.phoneInput.value = '13800001234';
+  await changedPhone.sendCodeButton.click();
+  changedPhone.codeInput.value = '654321';
+  changedPhone.phoneInput.value = '13900001333';
+  await changedPhone.phoneInput.dispatch('input');
+  assert.equal(changedPhone.codeInput.value, '');
+  assert.equal(changedPhone.sendCodeButton.disabled, false);
+
+  let releaseLogin;
+  const pendingLogin = new Promise((resolve) => {
+    releaseLogin = resolve;
+  });
+  const doubleLogin = loadAuthRuntime({
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/auth/sms/send') {
+        return {
+          ok: true,
+          status: 201,
+          async json() {
+            return {
+              challengeId: 'double-login-challenge',
+              expiresInSeconds: 300,
+              resendAfterSeconds: 60,
+            };
+          },
+        };
+      }
+      if (pathname === '/api/auth/login') {
+        return pendingLogin;
+      }
+      throw new Error('unexpected request');
+    },
+  });
+  doubleLogin.phoneInput.value = '13800001234';
+  await doubleLogin.sendCodeButton.click();
+  doubleLogin.codeInput.value = '654321';
+  doubleLogin.consentCheckbox.checked = true;
+  const firstLogin = doubleLogin.form.dispatch('submit');
+  const secondLogin = doubleLogin.form.dispatch('submit');
+  await Promise.resolve();
+  assert.equal(
+    doubleLogin.fetchRequests.filter(
+      (entry) => entry.pathname === '/api/auth/login'
+    ).length,
+    1
+  );
+  releaseLogin({
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        authMode: 'sms_phone',
+        principal: { type: 'user', id: 'user-double-login' },
+        profile: { phoneMasked: '138****1234' },
+      };
+    },
+  });
+  await Promise.all([firstLogin, secondLogin]);
+  assert.deepEqual(doubleLogin.locationAssignments, ['./choice.html']);
 
   const login = loadAuthRuntime({
     search: '?mode=phone&returnAction=recharge',
   });
   login.phoneInput.value = '13800001234';
-  login.codeInput.value = '123456';
+  await login.sendCodeButton.click();
+  login.codeInput.value = '654321';
   login.consentCheckbox.checked = true;
   await login.form.dispatch('submit');
   const storedAuth = login.localStorage.getItem(AUTH_STORAGE_KEY);
@@ -758,19 +885,21 @@ async function verifyAuthValidationAndPrivacy() {
   );
   assert.equal(login.codeInput.value, '');
   assert.equal(storedAuth.includes('13800001234'), false);
-  assert.equal(storedAuth.includes('123456'), false);
+  assert.equal(storedAuth.includes('654321'), false);
   assert.equal(
     login.localStorage.getItem(PENDING_ACTION_STORAGE_KEY),
     'recharge'
   );
   assert.deepEqual(login.locationAssignments, ['./choice.html']);
-  assert.equal(login.fetchRequests.length, 1);
-  assert.equal(login.fetchRequests[0].pathname, '/api/auth/login');
+  assert.equal(login.fetchRequests.length, 2);
+  assert.equal(login.fetchRequests[0].pathname, '/api/auth/sms/send');
+  assert.equal(login.fetchRequests[1].pathname, '/api/auth/login');
   assert.deepEqual(
-    JSON.parse(login.fetchRequests[0].requestOptions.body),
+    JSON.parse(login.fetchRequests[1].requestOptions.body),
     {
+      challengeId: 'challenge-test',
+      code: '654321',
       phone: '13800001234',
-      code: '123456',
     }
   );
 
@@ -1920,7 +2049,8 @@ function verifyStaticUiAndPrivacyBoundaries() {
   assert.match(authHtml, /autocomplete="tel"/);
   assert.match(authHtml, /autocomplete="one-time-code"/);
   assert.match(authHtml, /inputmode="numeric"/);
-  assert.match(authHtml, /演示验证码：<span>123456<\/span>/);
+  assert.match(authHtml, /class="[^"]*mock-code-note/);
+  assert.doesNotMatch(authHtml, /演示验证码/);
   assert.match(homeHtml, /左右滑动切换角色/);
   assert.doesNotMatch(
     `${homeHtml}\n${homeCss}\n${homeJs}`,

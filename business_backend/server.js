@@ -16,6 +16,9 @@ const {
   parsePaymentRuntimeConfig,
 } = require('./config/payments');
 const {
+  parseSmsRuntimeConfig,
+} = require('./config/sms');
+const {
   formatCnyCents,
   readFortunePricingConfig,
 } = require('./config/fortune_pricing_config');
@@ -49,6 +52,7 @@ function parsePort(rawPort) {
 
 function startServer() {
   const paymentRuntimeConfig = parsePaymentRuntimeConfig(process.env);
+  const smsRuntimeConfig = parseSmsRuntimeConfig(process.env);
   const fortunePricingConfig = readFortunePricingConfig(process.env);
   const configuredHost = process.env.BUSINESS_BACKEND_HOST;
   const host = typeof configuredHost === 'string'
@@ -87,6 +91,7 @@ function startServer() {
       fortuneTtsClient,
       fortuneDrawPriceCents: fortunePricingConfig.drawPriceCents,
       paymentRuntimeConfig,
+      smsRuntimeConfig,
     });
   } catch (error) {
     businessStores.close();
@@ -95,6 +100,7 @@ function startServer() {
 
   const server = app.listen(port, host, () => {
     console.log(`business-backend listening on ${host}:${port}`);
+    console.log(`sms-provider mode: ${smsRuntimeConfig.mode}`);
     if (paymentRuntimeConfig.mode === 'mock') {
       console.log('支付模式：Mock（不会产生真实扣款）');
     } else {

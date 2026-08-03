@@ -8,6 +8,11 @@ const { createApp } = require('../app');
 const {
   createBusinessStores,
 } = require('../stores/business_store_factory');
+const {
+  TEST_SMS_CODE,
+  createMockSmsTestOptions,
+  requestSmsChallenge,
+} = require('./sms_test_helpers');
 
 function requestJson(port, {
   method = 'GET',
@@ -66,7 +71,7 @@ async function startHarness({
   const stores = createBusinessStores({ databasePath: ':memory:' });
   const app = createApp({
     businessStores: stores,
-    developmentVerificationCode: '123456',
+    ...createMockSmsTestOptions(),
     paymentRuntimeConfig: {
       mode,
       mockConfirmationEnabled,
@@ -89,10 +94,11 @@ async function startHarness({
 }
 
 async function login(port, phone) {
+  const { challengeId } = await requestSmsChallenge(port, phone);
   const response = await requestJson(port, {
     method: 'POST',
     path: '/api/auth/login',
-    body: { phone, code: '123456' },
+    body: { phone, challengeId, code: TEST_SMS_CODE },
   });
   assert.equal(response.statusCode, 200);
   const rawCookie = response.headers['set-cookie'][0];
