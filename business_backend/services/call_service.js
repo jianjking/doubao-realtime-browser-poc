@@ -204,6 +204,36 @@ function createCallService({
     return buildPublicCall(call);
   }
 
+  function getPendingCallAdmissionForUser({ userId, callId } = {}) {
+    const publicCall = getPublicCallForUser({ userId, callId });
+    const call = callStore.findById(callId);
+    if (!call || call.status !== 'pending') {
+      throw createPublicError(
+        409,
+        'INVALID_CALL_TRANSITION',
+        'Call state transition is not allowed'
+      );
+    }
+    if (accountService !== null) {
+      const account = accountService.getPublicAccountForUser(userId);
+      if (!account) {
+        throw createPublicError(
+          409,
+          'ACCOUNT_UNAVAILABLE',
+          'User account is unavailable'
+        );
+      }
+      if (account.balanceCents < call.pricePerBillingUnitFen) {
+        throw createPublicError(
+          409,
+          'INSUFFICIENT_BALANCE',
+          'Account balance is insufficient to start a call'
+        );
+      }
+    }
+    return publicCall;
+  }
+
   function transitionCall(callId, targetStatus) {
     validateInternalCallId(callId);
     return runInTransaction(() => {
@@ -226,6 +256,23 @@ function createCallService({
           'INVALID_CALL_TRANSITION',
           'Call state transition is not allowed'
         );
+      }
+      if (targetStatus === 'connecting' && accountService !== null) {
+        const account = accountService.getPublicAccountForUser(call.userId);
+        if (!account) {
+          throw createPublicError(
+            409,
+            'ACCOUNT_UNAVAILABLE',
+            'User account is unavailable'
+          );
+        }
+        if (account.balanceCents < call.pricePerBillingUnitFen) {
+          throw createPublicError(
+            409,
+            'INSUFFICIENT_BALANCE',
+            'Account balance is insufficient to start a call'
+          );
+        }
       }
 
       const nextCall = {
@@ -291,6 +338,7 @@ function createCallService({
 
   return {
     createPendingCall,
+    getPendingCallAdmissionForUser,
     getPublicCallForUser,
     markCallConnecting,
     markCallActive,

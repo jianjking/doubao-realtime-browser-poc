@@ -83,6 +83,7 @@ function startServer() {
         __dirname,
         '../ui_prototypes/yuhuang_mobile_v1'
       ),
+      realtimeUiDirectory: path.resolve(__dirname, '../public'),
       fortuneAudioWorkletFile: path.resolve(
         __dirname,
         '../public/pcm_capture_processor.js'

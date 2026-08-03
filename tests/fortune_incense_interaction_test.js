@@ -277,6 +277,8 @@ function loadFortuneRuntime(options = {}) {
   const interpretationAudioControl = new FakeElement({
     textContent: '听道童解签',
   });
+  const fortuneReturnLink = new FakeElement();
+  const resetFortuneButton = new FakeElement({ hidden: true });
   const fortunePrice = options.paidUi ? new FakeElement() : null;
   const fortuneBalance = options.paidUi ? new FakeElement() : null;
   const fortuneErrorTitle = options.paidUi ? new FakeElement() : null;
@@ -332,6 +334,8 @@ function loadFortuneRuntime(options = {}) {
     ['[data-interpretation-audio]', interpretationAudio],
     ['[data-interpretation-audio-status]', interpretationAudioStatus],
     ['[data-interpretation-audio-control]', interpretationAudioControl],
+    ['[data-fortune-return]', fortuneReturnLink],
+    ['[data-reset-fortune]', resetFortuneButton],
   ]);
   if (options.paidUi) {
     elements.set('[data-fortune-price]', fortunePrice);
@@ -623,6 +627,7 @@ function loadFortuneRuntime(options = {}) {
     fortuneErrorTitle,
     fortuneDrawAnimation,
     fortuneResult,
+    fortuneReturnLink,
     fortunePrice,
     fortuneBalance,
     fortuneRechargeButton,
@@ -649,6 +654,7 @@ function loadFortuneRuntime(options = {}) {
     page,
     retryFortuneButton,
     retryInterpretationButton,
+    resetFortuneButton,
     rechargeEntry,
     speakControlButton,
     speechDetail,
@@ -3191,6 +3197,32 @@ async function verifyClickAndStagedFlow() {
   assert.equal(runtime.audioElements.length, 1);
   assert.equal(runtime.audioElements[0].playCallCount, 1);
   assert.equal(runtime.interpretationAudioControl.hidden, true);
+  assert.equal(runtime.resetFortuneButton.hidden, false);
+
+  const requestCountBeforeReset = runtime.fetchRequests.length;
+  let returnPrevented = false;
+  runtime.fortuneReturnLink.trigger('click', {
+    preventDefault() {
+      returnPrevented = true;
+    },
+    target: runtime.fortuneReturnLink,
+  });
+  assert.equal(returnPrevented, true);
+  assert.equal(runtime.page.dataset.fortuneState, 'ready-to-speak');
+  assert.equal(runtime.page.dataset.fortuneCharacterKey, 'guanyin');
+  assert.equal(runtime.fortuneResult.hidden, true);
+  assert.equal(runtime.interpretationResult.hidden, true);
+  assert.equal(runtime.resetFortuneButton.hidden, true);
+  assert.equal(runtime.lotNumber.textContent, '');
+  assert.equal(runtime.lotLevel.textContent, '');
+  assert.equal(runtime.lotTitle.textContent, '');
+  assert.equal(runtime.lotVerses.textContent, '');
+  assert.equal(runtime.interpretationText.textContent, '');
+  assert.equal(runtime.transcriptText.textContent, '');
+  assert.equal(runtime.audioElements[0].pauseCallCount, 1);
+  assert.deepEqual(runtime.revokedObjectUrls, ['blob:fortune-audio-1']);
+  assert.equal(runtime.fetchRequests.length, requestCountBeforeReset);
+  assert.equal(runtime.speakControlButton.focusCallCount, 1);
 
   runtime.triggerWindow('pagehide');
   assert.equal(runtime.audioElements[0].pauseCallCount, 1);

@@ -290,7 +290,7 @@ function verifyStaticCallFallbacks() {
   assert.match(callHtml, /id="callStartupFallback"[\s\S]*?hidden/);
   assert.match(
     callHtml,
-    /src="\/realtime_call_ui\.js"[\s\S]*?onerror="window\.showCallStartupFallback\(\)"/
+    /src="\/realtime-call\/realtime_call_ui\.js"[\s\S]*?onerror="window\.showCallStartupFallback\(\)"/
   );
   assert.match(
     callCss,
@@ -387,6 +387,7 @@ function createCallUiRuntime(options = {}) {
   };
   const callPageUrl = new URL('http://127.0.0.1:3001/');
   callPageUrl.searchParams.set('characterKey', 'yuhuang');
+  callPageUrl.searchParams.set('callId', 'call-startup-test');
   callPageUrl.searchParams.set(
     'returnUrl',
     'http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/home.html'
@@ -397,6 +398,21 @@ function createCallUiRuntime(options = {}) {
     addEventListener() {},
     clearInterval() {},
     clearTimeout,
+    async fetch() {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            call: {
+              id: 'call-startup-test',
+              status: 'pending',
+              role: { slug: 'yuhuang' },
+            },
+          };
+        },
+      };
+    },
     location: {
       assign(url) {
         locationAssignments.push(url);
@@ -459,7 +475,7 @@ async function verifyCallUiStartupFailures() {
   );
   assert.equal(
     missingApi.ids.callIdentityEntry.attributes.get('href'),
-    'http://127.0.0.1:8765/ui_prototypes/yuhuang_mobile_v1/index.html'
+    'http://127.0.0.1:3001/ui_prototypes/yuhuang_mobile_v1/index.html'
   );
   missingApi.ids.callPrimaryButton.click();
   assert.deepEqual(missingApi.apiCounts, {

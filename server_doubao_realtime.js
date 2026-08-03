@@ -138,6 +138,10 @@ const INVALID_BUSINESS_CALL_ID_MESSAGE =
   'Invalid business call identifier';
 const CONFLICTING_BROWSER_HELLO_MESSAGE =
   'Conflicting browser.hello';
+const BUSINESS_CALL_REQUIRED_MESSAGE =
+  'Business call admission is required';
+const BUSINESS_CALL_ADMISSION_FAILED_MESSAGE =
+  'Business call admission failed';
 
 function log(message) {
   console.log(`${new Date().toISOString()} ${message}`);
@@ -1998,6 +2002,14 @@ function handleBrowserMessage(context, rawData) {
       message,
       'callId'
     );
+    if (context.enforceBusinessCallAdmission && !hasBusinessCallId) {
+      log('[Relay] browser.hello 缺少业务通话标识');
+      sendJson(context.browserSocket, {
+        type: 'relay.error',
+        message: BUSINESS_CALL_REQUIRED_MESSAGE,
+      });
+      return;
+    }
     if (hasBusinessCallId && !isValidBusinessCallId(message.callId)) {
       log('[Relay] browser.hello 包含非法业务通话标识');
       sendJson(context.browserSocket, {
@@ -2009,6 +2021,23 @@ function handleBrowserMessage(context, rawData) {
     const nextBusinessCallId = hasBusinessCallId
       ? message.callId
       : null;
+    if (context.enforceBusinessCallAdmission) {
+      let lifecycleEnabled = false;
+      try {
+        lifecycleEnabled =
+          context.internalCallLifecycleDependency.enabled === true;
+      } catch {
+        lifecycleEnabled = false;
+      }
+      if (!lifecycleEnabled) {
+        log('[Relay] 业务通话准入依赖未启用，拒绝连接豆包');
+        sendJson(context.browserSocket, {
+          type: 'relay.error',
+          message: BUSINESS_CALL_ADMISSION_FAILED_MESSAGE,
+        });
+        return;
+      }
+    }
 
     const rawCharacterKey = Object.hasOwn(message, 'characterKey')
       ? message.characterKey
@@ -2048,6 +2077,17 @@ function handleBrowserMessage(context, rawData) {
         });
         return;
       }
+      if (context.businessCallAdmissionPending) {
+        log('[Relay] 业务通话准入仍在核验，忽略重复 browser.hello');
+        return;
+      }
+      if (context.businessCallAdmissionFailed) {
+        sendJson(context.browserSocket, {
+          type: 'relay.error',
+          message: BUSINESS_CALL_ADMISSION_FAILED_MESSAGE,
+        });
+        return;
+      }
       log('[Relay] 已确认幂等重复 browser.hello');
       sendJson(context.browserSocket, {
         type: 'relay.hello_ack',
@@ -2072,6 +2112,48 @@ function handleBrowserMessage(context, rawData) {
     context.internalCallLifecycleCoordinator =
       nextInternalCallLifecycleCoordinator;
     context.characterResolved = true;
+    if (
+      context.enforceBusinessCallAdmission
+      && context.internalCallLifecycleCoordinator !== null
+    ) {
+      context.businessCallAdmissionPending = true;
+      void context.internalCallLifecycleCoordinator
+        .markConnecting()
+        .then((call) => {
+          context.businessCallAdmissionPending = false;
+          if (context.closing || context.businessCallAdmissionFailed) {
+            return;
+          }
+          if (
+            !call
+            || !call.role
+            || call.role.slug !== characterConfig.key
+          ) {
+            context.businessCallAdmissionFailed = true;
+            log('[Relay] 业务通话角色与 browser.hello 不匹配');
+            sendJson(context.browserSocket, {
+              type: 'relay.error',
+              message: BUSINESS_CALL_ADMISSION_FAILED_MESSAGE,
+            });
+            return;
+          }
+          sendJson(context.browserSocket, {
+            type: 'relay.hello_ack',
+            received: true,
+          });
+          connectDoubaoUpstream(context);
+        })
+        .catch(() => {
+          context.businessCallAdmissionPending = false;
+          context.businessCallAdmissionFailed = true;
+          log('[Relay] 业务通话 connecting 准入核验失败');
+          sendJson(context.browserSocket, {
+            type: 'relay.error',
+            message: BUSINESS_CALL_ADMISSION_FAILED_MESSAGE,
+          });
+        });
+      return;
+    }
     if (context.internalCallLifecycleCoordinator !== null) {
       void context.internalCallLifecycleCoordinator
         .markConnecting()
@@ -2279,12 +2361,16 @@ function handleBrowserConnection(
   request,
   contexts,
   internalCallLifecycleDependency =
-    DISABLED_INTERNAL_CALL_LIFECYCLE_DEPENDENCY
+    DISABLED_INTERNAL_CALL_LIFECYCLE_DEPENDENCY,
+  enforceBusinessCallAdmission = false
 ) {
   const remoteAddress = request.socket.remoteAddress || 'unknown';
   const context = {
     browserSocket: socket,
     businessCallId: null,
+    businessCallAdmissionFailed: false,
+    businessCallAdmissionPending: false,
+    enforceBusinessCallAdmission,
     internalCallLifecycleDependency,
     internalCallLifecycleCoordinator: null,
     upstreamSocket: undefined,
@@ -2480,7 +2566,8 @@ function startServer({
       socket,
       request,
       contexts,
-      internalCallLifecycleDependency
+      internalCallLifecycleDependency,
+      true
     );
   });
 

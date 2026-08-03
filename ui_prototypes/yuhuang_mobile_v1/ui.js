@@ -1,7 +1,7 @@
 'use strict';
 
 (() => {
-  const REALTIME_PAGE_URL = 'http://127.0.0.1:3001/';
+  const REALTIME_PAGE_URL = '/realtime-call/';
   const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
   const ACCOUNT_API_URL = '/api/me';
   const CALL_API_URL = '/api/calls';
@@ -2336,8 +2336,9 @@
     }
     currentAuthState = authState;
     if (!isPhoneAuthenticated(authState)) {
-      window.location.assign(buildRealtimeNavigationUrl(realtimeUrl));
-      return true;
+      showToast('语音通话需要先使用手机号登录');
+      window.location.assign('./index.html?mode=phone');
+      return false;
     }
 
     setStartingCall(true);

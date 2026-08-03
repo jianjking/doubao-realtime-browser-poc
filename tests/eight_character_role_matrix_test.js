@@ -107,6 +107,10 @@ const INVALID_BUSINESS_CALL_ID_MESSAGE =
   'Invalid business call identifier';
 const CONFLICTING_BROWSER_HELLO_MESSAGE =
   'Conflicting browser.hello';
+const BUSINESS_CALL_REQUIRED_MESSAGE =
+  'Business call admission is required';
+const BUSINESS_CALL_ADMISSION_FAILED_MESSAGE =
+  'Business call admission failed';
 let businessCallIdScenarioCount = 0;
 
 function createEnabledEnvironment() {
@@ -394,7 +398,8 @@ class FakeBrowserSocket {
 
 function createBrowserConnection(
   runtime,
-  internalCallLifecycleDependency
+  internalCallLifecycleDependency,
+  enforceBusinessCallAdmission = false
 ) {
   const browserSocket = new FakeBrowserSocket();
   const contexts = new Set();
@@ -414,12 +419,17 @@ function createBrowserConnection(
       browserSocket,
       request,
       contexts,
-      internalCallLifecycleDependency
+      internalCallLifecycleDependency,
+      enforceBusinessCallAdmission
     );
   }
   assert.equal(contexts.size, 1);
   const context = [...contexts][0];
   assert.equal(context.businessCallId, null);
+  assert.equal(
+    context.enforceBusinessCallAdmission,
+    enforceBusinessCallAdmission
+  );
   assert.equal(context.internalCallLifecycleCoordinator, null);
   assert.equal(context.sessionFinished, false);
   assert.equal(context.sessionFailed, false);
@@ -4172,7 +4182,11 @@ function verifyLifecycleBoundary() {
   );
   const markConnectingMatches =
     serverSource.match(/\.markConnecting\s*\(\)/g) || [];
-  assert.equal(markConnectingMatches.length, 1);
+  assert.equal(markConnectingMatches.length, 2);
+  assert.match(
+    serverSource,
+    /context\.enforceBusinessCallAdmission[\s\S]*?\.markConnecting\(\)[\s\S]*?type: 'relay\.hello_ack'[\s\S]*?connectDoubaoUpstream\(context\)/
+  );
   assert.match(
     serverSource,
     /if \(context\.internalCallLifecycleCoordinator !== null\) \{\s*void context\.internalCallLifecycleCoordinator\s*\.markConnecting\(\)\s*\.catch\(\(\) => \{\s*log\('\[Relay\] 内部 Call 生命周期 connecting 状态上报失败'\);\s*\}\);\s*\}/
@@ -4543,6 +4557,155 @@ function verifyEightRoleConnections() {
   return promptHashes;
 }
 
+async function verifyEnforcedBusinessCallAdmission() {
+  const missingIdRuntime = createRuntime(createEnabledEnvironment());
+  const missingIdTracking = createTrackingLifecycleDependency();
+  const missingIdConnection = createBrowserConnection(
+    missingIdRuntime,
+    missingIdTracking.dependency,
+    true
+  );
+  missingIdConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+  });
+  assertLifecycleCalls(missingIdTracking.lifecycleCalls, 0);
+  assert.equal(missingIdRuntime.upstreamInstances.length, 0);
+  assert.deepEqual(
+    getBrowserMessagesByType(
+      missingIdConnection.browserSocket,
+      'relay.error'
+    ),
+    [{
+      type: 'relay.error',
+      message: BUSINESS_CALL_REQUIRED_MESSAGE,
+    }]
+  );
+
+  const disabledRuntime = createRuntime(createEnabledEnvironment());
+  const disabledConnection = createBrowserConnection(
+    disabledRuntime,
+    Object.freeze({ enabled: false, client: null }),
+    true
+  );
+  disabledConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+    callId: 'call-disabled-admission',
+  });
+  assert.equal(disabledRuntime.upstreamInstances.length, 0);
+  assert.deepEqual(
+    getBrowserMessagesByType(
+      disabledConnection.browserSocket,
+      'relay.error'
+    ),
+    [{
+      type: 'relay.error',
+      message: BUSINESS_CALL_ADMISSION_FAILED_MESSAGE,
+    }]
+  );
+
+  const rejectedRuntime = createRuntime(createEnabledEnvironment());
+  const rejectedTracking = createTrackingLifecycleDependency({
+    markConnecting() {
+      return Promise.reject(new Error('admission rejected'));
+    },
+  });
+  const rejectedConnection = createBrowserConnection(
+    rejectedRuntime,
+    rejectedTracking.dependency,
+    true
+  );
+  rejectedConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+    callId: 'call-rejected-admission',
+  });
+  assert.equal(rejectedRuntime.upstreamInstances.length, 0);
+  assert.equal(
+    countBrowserMessages(rejectedConnection.browserSocket, 'relay.hello_ack'),
+    0
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assertLifecycleCalls(rejectedTracking.lifecycleCalls, 1);
+  assert.equal(rejectedRuntime.upstreamInstances.length, 0);
+  assert.deepEqual(
+    getBrowserMessagesByType(
+      rejectedConnection.browserSocket,
+      'relay.error'
+    ),
+    [{
+      type: 'relay.error',
+      message: BUSINESS_CALL_ADMISSION_FAILED_MESSAGE,
+    }]
+  );
+
+  const mismatchRuntime = createRuntime(createEnabledEnvironment());
+  const mismatchTracking = createTrackingLifecycleDependency({
+    markConnecting() {
+      return {
+        role: { slug: 'sunwukong' },
+      };
+    },
+  });
+  const mismatchConnection = createBrowserConnection(
+    mismatchRuntime,
+    mismatchTracking.dependency,
+    true
+  );
+  mismatchConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+    callId: 'call-role-mismatch',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assertLifecycleCalls(mismatchTracking.lifecycleCalls, 1);
+  assert.equal(mismatchRuntime.upstreamInstances.length, 0);
+  assert.equal(
+    countBrowserMessages(mismatchConnection.browserSocket, 'relay.hello_ack'),
+    0
+  );
+
+  const admittedRuntime = createRuntime(createEnabledEnvironment());
+  const admittedTracking = createTrackingLifecycleDependency({
+    markConnecting() {
+      return {
+        role: { slug: 'yuhuang' },
+      };
+    },
+  });
+  const admittedConnection = createBrowserConnection(
+    admittedRuntime,
+    admittedTracking.dependency,
+    true
+  );
+  admittedConnection.browserSocket.emitJson({
+    type: 'browser.hello',
+    client: 'doubao-browser-poc',
+    characterKey: 'yuhuang',
+    callId: 'call-admitted',
+  });
+  assert.equal(admittedRuntime.upstreamInstances.length, 0);
+  assert.equal(
+    countBrowserMessages(admittedConnection.browserSocket, 'relay.hello_ack'),
+    0
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assertLifecycleCalls(admittedTracking.lifecycleCalls, 1);
+  assert.equal(admittedRuntime.upstreamInstances.length, 1);
+  assert.equal(
+    countBrowserMessages(admittedConnection.browserSocket, 'relay.hello_ack'),
+    1
+  );
+}
+
 async function main() {
   verifyPromptRegression();
   verifyStrictEnableSwitches();
@@ -4554,6 +4717,7 @@ async function main() {
   await verifySessionStartedLifecycleActivation();
   await verifySessionFinishedLifecycleCompletion();
   await verifySessionFailedLifecycleFailure();
+  await verifyEnforcedBusinessCallAdmission();
   verifyLifecycleBoundary();
 
   process.stdout.write('eight_character_role_matrix_test: PASS\n');
@@ -4572,7 +4736,7 @@ async function main() {
       + 'lifecycle-pending-nonblocking,lifecycle-dual-layer-calls,'
       + 'lifecycle-session-started-active,lifecycle-active-fire-and-observe,'
       + 'lifecycle-session-finished-ended,lifecycle-session-failed-failed,'
-      + 'lifecycle-boundary\n'
+      + 'enforced-business-call-admission,lifecycle-boundary\n'
   );
   process.stdout.write(
     `businessCallIdScenarios=${businessCallIdScenarioCount}\n`

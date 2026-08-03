@@ -13,6 +13,7 @@ const {
   MemoryAccountStore,
 } = require('../stores/memory_account_store');
 const { MemoryCallStore } = require('../stores/memory_call_store');
+const { MemoryUserStore } = require('../stores/memory_user_store');
 const {
   TEST_SMS_CODE,
   createMockSmsTestOptions,
@@ -241,6 +242,14 @@ function getCall(port, callId, cookiePair, headers = {}) {
       ...headers,
       ...(cookiePair ? { Cookie: cookiePair } : {}),
     },
+  });
+}
+
+function getCallAdmission(port, callId, cookiePair) {
+  return requestPath({
+    port,
+    path: `/api/calls/${callId}/admission`,
+    headers: cookiePair ? { Cookie: cookiePair } : {},
   });
 }
 
@@ -505,6 +514,109 @@ test('call owners can query their strict public pending call', async () => {
         INVALID_CALL_ID_RESPONSE
       );
     }
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('call admission requires the owner, pending state, and current balance', async () => {
+  const accountStore = new MemoryAccountStore();
+  const callStore = new MemoryCallStore();
+  const businessStores = {
+    accountStore,
+    callStore,
+    userStore: new MemoryUserStore(),
+    runInTransaction: (operation) => operation(),
+  };
+  const { port, server } = await startApp(createTestApp({
+    businessStores,
+    callIdGenerator: () => 'call-admission-owned',
+    clock: () => Date.parse(FIXED_TIME),
+  }));
+
+  try {
+    const unauthenticated = await getCallAdmission(
+      port,
+      'call-admission-owned',
+      null
+    );
+    assert.equal(unauthenticated.statusCode, 401);
+    assert.deepEqual(parseJson(unauthenticated.body), AUTH_REQUIRED_RESPONSE);
+
+    const guestResponse = await requestPath({
+      port,
+      path: '/api/auth/guest',
+      method: 'POST',
+    });
+    const guestCookie = extractSessionCookie(guestResponse).cookiePair;
+    const guestAdmission = await getCallAdmission(
+      port,
+      'call-admission-owned',
+      guestCookie
+    );
+    assert.equal(guestAdmission.statusCode, 403);
+    assert.deepEqual(
+      parseJson(guestAdmission.body),
+      USER_LOGIN_REQUIRED_RESPONSE
+    );
+
+    const ownerLogin = await login(port, OWNER_PHONE);
+    const ownerBody = parseJson(ownerLogin.body);
+    const ownerCookie = extractSessionCookie(ownerLogin).cookiePair;
+    const createResponse = await createPendingCall(port, ownerCookie);
+    assert.equal(createResponse.statusCode, 201);
+
+    const admitted = await getCallAdmission(
+      port,
+      'call-admission-owned',
+      ownerCookie
+    );
+    assert.equal(admitted.statusCode, 200);
+    assert.deepEqual(parseJson(admitted.body), parseJson(createResponse.body));
+
+    const otherLogin = await login(port, OTHER_PHONE);
+    const otherCookie = extractSessionCookie(otherLogin).cookiePair;
+    const foreignAdmission = await getCallAdmission(
+      port,
+      'call-admission-owned',
+      otherCookie
+    );
+    assert.equal(foreignAdmission.statusCode, 404);
+    assert.deepEqual(
+      parseJson(foreignAdmission.body),
+      CALL_NOT_FOUND_RESPONSE
+    );
+
+    const ownerAccount = accountStore.findByUserId(ownerBody.principal.id);
+    accountStore.replace({ ...ownerAccount, balanceCents: 0 });
+    const insufficient = await getCallAdmission(
+      port,
+      'call-admission-owned',
+      ownerCookie
+    );
+    assert.equal(insufficient.statusCode, 409);
+    assert.deepEqual(parseJson(insufficient.body), {
+      error: {
+        code: 'INSUFFICIENT_BALANCE',
+        message: 'Account balance is insufficient to start a call',
+      },
+    });
+
+    accountStore.replace(ownerAccount);
+    const pendingCall = callStore.findById('call-admission-owned');
+    callStore.replace({ ...pendingCall, status: 'connecting' });
+    const noLongerPending = await getCallAdmission(
+      port,
+      'call-admission-owned',
+      ownerCookie
+    );
+    assert.equal(noLongerPending.statusCode, 409);
+    assert.deepEqual(parseJson(noLongerPending.body), {
+      error: {
+        code: 'INVALID_CALL_TRANSITION',
+        message: 'Call state transition is not allowed',
+      },
+    });
   } finally {
     await closeServer(server);
   }

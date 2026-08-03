@@ -247,6 +247,21 @@ function createApp(options = {}) {
       })
     );
   }
+  if (options.realtimeUiDirectory !== undefined) {
+    if (
+      typeof options.realtimeUiDirectory !== 'string'
+      || options.realtimeUiDirectory === ''
+    ) {
+      throw new TypeError('realtimeUiDirectory must be a non-empty string');
+    }
+    app.use(
+      '/realtime-call',
+      express.static(options.realtimeUiDirectory, {
+        dotfiles: 'deny',
+        fallthrough: false,
+      })
+    );
+  }
   if (options.fortuneAudioWorkletFile !== undefined) {
     if (
       typeof options.fortuneAudioWorkletFile !== 'string'

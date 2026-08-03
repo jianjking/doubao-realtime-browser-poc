@@ -16,7 +16,7 @@
     aria-labelledby="fortune-title"
   >
     <header class="top-controls unified-top-controls" aria-label="页面导航">
-      <a class="unified-return-link" href="./choice.html">返回</a>
+      <a class="unified-return-link" data-fortune-return href="./choice.html">返回</a>
       <div class="unified-title-area">
         <span>静心入殿</span>
         <h1 id="fortune-title">上香求签</h1>
@@ -56,7 +56,7 @@
       aria-controls="fortune-pricing-overlay"
       aria-haspopup="dialog"
       aria-expanded="false">
-      <span aria-hidden="true">&#8226;&#8226;&#8226;</span>
+      <span>价格说明</span>
     </button>
 
     <div class="shrine-scene-background" aria-hidden="true">
@@ -190,6 +190,7 @@
                 </button>
               </section>
             </section>
+            <button class="fortune-reset-button" type="button" data-reset-fortune hidden>再求一次</button>
           </section>
         </div>
       </section>

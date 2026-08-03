@@ -61,7 +61,8 @@ const MIC_JS_PATH = path.join(
   PROJECT_DIR,
   'public/doubao_mic_single_turn.js'
 );
-const CALL_URL = 'http://127.0.0.1:3001/';
+const CALL_PATH = '/realtime-call/';
+const CALL_URL = `http://127.0.0.1:8765${CALL_PATH}`;
 const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
 const IDENTITY_ENTRY_PATH =
   '/ui_prototypes/yuhuang_mobile_v1/index.html';
@@ -836,6 +837,7 @@ function createCallRuntime(characterKey, options = {}) {
   ids.callIdentityEntry.setAttribute('aria-disabled', 'true');
   ids.callIdentityEntry.setAttribute('tabindex', '-1');
   const subscriptions = [];
+  const fetchRequests = [];
   const apiCounts = {
     connect: 0,
     disconnect: 0,
@@ -885,6 +887,12 @@ function createCallRuntime(characterKey, options = {}) {
   if (typeof returnUrl === 'string') {
     searchParams.set('returnUrl', returnUrl);
   }
+  const businessCallId = Object.hasOwn(options, 'callId')
+    ? options.callId
+    : `call-${characterKey || 'yuhuang'}`;
+  if (typeof businessCallId === 'string') {
+    searchParams.set('callId', businessCallId);
+  }
   callPageUrl.search = searchParams.toString();
   const window = {
     addEventListener() {},
@@ -901,6 +909,25 @@ function createCallRuntime(characterKey, options = {}) {
       protocol: callPageUrl.protocol,
       search: callPageUrl.search,
     },
+    async fetch(pathname, requestOptions) {
+      fetchRequests.push({ pathname, requestOptions });
+      if (typeof options.fetchImpl === 'function') {
+        return options.fetchImpl(pathname, requestOptions);
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            call: {
+              id: businessCallId,
+              status: 'pending',
+              role: { slug: characterKey || 'yuhuang' },
+            },
+          };
+        },
+      };
+    },
     setInterval() {
       return 1;
     },
@@ -914,6 +941,7 @@ function createCallRuntime(characterKey, options = {}) {
     URLSearchParams,
     console,
     document,
+    fetchRequests,
     window,
   }, {
     filename: CALL_JS_PATH,
@@ -921,6 +949,7 @@ function createCallRuntime(characterKey, options = {}) {
   return {
     apiCounts,
     document,
+    fetchRequests,
     ids,
     locationAssignments,
     selectors,
@@ -1035,53 +1064,18 @@ async function verifyMicReconnectCharacterKey() {
       filename: MIC_JS_PATH,
     });
 
-    await context.__micTest.connectRelay();
-    assert.equal(sockets.length, 1);
-    const firstSocket = sockets[0];
-    firstSocket.readyState = FakeWebSocket.OPEN;
-    firstSocket.emit('message', {
-      data: JSON.stringify({
-        type: 'relay.ready',
-        version: 'local-fake',
-      }),
-    });
-    assert.deepEqual(firstSocket.sent[0], {
-      type: 'browser.hello',
-      client: 'doubao-browser-poc',
-      characterKey: expected.key,
-    });
-    assert.equal(
-      Object.prototype.hasOwnProperty.call(firstSocket.sent[0], 'callId'),
-      false
-    );
+    const firstResult = await context.__micTest.connectRelay();
+    assert.equal(firstResult.status, 'invalid-business-call-id');
+    assert.equal(firstResult.socket, null);
+    assert.equal(firstResult.message, INVALID_BUSINESS_CALL_ID_MESSAGE);
+    assert.equal(sockets.length, 0);
     businessCallIdScenarioCount += 1;
 
-    firstSocket.close(1000, 'local test complete');
-    await wait();
-    await context.__micTest.connectRelay();
-    assert.equal(sockets.length, 2);
-    const secondSocket = sockets[1];
-    assert.notEqual(secondSocket, firstSocket);
-    secondSocket.readyState = FakeWebSocket.OPEN;
-    secondSocket.emit('message', {
-      data: JSON.stringify({
-        type: 'relay.ready',
-        version: 'local-fake',
-      }),
-    });
-    assert.deepEqual(secondSocket.sent[0], {
-      type: 'browser.hello',
-      client: 'doubao-browser-poc',
-      characterKey: expected.key,
-    });
-    assert.equal(
-      Object.prototype.hasOwnProperty.call(secondSocket.sent[0], 'callId'),
-      false
-    );
+    const secondResult = await context.__micTest.connectRelay();
+    assert.equal(secondResult.status, 'invalid-business-call-id');
+    assert.equal(secondResult.socket, null);
+    assert.equal(sockets.length, 0);
     businessCallIdScenarioCount += 1;
-
-    secondSocket.close(1000, 'local test complete');
-    await wait();
 
     if (expected.key === 'yuhuang' || expected.key === 'sunwukong') {
       const businessCallId = expected.key === 'yuhuang'
@@ -1101,8 +1095,8 @@ async function verifyMicReconnectCharacterKey() {
       });
       assert.equal(result.status, 'created');
       assert.equal(result.callId, localCallId);
-      assert.equal(sockets.length, 3);
-      const businessSocket = sockets[2];
+      assert.equal(sockets.length, 1);
+      const businessSocket = sockets[0];
       businessSocket.readyState = FakeWebSocket.OPEN;
       businessSocket.emit('message', {
         data: JSON.stringify({
@@ -1282,8 +1276,8 @@ async function verifyHomeConfigurationAndPreloading() {
     assert.equal(
       runtime.test.REALTIME_URLS_BY_CHARACTER_KEY[expected.key],
       expected.key === 'yuhuang'
-        ? CALL_URL
-        : `${CALL_URL}?characterKey=${expected.key}`
+        ? CALL_PATH
+        : `${CALL_PATH}?characterKey=${expected.key}`
     );
   }
 
@@ -1432,6 +1426,11 @@ async function verifyCallPagesAndRestart() {
 
     button.click();
     await wait();
+    assert.equal(runtime.fetchRequests.length, 1);
+    assert.equal(
+      runtime.fetchRequests[0].pathname,
+      `/api/calls/call-${expected.key}/admission`
+    );
     assert.equal(runtime.apiCounts.connect, 1);
     assert.equal(runtime.apiCounts.warmupPlayback, 1);
     assert.equal(runtime.apiCounts.startAudio, 1);
@@ -1478,8 +1477,83 @@ async function verifyCallPagesAndRestart() {
 
     button.click();
     await wait();
+    assert.equal(runtime.fetchRequests.length, 2);
     assert.equal(runtime.apiCounts.connect, 2);
     assert.equal(pageShell.dataset.callCharacterKey, expected.key);
+  }
+
+  const missingCallRuntime = createCallRuntime(null, { callId: null });
+  assert.equal(
+    missingCallRuntime.ids.callStatusText.textContent,
+    '请先使用手机号登录，并从功能选择页重新进入通话'
+  );
+  missingCallRuntime.ids.callPrimaryButton.click();
+  await wait();
+  assert.equal(missingCallRuntime.fetchRequests.length, 0);
+  assert.deepEqual(missingCallRuntime.apiCounts, {
+    connect: 0,
+    disconnect: 0,
+    startAudio: 0,
+    warmupPlayback: 0,
+  });
+  assert.equal(
+    missingCallRuntime.locationAssignments.at(-1),
+    DEFAULT_IDENTITY_ENTRY_URL
+  );
+
+  const rejectedAdmissions = [
+    {
+      status: 401,
+      body: { error: { code: 'AUTH_REQUIRED' } },
+      expectedStatus: '登录状态已失效，请重新使用手机号登录',
+      expectedNavigation: DEFAULT_IDENTITY_ENTRY_URL,
+    },
+    {
+      status: 409,
+      body: { error: { code: 'INSUFFICIENT_BALANCE' } },
+      expectedStatus: '账户话费不足，未启动通话，请返回充值',
+      expectedNavigation: undefined,
+    },
+    {
+      status: 200,
+      body: {
+        call: {
+          id: 'call-yuhuang',
+          status: 'pending',
+          role: { slug: 'sunwukong' },
+        },
+      },
+      expectedStatus: '通话信息已失效，请返回首页重新开始',
+      expectedNavigation: undefined,
+    },
+  ];
+  for (const scenario of rejectedAdmissions) {
+    const runtime = createCallRuntime(null, {
+      fetchImpl: async () => ({
+        ok: scenario.status >= 200 && scenario.status < 300,
+        status: scenario.status,
+        async json() {
+          return scenario.body;
+        },
+      }),
+    });
+    runtime.ids.callPrimaryButton.click();
+    await wait();
+    assert.equal(runtime.fetchRequests.length, 1);
+    assert.deepEqual(runtime.apiCounts, {
+      connect: 0,
+      disconnect: 0,
+      startAudio: 0,
+      warmupPlayback: 0,
+    });
+    assert.equal(
+      runtime.ids.callStatusText.textContent,
+      scenario.expectedStatus
+    );
+    assert.equal(
+      runtime.locationAssignments.at(-1),
+      scenario.expectedNavigation
+    );
   }
 }
 
@@ -1536,18 +1610,22 @@ async function verifyReturnUrlNavigation() {
     homePageUrl:
       'http://127.0.0.1:18765/ui_prototypes/yuhuang_mobile_v1/home.html',
     storageEntries: {
-      companion_auth_state_v1: createAuthState('guest'),
+      companion_auth_state_v1: createAuthState('phone'),
     },
   });
+  homeRuntime.test.initializeUi();
+  await wait();
   assert.equal(
     await homeRuntime.test.selectCharacter('guanyin', 'swipe-left'),
     true
   );
   await homeRuntime.test.handleStartConversation();
   const assignedCallUrl = new URL(
-    homeRuntime.locationAssignments.at(-1)
+    homeRuntime.locationAssignments.at(-1),
+    homeRuntime.test.buildRealtimeNavigationUrl(CALL_PATH)
   );
-  assert.equal(assignedCallUrl.port, '3001');
+  assert.equal(assignedCallUrl.port, '18765');
+  assert.equal(assignedCallUrl.pathname, CALL_PATH);
   assert.equal(assignedCallUrl.searchParams.get('characterKey'), 'guanyin');
   assert.equal(
     new URL(assignedCallUrl.searchParams.get('returnUrl')).port,
@@ -1568,7 +1646,7 @@ async function verifyReturnUrlNavigation() {
   const identityEntryUrl = new URL(
     validCallRuntime.ids.callIdentityEntry.attributes.get('href')
   );
-  assert.equal(identityEntryUrl.origin, validatedHomeUrl.origin);
+  assert.equal(identityEntryUrl.origin, 'http://127.0.0.1:3001');
   assert.equal(identityEntryUrl.pathname, IDENTITY_ENTRY_PATH);
   assert.equal(
     validCallRuntime.ids.callReturnButton.attributes.has('aria-disabled'),
@@ -1628,31 +1706,30 @@ async function verifyReturnUrlNavigation() {
       false
     );
     assert.equal(
-      runtime.ids.callIdentityEntry.attributes.has('href'),
-      false
+      runtime.ids.callIdentityEntry.attributes.get('href'),
+      DEFAULT_IDENTITY_ENTRY_URL
     );
     assert.equal(
       runtime.ids.callReturnButton.attributes.get('aria-disabled'),
       'true'
     );
     assert.equal(
-      runtime.ids.callIdentityEntry.attributes.get('aria-disabled'),
-      'true'
+      runtime.ids.callIdentityEntry.attributes.has('aria-disabled'),
+      false
     );
     assert.equal(
       runtime.ids.callReturnButton.attributes.get('tabindex'),
       '-1'
     );
     assert.equal(
-      runtime.ids.callIdentityEntry.attributes.get('tabindex'),
-      '-1'
+      runtime.ids.callIdentityEntry.attributes.has('tabindex'),
+      false
     );
     assert.equal(
       runtime.ids.callStatusText.textContent,
       '无法确定首页地址，请从首页重新进入通话'
     );
     runtime.ids.callReturnButton.click();
-    runtime.ids.callIdentityEntry.click();
     assert.equal(runtime.locationAssignments.length, 0);
   }
 
@@ -1693,7 +1770,7 @@ async function verifyReturnUrlNavigation() {
   );
   assert.equal(
     missingApiRuntime.ids.callIdentityEntry.attributes.get('href'),
-    'http://127.0.0.1:18765'
+    'http://127.0.0.1:3001'
       + '/ui_prototypes/yuhuang_mobile_v1/index.html'
   );
   assert.equal(missingApiRuntime.ids.callPrimaryButton.disabled, true);

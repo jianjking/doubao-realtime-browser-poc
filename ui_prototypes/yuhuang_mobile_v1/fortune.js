@@ -144,6 +144,8 @@
   const interpretationAudioControl = document.querySelector(
     '[data-interpretation-audio-control]'
   );
+  const fortuneReturnLink = document.querySelector('[data-fortune-return]');
+  const resetFortuneButton = document.querySelector('[data-reset-fortune]');
   const fortunePrice = document.querySelector('[data-fortune-price]');
   const fortuneBalance = document.querySelector('[data-fortune-balance]');
   const fortuneInsufficientPrice = document.querySelector(
@@ -224,6 +226,8 @@
     || !interpretationAudio
     || !interpretationAudioStatus
     || !interpretationAudioControl
+    || !fortuneReturnLink
+    || !resetFortuneButton
   ) {
     return;
   }
@@ -1174,6 +1178,7 @@
     retryInterpretationButton.disabled = true;
     interpretationResult.hidden = true;
     interpretationAudio.hidden = true;
+    resetFortuneButton.hidden = true;
     wishPaper.hidden = true;
     wishPaper.setAttribute('aria-hidden', 'true');
 
@@ -1368,6 +1373,7 @@
     ) {
       page.classList.add('has-offered-wish', 'has-lot-result');
       fortuneResult.hidden = false;
+      resetFortuneButton.hidden = false;
       lotNumber.textContent = String(publicFortuneSession.lot.number);
       lotLevel.textContent = publicFortuneSession.lot.level;
       lotTitle.textContent = publicFortuneSession.lot.title;
@@ -1421,6 +1427,11 @@
     transcriptIsFinal = false;
     publicFortuneSession = null;
     publicInterpretation = null;
+    lotNumber.textContent = '';
+    lotLevel.textContent = '';
+    lotTitle.textContent = '';
+    lotVerses.textContent = '';
+    interpretationText.textContent = '';
     transcriptStatus.textContent = '正在聆听';
     transcriptText.textContent = '';
     setWishPaperBusy(false);
@@ -1428,6 +1439,37 @@
     wishPaper.hidden = true;
     wishPaper.setAttribute('aria-hidden', 'true');
     page.classList.remove('has-offered-wish');
+  }
+
+  function resetCompletedFortune(event) {
+    if (!publicFortuneSession) {
+      return false;
+    }
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    sessionGeneration += 1;
+    fortuneRequestGeneration += 1;
+    if (fortuneRequestController !== null) {
+      fortuneRequestController.abort();
+      fortuneRequestController = null;
+    }
+    interpretationRequestGeneration += 1;
+    if (interpretationRequestController !== null) {
+      interpretationRequestController.abort();
+      interpretationRequestController = null;
+    }
+    closeActiveAsrSession();
+    resetWishPaper();
+    activeFortuneClientRequestId = '';
+    currentCharge = null;
+    replaceFortuneUrlState({});
+    interactionState = INTERACTION_STATES.READY_TO_SPEAK;
+    renderSpeechState();
+    if (typeof speakControlButton.focus === 'function') {
+      speakControlButton.focus();
+    }
+    return true;
   }
 
   function isPublicFortuneSession(value) {
@@ -2579,6 +2621,8 @@
     'click',
     handleInterpretationAudioControl
   );
+  resetFortuneButton.addEventListener('click', resetCompletedFortune);
+  fortuneReturnLink.addEventListener('click', resetCompletedFortune);
   page.classList.add('has-offered-incense');
   incenseState.textContent = '三柱清香已燃';
   acolyteGuidance.textContent =

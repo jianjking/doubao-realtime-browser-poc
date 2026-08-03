@@ -8,6 +8,10 @@
   const CALL_COMPONENT_LOAD_ERROR =
     '通话功能暂时没有加载成功，请重新加载或返回功能选择';
   const DEFAULT_CALL_CHARACTER_KEY = 'yuhuang';
+  const CALL_API_URL = '/api/calls';
+  const BUSINESS_CALL_ID_MAX_LENGTH = 128;
+  const CALL_ADMISSION_REQUIRED =
+    '请先使用手机号登录，并从功能选择页重新进入通话';
 
   function validateReturnHomeUrl(rawReturnUrl) {
     if (typeof rawReturnUrl !== 'string' || rawReturnUrl === '') {
@@ -63,8 +67,8 @@
     );
   }
 
-  function buildIdentityEntryUrl(returnHomeUrl) {
-    return new URL(IDENTITY_ENTRY_PATH, returnHomeUrl.origin).href;
+  function buildIdentityEntryUrl(origin) {
+    return new URL(IDENTITY_ENTRY_PATH, origin).href;
   }
   const CALL_CHARACTER_CONFIGS = Object.freeze({
     yuhuang: Object.freeze({
@@ -210,25 +214,22 @@
 
   function initializeReturnNavigation(searchParams) {
     const returnHomeUrl = resolveReturnHomeUrl(searchParams);
+    callIdentityEntry.setAttribute(
+      'href',
+      buildIdentityEntryUrl(window.location.origin)
+    );
+    callIdentityEntry.removeAttribute('aria-disabled');
+    callIdentityEntry.removeAttribute('tabindex');
     if (returnHomeUrl) {
       callReturnButton.setAttribute('href', returnHomeUrl.href);
-      callIdentityEntry.setAttribute(
-        'href',
-        buildIdentityEntryUrl(returnHomeUrl)
-      );
       callReturnButton.removeAttribute('aria-disabled');
-      callIdentityEntry.removeAttribute('aria-disabled');
       callReturnButton.removeAttribute('tabindex');
-      callIdentityEntry.removeAttribute('tabindex');
       return returnHomeUrl;
     }
 
     callReturnButton.removeAttribute('href');
-    callIdentityEntry.removeAttribute('href');
     callReturnButton.setAttribute('aria-disabled', 'true');
-    callIdentityEntry.setAttribute('aria-disabled', 'true');
     callReturnButton.setAttribute('tabindex', '-1');
-    callIdentityEntry.setAttribute('tabindex', '-1');
     callStatusText.textContent = RETURN_NAVIGATION_ERROR;
 
     const blockInvalidNavigation = (event) => {
@@ -236,12 +237,27 @@
       callStatusText.textContent = RETURN_NAVIGATION_ERROR;
     };
     callReturnButton.addEventListener('click', blockInvalidNavigation);
-    callIdentityEntry.addEventListener('click', blockInvalidNavigation);
     return null;
+  }
+
+  function resolveBusinessCallId(searchParams) {
+    const values = searchParams.getAll('callId');
+    if (
+      values.length !== 1
+      || typeof values[0] !== 'string'
+      || values[0].length < 1
+      || values[0].length > BUSINESS_CALL_ID_MAX_LENGTH
+      || values[0].trim() !== values[0]
+      || /[\u0000-\u001f\u007f-\u009f]/.test(values[0])
+    ) {
+      return null;
+    }
+    return values[0];
   }
 
   const query = new URLSearchParams(window.location.search);
   const returnHomeUrl = initializeReturnNavigation(query);
+  const businessCallId = resolveBusinessCallId(query);
   const api = window.DoubaoRealtimeCall;
   const pageShell = document.querySelector('.page-shell');
   const characterImage = document.querySelector(
@@ -389,6 +405,12 @@
       statusText: callCharacter.idleStatus,
       disabled: false,
     },
+    checking: {
+      buttonText: '正在核验',
+      buttonLabel: '正在核验通话资格',
+      statusText: '正在核验登录状态和账户话费',
+      disabled: true,
+    },
     connecting: {
       buttonText: '正在接通',
       buttonLabel: `正在接通${callCharacter.name}`,
@@ -489,8 +511,69 @@
   }
 
   renderProductState('idle');
-  if (!returnHomeUrl) {
+  if (businessCallId === null) {
+    callStatusText.textContent = CALL_ADMISSION_REQUIRED;
+  } else if (!returnHomeUrl) {
     callStatusText.textContent = RETURN_NAVIGATION_ERROR;
+  }
+
+  async function validateCallAdmission() {
+    if (businessCallId === null) {
+      callStatusText.textContent = CALL_ADMISSION_REQUIRED;
+      window.location.assign(buildIdentityEntryUrl(window.location.origin));
+      return false;
+    }
+
+    let response;
+    let responseBody = null;
+    try {
+      response = await window.fetch(
+        `${CALL_API_URL}/${encodeURIComponent(businessCallId)}/admission`,
+        {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        }
+      );
+      try {
+        responseBody = await response.json();
+      } catch {
+        responseBody = null;
+      }
+    } catch {
+      renderProductState('idle');
+      callStatusText.textContent = '网络连接失败，未启动通话，请稍后重试';
+      return false;
+    }
+
+    const errorCode = responseBody
+      && responseBody.error
+      && responseBody.error.code;
+    if (response.status === 401 || response.status === 403) {
+      renderProductState('idle');
+      callStatusText.textContent = '登录状态已失效，请重新使用手机号登录';
+      window.location.assign(buildIdentityEntryUrl(window.location.origin));
+      return false;
+    }
+    if (response.status === 409 && errorCode === 'INSUFFICIENT_BALANCE') {
+      renderProductState('idle');
+      callStatusText.textContent = '账户话费不足，未启动通话，请返回充值';
+      return false;
+    }
+
+    const call = responseBody && responseBody.call;
+    if (
+      response.status !== 200
+      || !call
+      || call.id !== businessCallId
+      || call.status !== 'pending'
+      || !call.role
+      || call.role.slug !== callCharacter.key
+    ) {
+      renderProductState('idle');
+      callStatusText.textContent = '通话信息已失效，请返回首页重新开始';
+      return false;
+    }
+    return true;
   }
 
   function navigateHomeOnce() {
@@ -520,6 +603,11 @@
       case 'idle':
         if (productState === 'idle') {
           renderProductState('idle');
+          if (businessCallId === null) {
+            callStatusText.textContent = CALL_ADMISSION_REQUIRED;
+          } else if (!returnHomeUrl) {
+            callStatusText.textContent = RETURN_NAVIGATION_ERROR;
+          }
         }
         break;
       case 'connecting':
@@ -596,9 +684,14 @@
     navigationStarted = false;
     startupRecoveryPending = false;
     clearDurationTimer({ reset: true });
-    renderProductState('connecting');
+    renderProductState('checking');
 
     try {
+      const admitted = await validateCallAdmission();
+      if (!admitted || operationId !== productOperationId) {
+        return;
+      }
+      renderProductState('connecting');
       const playbackWarmupPromise = api.warmupPlayback();
       const sessionReadyPromise = api.connect();
       await Promise.all([

@@ -33,7 +33,7 @@ function resolveBusinessCallIdFromUrl() {
   const values = url.searchParams.getAll('callId');
   if (values.length === 0) {
     return {
-      valid: true,
+      valid: false,
       businessCallId: null,
     };
   }
@@ -1031,7 +1031,7 @@ async function startMicrophone() {
     }
 
     await audioContext.audioWorklet.addModule(
-      '/pcm_capture_processor.js'
+      '/realtime-call/pcm_capture_processor.js'
     );
 
     if (operationId !== microphoneOperationId) {

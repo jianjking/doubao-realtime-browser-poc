@@ -1040,13 +1040,10 @@ async function verifyHomeGuardRechargeAndAccount() {
   });
   await wait();
   await guestCall.callButton.click();
-  const guestCallUrl = new URL(guestCall.locationAssignments.at(-1));
-  assert.equal(guestCallUrl.origin, 'http://127.0.0.1:3001');
   assert.equal(
-    guestCallUrl.searchParams.get('returnUrl'),
-    DEFAULT_HOME_URL
+    guestCall.locationAssignments.at(-1),
+    './index.html?mode=phone'
   );
-  assert.equal(guestCallUrl.searchParams.has('callId'), false);
 
   const phone = loadHomeRuntime({
     storageEntries: {
@@ -1790,9 +1787,11 @@ async function verifyRealAccountAndCallFlow() {
     },
   });
   await wait();
-  assert.equal(await guestRuntime.test.handleStartConversation(), true);
-  const guestUrl = new URL(guestRuntime.locationAssignments.at(-1));
-  assert.equal(guestUrl.searchParams.has('callId'), false);
+  assert.equal(await guestRuntime.test.handleStartConversation(), false);
+  assert.equal(
+    guestRuntime.locationAssignments.at(-1),
+    './index.html?mode=phone'
+  );
   assert.deepEqual(
     guestRuntime.fetchRequests.map((request) => request.pathname),
     ['/api/me']

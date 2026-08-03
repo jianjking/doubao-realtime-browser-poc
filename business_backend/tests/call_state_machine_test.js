@@ -860,10 +860,12 @@ test('existing calls can end into debt while new calls are rejected', () => {
     createPendingCall(callService),
     createPendingCall(callService),
   ];
-
-  function endCall(pendingCall, durationMs) {
+  for (const pendingCall of pendingCalls) {
     callService.markCallConnecting({ callId: pendingCall.id });
     callService.markCallActive({ callId: pendingCall.id });
+  }
+
+  function endCall(pendingCall, durationMs) {
     now += durationMs;
     const endedCall = callService.markCallEnded({
       callId: pendingCall.id,
@@ -934,11 +936,11 @@ test('ended rejects a declared owner whose account is missing', () => {
   let now = Date.parse(CREATED_AT);
   const {
     accountService,
+    accountStore,
     callService,
     callStore,
   } = createDebitingService({
     clock: () => now,
-    createOwnerAccount: false,
     idGenerator: () => 'call-debit-missing-account',
   });
   accountService.ensureAccountForUser('other-user');
@@ -949,6 +951,10 @@ test('ended rejects a declared owner whose account is missing', () => {
   callService.markCallConnecting({ callId: pendingCall.id });
   now = Date.parse(ACTIVE_AT);
   callService.markCallActive({ callId: pendingCall.id });
+  const findAccount = accountStore.findByUserId.bind(accountStore);
+  accountStore.findByUserId = (userId) => (
+    userId === pendingCall.userId ? null : findAccount(userId)
+  );
   now += 6000;
 
   assertPublicError(() => {

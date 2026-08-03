@@ -15,20 +15,21 @@
   z-index: 41;
   top: calc(env(safe-area-inset-top, 0px) + 102px);
   right: calc(env(safe-area-inset-right, 0px) + 10px);
-  display: grid;
-  width: 48px;
+  display: inline-grid;
+  min-width: 92px;
   height: 48px;
   place-items: center;
-  padding: 0 0 8px;
+  padding: 0 14px;
   border: 1px solid rgba(233, 208, 157, 0.58);
-  border-radius: 50%;
+  border-radius: 8px;
   color: #fff8e9;
   background: rgba(72, 26, 32, 0.72);
   box-shadow: 0 5px 16px rgba(39, 10, 14, 0.24);
   cursor: pointer;
-  font-size: 25px;
+  font-size: 17px;
   font-weight: 800;
-  line-height: 1;
+  line-height: 1.2;
+  white-space: nowrap;
   text-shadow: 0 1px 4px rgba(25, 8, 11, 0.82);
   backdrop-filter: blur(7px);
 }
@@ -40,6 +41,13 @@
 .fortune-pricing-trigger:focus-visible {
   outline: 4px solid #fff6d2;
   outline-offset: 3px;
+}
+
+.fortune-pricing-trigger:disabled {
+  cursor: not-allowed;
+  color: rgba(255, 248, 233, 0.72);
+  background: rgba(72, 26, 32, 0.48);
+  box-shadow: none;
 }
 
 .fortune-insufficient-details {
@@ -895,6 +903,27 @@ a {
   cursor: pointer;
   font-size: 18px;
   font-weight: 900;
+}
+
+.fortune-reset-button {
+  width: 100%;
+  min-height: 54px;
+  margin-top: 16px;
+  border: 2px solid #6b292d;
+  border-radius: 14px;
+  color: #fff8e9;
+  background: linear-gradient(180deg, #82373b, #5c2227);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.fortune-reset-button:active {
+  background: #46191e;
+}
+
+.fortune-reset-button:focus-visible {
+  outline: 4px solid #fff2bd;
+  outline-offset: 3px;
 }
 
 .draw-fortune-preview-button:disabled,
@@ -2882,10 +2911,35 @@ a {
 .fortune-interpretation-audio-button {
   width: auto;
   min-width: 112px;
-  min-height: 40px;
+  min-height: 48px;
   margin: 5px auto 0;
   padding: 6px 18px;
-  font-size: 15px;
+  font-size: 17px;
+}
+
+.fortune-interpretation-result {
+  border: 1px solid rgba(230, 187, 105, 0.58);
+  background: linear-gradient(180deg, #682a31, #46191f);
+  box-shadow:
+    0 12px 28px rgba(25, 5, 8, 0.38),
+    inset 0 1px 0 rgba(255, 235, 190, 0.1);
+}
+
+.fortune-interpretation-result h4 {
+  color: #f0ca7b;
+}
+
+.fortune-interpretation-result p {
+  color: #fff8e9;
+}
+
+.fortune-interpretation-result .fortune-interpretation-audio {
+  border-top-color: rgba(240, 202, 123, 0.42);
+}
+
+.fortune-interpretation-result .fortune-interpretation-audio p {
+  color: #fff3dc;
+  font-size: 16px;
 }
 
 .is-reading-interpretation .acolyte-figure {

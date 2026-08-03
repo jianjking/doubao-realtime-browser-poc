@@ -34,6 +34,7 @@ const CALL_SERVICE_ERROR_STATUS_CODES = Object.freeze({
   ROLE_UNAVAILABLE: 409,
   ACCOUNT_UNAVAILABLE: 409,
   INSUFFICIENT_BALANCE: 409,
+  INVALID_CALL_TRANSITION: 409,
 });
 
 function sendKnownCallServiceError(error, response) {
@@ -117,6 +118,38 @@ function createCallRouter({
       next(error);
     }
   });
+
+  callRouter.get(
+    '/calls/:callId/admission',
+    requireSession,
+    (request, response, next) => {
+      if (request.auth.principal.type !== 'user') {
+        response
+          .status(403)
+          .json(USER_LOGIN_REQUIRED_TO_ACCESS_CALL_RESPONSE);
+        return;
+      }
+
+      const user = userStore.findById(request.auth.principal.id);
+      if (!user || user.status !== 'active') {
+        response.status(401).json(AUTH_REQUIRED_RESPONSE);
+        return;
+      }
+
+      try {
+        const call = callService.getPendingCallAdmissionForUser({
+          userId: user.id,
+          callId: request.params.callId,
+        });
+        response.status(200).json({ call });
+      } catch (error) {
+        if (sendKnownCallServiceError(error, response)) {
+          return;
+        }
+        next(error);
+      }
+    }
+  );
 
   callRouter.get(
     '/calls/:callId',
