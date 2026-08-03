@@ -15,17 +15,40 @@ const js = fs.readFileSync(
   'utf8'
 );
 
-test('paid Fortune page renders server price, balance, login, and recharge guidance', () => {
-  assert.match(html, /本次求签[^<]*<strong data-fortune-price>/);
-  assert.match(html, /仅在成功抽到签文后扣费/);
-  assert.match(html, /当前话费[^<]*<strong data-fortune-balance>/);
+test('paid Fortune page keeps pricing and balance details behind user actions', () => {
+  assert.doesNotMatch(html, /class="fortune-price-summary"/);
+  assert.match(
+    html,
+    /class="fortune-pricing-trigger"[\s\S]*?aria-controls="fortune-pricing-overlay"/
+  );
+  assert.match(
+    html,
+    /class="fortune-pricing-overlay prototype-overlay"[\s\S]*?<h2 id="fortune-pricing-title">价格说明<\/h2>/
+  );
+  assert.match(html, /data-fortune-price>加载中/);
+  assert.match(html, /每次成功抽到签文才扣费/);
+  assert.match(html, /没抽到签文不扣费/);
+  assert.match(html, /文字解签与道童语音<br>包含在本次费用内/);
+  assert.match(html, /重看、重播不重复扣费/);
+  assert.doesNotMatch(html, /¥2\.00/);
+  assert.match(
+    html,
+    /class="fortune-insufficient-overlay prototype-overlay"[\s\S]*?<h2 id="fortune-insufficient-title">当前话费不足<\/h2>/
+  );
+  assert.match(html, /本次求签需要\s*<strong data-fortune-insufficient-price>/);
+  assert.match(html, /当前话费\s*<strong data-fortune-balance>/);
+  assert.match(html, /充值后可以继续求签，<br>不用重新说一遍心愿/);
+  assert.match(html, /data-fortune-insufficient-recharge>话费充值/);
+  assert.match(html, /data-close-fortune-insufficient>暂不充值/);
+  assert.equal((html.match(/class="recharge-panel prototype-overlay"/g) || []).length, 1);
   assert.match(html, /请先登录后求签/);
   assert.match(html, /data-fortune-recharge[^>]*>话费充值/);
   assert.match(html, /data-fortune-charge-success/);
   assert.match(js, /const FORTUNE_CONFIG_API_URL = '\/api\/fortune-config'/);
   assert.match(js, /const ACCOUNT_API_URL = '\/api\/me'/);
   assert.match(js, /INSUFFICIENT_ACCOUNT_BALANCE/);
-  assert.match(js, /还差 \$\{formatCny\(drawPriceCents - accountBalanceCents\)\}/);
+  assert.match(js, /fortuneInsufficientOverlay/);
+  assert.match(js, /openFortuneRecharge/);
   assert.doesNotMatch(js, /drawPriceCents\s*=\s*200/);
 });
 

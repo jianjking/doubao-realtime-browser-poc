@@ -49,11 +49,15 @@
       </div>
     </header>
 
-    <section class="fortune-price-summary" aria-label="本次求签费用">
-      <p>本次求签 <strong data-fortune-price>加载中</strong></p>
-      <p>仅在成功抽到签文后扣费</p>
-      <p>当前话费 <strong data-fortune-balance>--</strong></p>
-    </section>
+    <button
+      class="fortune-pricing-trigger"
+      type="button"
+      aria-label="查看求签价格说明"
+      aria-controls="fortune-pricing-overlay"
+      aria-haspopup="dialog"
+      aria-expanded="false">
+      <span aria-hidden="true">&#8226;&#8226;&#8226;</span>
+    </button>
 
     <div class="shrine-scene-background" aria-hidden="true">
       <img
@@ -198,6 +202,66 @@
       </p>
     </footer>
   </main>
+
+  <section
+    class="fortune-pricing-overlay prototype-overlay"
+    id="fortune-pricing-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    hidden
+    aria-labelledby="fortune-pricing-title"
+    aria-describedby="fortune-pricing-rules">
+    <div class="role-pricing-card compact-dialog overlay-card">
+      <header class="overlay-header">
+        <div>
+          <h2 id="fortune-pricing-title">价格说明</h2>
+        </div>
+      </header>
+      <div class="role-pricing-content">
+        <p class="role-pricing-minute-price">
+          <strong data-fortune-price>加载中</strong>
+          <span>/ 次</span>
+        </p>
+        <div class="role-pricing-rules" id="fortune-pricing-rules">
+          <p>每次成功抽到签文才扣费。</p>
+          <p>没抽到签文不扣费。</p>
+          <p>文字解签与道童语音<br>包含在本次费用内。</p>
+          <p>重看、重播不重复扣费。</p>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-primary-action" type="button" data-close-fortune-pricing>我知道了</button>
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="fortune-insufficient-overlay prototype-overlay"
+    id="fortune-insufficient-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    hidden
+    aria-labelledby="fortune-insufficient-title"
+    aria-describedby="fortune-insufficient-details">
+    <div class="fortune-insufficient-card compact-dialog overlay-card">
+      <header class="overlay-header">
+        <div>
+          <h2 id="fortune-insufficient-title">当前话费不足</h2>
+        </div>
+      </header>
+      <div class="fortune-insufficient-details" id="fortune-insufficient-details">
+        <p>本次求签需要 <strong data-fortune-insufficient-price>加载中</strong></p>
+        <p>当前话费 <strong data-fortune-balance>--</strong></p>
+        <p>充值后可以继续求签，<br>不用重新说一遍心愿。</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-primary-action" type="button" data-fortune-insufficient-recharge>话费充值</button>
+        <button class="dialog-secondary-action" type="button" data-close-fortune-insufficient>暂不充值</button>
+      </div>
+    </div>
+  </section>
 
   <section
     class="fortune-login-overlay prototype-overlay"

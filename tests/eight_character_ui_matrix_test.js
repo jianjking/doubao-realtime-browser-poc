@@ -2224,6 +2224,27 @@ function verifyFeatureChoiceAndFortuneEntry() {
   );
 
   assert.match(fortuneHtml, /<h1 id="fortune-title">上香求签<\/h1>/);
+  assert.doesNotMatch(fortuneHtml, /class="fortune-price-summary"/);
+  assert.match(
+    fortuneHtml,
+    /class="fortune-pricing-trigger"[\s\S]*?aria-controls="fortune-pricing-overlay"/
+  );
+  assert.match(
+    fortuneHtml,
+    /id="fortune-pricing-overlay"[\s\S]*?每次成功抽到签文才扣费[\s\S]*?重看、重播不重复扣费/
+  );
+  assert.match(
+    fortuneHtml,
+    /id="fortune-insufficient-overlay"[\s\S]*?当前话费不足[\s\S]*?data-fortune-insufficient-recharge>话费充值<\/button>[\s\S]*?data-close-fortune-insufficient>暂不充值<\/button>/
+  );
+  assert.match(
+    entryCss,
+    /\.fortune-pricing-trigger\s*\{[\s\S]*?width:\s*48px;[\s\S]*?height:\s*48px;/
+  );
+  assert.match(
+    fortuneJs,
+    /const FORTUNE_CONFIG_API_URL = '\/api\/fortune-config'/
+  );
   assert.match(
     fortuneHtml,
     /神明高坐庙堂，道童在殿前引导求签。/
