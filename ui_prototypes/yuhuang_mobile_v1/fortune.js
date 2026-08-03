@@ -146,6 +146,27 @@
   );
   const fortunePrice = document.querySelector('[data-fortune-price]');
   const fortuneBalance = document.querySelector('[data-fortune-balance]');
+  const fortuneInsufficientPrice = document.querySelector(
+    '[data-fortune-insufficient-price]'
+  );
+  const fortunePricingTrigger = document.querySelector(
+    '.fortune-pricing-trigger'
+  );
+  const fortunePricingOverlay = document.querySelector(
+    '#fortune-pricing-overlay'
+  );
+  const closeFortunePricingButton = document.querySelector(
+    '[data-close-fortune-pricing]'
+  );
+  const fortuneInsufficientOverlay = document.querySelector(
+    '#fortune-insufficient-overlay'
+  );
+  const fortuneInsufficientRechargeButton = document.querySelector(
+    '[data-fortune-insufficient-recharge]'
+  );
+  const closeFortuneInsufficientButton = document.querySelector(
+    '[data-close-fortune-insufficient]'
+  );
   const fortuneErrorTitle = document.querySelector(
     '[data-fortune-error-title]'
   );
@@ -244,6 +265,8 @@
   let paidInitializationPromise = null;
   let activeFortuneClientRequestId = '';
   let currentCharge = null;
+  let activeFortuneOverlay = null;
+  let activeFortuneOverlayTrigger = null;
 
   function formatCny(cents) {
     if (!Number.isSafeInteger(cents)) {
@@ -262,6 +285,12 @@
     fortunePrice.textContent = Number.isSafeInteger(drawPriceCents)
       ? formatCny(drawPriceCents)
       : '加载中';
+    if (fortuneInsufficientPrice) {
+      fortuneInsufficientPrice.textContent =
+        Number.isSafeInteger(drawPriceCents)
+          ? formatCny(drawPriceCents)
+          : '加载中';
+    }
     fortuneBalance.textContent = accountAccessState === 'authenticated'
       && Number.isSafeInteger(accountBalanceCents)
       ? formatCny(accountBalanceCents)
@@ -422,7 +451,111 @@
     fortuneLoginOverlay.setAttribute('aria-hidden', 'true');
   }
 
+  function openFortuneOverlay(overlay, trigger) {
+    if (!overlay) {
+      return;
+    }
+    if (activeFortuneOverlay && activeFortuneOverlay !== overlay) {
+      closeFortuneOverlay(activeFortuneOverlay, false);
+    }
+    const wasHidden = overlay.hidden;
+    activeFortuneOverlay = overlay;
+    activeFortuneOverlayTrigger = trigger || null;
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    if (document.body) {
+      document.body.classList.add('has-open-overlay');
+    }
+    if (activeFortuneOverlayTrigger) {
+      activeFortuneOverlayTrigger.setAttribute('aria-expanded', 'true');
+    }
+    if (wasHidden) {
+      const focusTarget = overlay.querySelector('button');
+      if (focusTarget && typeof focusTarget.focus === 'function') {
+        focusTarget.focus();
+      }
+    }
+  }
+
+  function closeFortuneOverlay(overlay, restoreFocus = true) {
+    if (!overlay) {
+      return;
+    }
+    const trigger = overlay === activeFortuneOverlay
+      ? activeFortuneOverlayTrigger
+      : null;
+    overlay.hidden = true;
+    overlay.setAttribute('aria-hidden', 'true');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+    if (overlay === activeFortuneOverlay) {
+      activeFortuneOverlay = null;
+      activeFortuneOverlayTrigger = null;
+      if (document.body) {
+        document.body.classList.remove('has-open-overlay');
+      }
+    }
+    if (restoreFocus && trigger && typeof trigger.focus === 'function') {
+      trigger.focus();
+    }
+  }
+
+  function openFortunePricing() {
+    openFortuneOverlay(fortunePricingOverlay, fortunePricingTrigger);
+  }
+
+  function openFortuneInsufficientBalance() {
+    openFortuneOverlay(fortuneInsufficientOverlay, null);
+  }
+
+  function dismissFortuneInsufficientBalance() {
+    const shouldResetForSpeech = (
+      !transcriptIsFinal
+      || currentTranscript.trim() === ''
+      || activeFortuneClientRequestId === ''
+    );
+    closeFortuneOverlay(fortuneInsufficientOverlay, false);
+    if (shouldResetForSpeech) {
+      interactionState = INTERACTION_STATES.READY_TO_SPEAK;
+      renderSpeechState();
+      if (typeof speakControlButton.focus === 'function') {
+        speakControlButton.focus();
+      }
+      return;
+    }
+    const rechargeEntry = document.querySelector('.time-recharge-entry');
+    if (rechargeEntry && typeof rechargeEntry.focus === 'function') {
+      rechargeEntry.focus();
+    }
+  }
+
+  function handleFortuneOverlayBackdropClick(event) {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+    if (event.currentTarget === fortuneInsufficientOverlay) {
+      dismissFortuneInsufficientBalance();
+      return;
+    }
+    closeFortuneOverlay(event.currentTarget, true);
+  }
+
+  function handleFortuneOverlayKeydown(event) {
+    if (event.key !== 'Escape' || !activeFortuneOverlay) {
+      return;
+    }
+    if (activeFortuneOverlay === fortuneInsufficientOverlay) {
+      dismissFortuneInsufficientBalance();
+      return;
+    }
+    closeFortuneOverlay(activeFortuneOverlay, true);
+  }
+
   function openFortuneRecharge() {
+    if (activeFortuneOverlay) {
+      closeFortuneOverlay(activeFortuneOverlay, false);
+    }
     const rechargeEntry = document.querySelector('.time-recharge-entry');
     if (
       rechargeEntry
@@ -1002,6 +1135,12 @@
   }
 
   function renderSpeechState() {
+    if (
+      interactionState !== INTERACTION_STATES.INSUFFICIENT_BALANCE
+      && activeFortuneOverlay === fortuneInsufficientOverlay
+    ) {
+      closeFortuneOverlay(fortuneInsufficientOverlay, false);
+    }
     page.classList.remove(
       'is-listening',
       'has-microphone-error',
@@ -1171,6 +1310,26 @@
     }
 
     if (interactionState === INTERACTION_STATES.INSUFFICIENT_BALANCE) {
+      if (fortuneInsufficientOverlay) {
+        if (
+          transcriptIsFinal
+          && currentTranscript.trim() !== ''
+          && activeFortuneClientRequestId !== ''
+        ) {
+          page.classList.add('has-offered-wish');
+        } else {
+          speechTitle.hidden = false;
+          speechMessage.hidden = false;
+          speakControlButton.hidden = false;
+          speechTitle.textContent = '静心诉说';
+          speechMessage.textContent =
+            '点击“开始说话”，说完后再点击“结束说话”。';
+          speakControlButton.textContent = '开始说话';
+          speakControlButton.disabled = false;
+        }
+        openFortuneInsufficientBalance();
+        return;
+      }
       page.classList.add('has-offered-wish');
       fortuneError.hidden = false;
       retryFortuneButton.disabled = !(
@@ -2167,7 +2326,10 @@
         clearDrawAnimation();
         interactionState = INTERACTION_STATES.INSUFFICIENT_BALANCE;
         renderSpeechState();
-        if (typeof fortuneError.focus === 'function') {
+        if (
+          !fortuneInsufficientOverlay
+          && typeof fortuneError.focus === 'function'
+        ) {
           fortuneError.focus();
         }
         return;
@@ -2281,6 +2443,9 @@
     closeActiveAsrSession();
     clearWishOfferingResources();
     clearDrawAnimation();
+    if (activeFortuneOverlay) {
+      closeFortuneOverlay(activeFortuneOverlay, false);
+    }
     finishRequested = false;
     interactionState = INTERACTION_STATES.READY_TO_SPEAK;
   }
@@ -2361,6 +2526,38 @@
   if (fortuneRechargeButton) {
     fortuneRechargeButton.addEventListener('click', openFortuneRecharge);
   }
+  if (fortunePricingTrigger && fortunePricingOverlay) {
+    fortunePricingTrigger.addEventListener('click', openFortunePricing);
+  }
+  if (closeFortunePricingButton) {
+    closeFortunePricingButton.addEventListener('click', () => {
+      closeFortuneOverlay(fortunePricingOverlay, true);
+    });
+  }
+  if (fortuneInsufficientRechargeButton) {
+    fortuneInsufficientRechargeButton.addEventListener(
+      'click',
+      openFortuneRecharge
+    );
+  }
+  if (closeFortuneInsufficientButton) {
+    closeFortuneInsufficientButton.addEventListener(
+      'click',
+      dismissFortuneInsufficientBalance
+    );
+  }
+  if (fortunePricingOverlay) {
+    fortunePricingOverlay.addEventListener(
+      'click',
+      handleFortuneOverlayBackdropClick
+    );
+  }
+  if (fortuneInsufficientOverlay) {
+    fortuneInsufficientOverlay.addEventListener(
+      'click',
+      handleFortuneOverlayBackdropClick
+    );
+  }
   if (loginForFortuneButton) {
     loginForFortuneButton.addEventListener('click', navigateToFortuneLogin);
   }
@@ -2394,6 +2591,7 @@
     'companion:account-balance-updated',
     handleAccountBalanceUpdated
   );
+  window.addEventListener('keydown', handleFortuneOverlayKeydown);
   window.addEventListener('pagehide', handlePageExit);
   window.addEventListener('beforeunload', handlePageExit);
   window.addEventListener('pageshow', handlePageShow);
