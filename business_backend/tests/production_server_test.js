@@ -88,16 +88,24 @@ function runProductionEntry(envOverrides) {
   });
 }
 
-function requestPath(port, requestPathname, method = 'GET') {
+function requestPath(
+  port,
+  requestPathname,
+  method = 'GET',
+  { headers = {}, body = '' } = {}
+) {
   return new Promise((resolve, reject) => {
     const request = http.request({
       host: '127.0.0.1',
       port,
       path: requestPathname,
       method,
-      headers: method === 'POST'
-        ? { 'Content-Length': '0' }
-        : undefined,
+      headers: {
+        ...headers,
+        ...(method === 'POST'
+          ? { 'Content-Length': Buffer.byteLength(body) }
+          : {}),
+      },
     }, (response) => {
       response.setEncoding('utf8');
       let body = '';
@@ -106,12 +114,13 @@ function requestPath(port, requestPathname, method = 'GET') {
       });
       response.on('end', () => resolve({
         body,
+        headers: response.headers,
         statusCode: response.statusCode,
       }));
       response.on('error', reject);
     });
     request.on('error', reject);
-    request.end();
+    request.end(body);
   });
 }
 
@@ -292,6 +301,38 @@ test('production entry starts with disabled payment and external SQLite', async 
     });
     assert.equal(fs.existsSync(databasePath), true);
     assert.deepEqual(snapshotFile(DEFAULT_DATABASE_PATH), defaultDatabaseBefore);
+
+    const forwardedHeaders = {
+      'X-Forwarded-For': '198.51.100.10',
+      'X-Forwarded-Proto': 'https',
+    };
+    const guest = await requestPath(
+      port,
+      '/api/auth/guest',
+      'POST',
+      { headers: forwardedHeaders }
+    );
+    assert.equal(guest.statusCode, 201);
+    const setCookie = guest.headers['set-cookie'][0];
+    assert.match(setCookie, /;\s*Secure(?:;|$)/i);
+    assert.match(setCookie, /;\s*HttpOnly(?:;|$)/i);
+    const cookie = setCookie.split(';', 1)[0];
+    const me = await requestPath(port, '/api/me', 'GET', {
+      headers: { ...forwardedHeaders, Cookie: cookie },
+    });
+    assert.equal(me.statusCode, 200);
+    assert.equal(JSON.parse(me.body).principal.type, 'guest');
+
+    const directGuest = await requestPath(
+      port,
+      '/api/auth/guest',
+      'POST'
+    );
+    assert.equal(directGuest.statusCode, 201);
+    assert.match(
+      directGuest.headers['set-cookie'][0],
+      /;\s*Secure(?:;|$)/i
+    );
 
     const devRecharge = await requestPath(
       port,

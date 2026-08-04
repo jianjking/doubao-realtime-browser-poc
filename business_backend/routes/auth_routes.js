@@ -8,18 +8,32 @@ const {
   GUEST_SESSION_TTL_SECONDS,
 } = require('../services/session_service');
 
-function setSessionCookie(response, rawToken) {
-  // Production HTTPS deployments must add the Secure attribute.
+function createSessionCookieHeader(rawToken, { secure = false } = {}) {
+  const attributes = [
+    'HttpOnly',
+    'SameSite=Lax',
+    'Path=/',
+    `Max-Age=${GUEST_SESSION_TTL_SECONDS}`,
+  ];
+  if (secure) {
+    attributes.push('Secure');
+  }
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(rawToken)}; `
+    + attributes.join('; ');
+}
+
+function setSessionCookie(response, rawToken, options) {
   response.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE_NAME}=${encodeURIComponent(rawToken)}; `
-      + `HttpOnly; SameSite=Lax; Path=/; `
-      + `Max-Age=${GUEST_SESSION_TTL_SECONDS}`
+    createSessionCookieHeader(rawToken, options)
   );
 }
 
-function createAuthRouter({ sessionService, authService }) {
+function createAuthRouter({ sessionService, authService, nodeEnv = '' }) {
   const authRouter = express.Router();
+  const sessionCookieOptions = Object.freeze({
+    secure: nodeEnv === 'production',
+  });
 
   function sendPublicError(response, error) {
     if (
@@ -52,7 +66,7 @@ function createAuthRouter({ sessionService, authService }) {
       session,
     } = sessionService.createGuestSession();
 
-    setSessionCookie(response, rawToken);
+    setSessionCookie(response, rawToken, sessionCookieOptions);
     response.status(201).json({
       authMode,
       principal,
@@ -84,7 +98,7 @@ function createAuthRouter({ sessionService, authService }) {
         verifyResult,
       } = await authService.login(request.body);
 
-      setSessionCookie(response, rawToken);
+      setSessionCookie(response, rawToken, sessionCookieOptions);
       response.status(200).json({
         authMode,
         principal,
@@ -105,6 +119,7 @@ function createAuthRouter({ sessionService, authService }) {
 }
 
 module.exports = {
+  createSessionCookieHeader,
   createAuthRouter,
   setSessionCookie,
 };

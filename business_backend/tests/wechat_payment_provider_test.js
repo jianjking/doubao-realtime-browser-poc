@@ -80,6 +80,15 @@ test('WeChat Provider performs offline JSAPI and H5 contracts', async () => {
     );
 
     const h5Order = createOrder();
+    const requestsBeforeMissingIp = platform.requests.length;
+    await assert.rejects(
+      provider.createCheckout(h5Order, {
+        payerClientIp: '',
+        userAgent: 'Mobile Safari',
+      }),
+      (error) => error && error.code === 'INVALID_PAYMENT_REQUEST'
+    );
+    assert.equal(platform.requests.length, requestsBeforeMissingIp);
     const h5Checkout = await provider.createCheckout(h5Order, {
       payerClientIp: '127.0.0.1',
       userAgent: 'Mozilla/5.0 (Linux; Android 15) Mobile',

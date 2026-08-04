@@ -55,16 +55,35 @@ function isEmptyRequestBody(requestBody) {
     );
 }
 
-function normalizeDirectClientIp(request) {
-  const address = request
-    && request.socket
-    && typeof request.socket.remoteAddress === 'string'
-    ? request.socket.remoteAddress
+function isLoopbackIp(address) {
+  return (net.isIPv4(address) && address.startsWith('127.'))
+    || address === '::1';
+}
+
+function normalizeTrustedClientIp(request) {
+  const address = request && typeof request.ip === 'string'
+    ? request.ip
     : '';
   const normalized = address.startsWith('::ffff:')
     ? address.slice(7)
     : address;
-  return net.isIP(normalized) ? normalized : '';
+  if (!net.isIP(normalized)) {
+    return '';
+  }
+
+  const trustProxy = request
+    && request.app
+    && typeof request.app.get === 'function'
+    ? request.app.get('trust proxy')
+    : false;
+  if (
+    trustProxy
+    && isLoopbackIp(normalized)
+    && (!Array.isArray(request.ips) || request.ips.length === 0)
+  ) {
+    return '';
+  }
+  return normalized;
 }
 
 function createPaymentRouter({
@@ -127,7 +146,7 @@ function createPaymentRouter({
           payerClientIp: trustedContext
             && typeof trustedContext.payerClientIp === 'string'
             ? trustedContext.payerClientIp
-            : normalizeDirectClientIp(request),
+            : normalizeTrustedClientIp(request),
           wechatOpenId: trustedContext
             && typeof trustedContext.wechatOpenId === 'string'
             ? trustedContext.wechatOpenId
@@ -236,6 +255,6 @@ function createPaymentRouter({
 
 module.exports = {
   createPaymentRouter,
-  normalizeDirectClientIp,
+  normalizeTrustedClientIp,
   sendKnownPaymentError,
 };

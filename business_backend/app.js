@@ -67,6 +67,9 @@ const {
 } = require('./sms/sms_verification_provider_factory');
 
 function createApp(options = {}) {
+  const nodeEnv = typeof options.nodeEnv === 'string'
+    ? options.nodeEnv
+    : '';
   const sessionStore = new MemorySessionStore();
   const businessStores = options.businessStores === undefined
     ? {
@@ -206,6 +209,9 @@ function createApp(options = {}) {
   const app = express();
 
   app.disable('x-powered-by');
+  if (nodeEnv === 'production') {
+    app.set('trust proxy', 'loopback');
+  }
   if (
     options.internalApiToken !== undefined
     && options.internalApiToken !== null
@@ -288,7 +294,11 @@ function createApp(options = {}) {
   }
   app.use('/api', healthRouter);
   app.use('/api', createRoleRouter({ roleService }));
-  app.use('/api', createAuthRouter({ sessionService, authService }));
+  app.use('/api', createAuthRouter({
+    sessionService,
+    authService,
+    nodeEnv,
+  }));
   app.use('/api', createFortuneRouter({
     fortuneService,
     sessionService,

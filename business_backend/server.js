@@ -78,6 +78,7 @@ function startServer() {
   try {
     app = createApp({
       businessStores,
+      nodeEnv: process.env.NODE_ENV,
       enableDevRecharge: isDevRechargeEnabled(process.env),
       internalApiToken: process.env.BUSINESS_INTERNAL_API_TOKEN,
       mobileUiDirectory: path.resolve(
