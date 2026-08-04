@@ -2243,13 +2243,17 @@ function verifyStaticSafetyAndCurrentUi() {
   );
   assert.match(
     homeHtml,
-    /<button[\s\S]{0,180}class="role-pricing-trigger"[\s\S]{0,260}type="button"[\s\S]{0,180}aria-label="查看收费说明"[\s\S]{0,180}aria-haspopup="dialog"/
+    /<button[\s\S]{0,180}class="role-pricing-trigger"[\s\S]{0,260}type="button"[\s\S]{0,180}aria-label="查看价格说明"[\s\S]{0,180}aria-haspopup="dialog"[\s\S]{0,180}>\s*<span>价格说明<\/span>/
   );
   assert.match(
     homeHtml,
     /class="role-pricing-overlay prototype-overlay"[\s\S]{0,180}role="dialog"/
   );
   assert.match(homeHtml, /收费说明/);
+  assert.doesNotMatch(
+    homeHtml,
+    /class="role-pricing-trigger"[\s\S]{0,400}>\s*<span[^>]*>[·.]{3}<\/span>/
+  );
   assert.match(homeHtml, /\/ 分钟/);
   assert.match(homeHtml, /实际每/);
   assert.match(homeHtml, /不足/);
@@ -2260,7 +2264,7 @@ function verifyStaticSafetyAndCurrentUi() {
   );
   assert.match(
     homeCss,
-    /:root\s*\{[\s\S]*?--action-rail-right:\s*calc\(var\(--safe-right\) \+ 7px\);[\s\S]*?--action-rail-width:\s*72px;/
+    /:root\s*\{[\s\S]*?--action-rail-right:\s*calc\(var\(--safe-right\) \+ 7px\);[\s\S]*?--action-rail-width:\s*100px;/
   );
   assert.match(
     homeCss,
@@ -2268,7 +2272,7 @@ function verifyStaticSafetyAndCurrentUi() {
   );
   assert.match(
     homeCss,
-    /\.role-pricing-trigger\s*\{[\s\S]*?position:\s*relative;[\s\S]*?width:\s*48px;[\s\S]*?height:\s*48px;/
+    /\.role-pricing-trigger\s*\{[\s\S]*?position:\s*relative;[\s\S]*?min-width:\s*88px;[\s\S]*?height:\s*48px;[\s\S]*?font-size:\s*16px;/
   );
   assert.match(homeJs, /const ROLE_CATALOG_API_URL = '\/api\/roles'/);
   assert.match(homeJs, /function loadPublicRoleCatalog\(\)/);
