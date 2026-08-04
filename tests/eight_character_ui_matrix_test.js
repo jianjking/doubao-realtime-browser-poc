@@ -61,6 +61,7 @@ const MIC_JS_PATH = path.join(
   PROJECT_DIR,
   'public/doubao_mic_single_turn.js'
 );
+const realtimeWebSocketUrl = require('../public/realtime_websocket_url');
 const CALL_PATH = '/realtime-call/';
 const CALL_URL = `http://127.0.0.1:8765${CALL_PATH}`;
 const HOME_PATH = '/ui_prototypes/yuhuang_mobile_v1/home.html';
@@ -1043,8 +1044,12 @@ async function verifyMicReconnectCharacterKey() {
       clearTimeout,
       location: {
         href: pageUrl.href,
+        host: pageUrl.host,
+        hostname: pageUrl.hostname,
+        protocol: pageUrl.protocol,
         search,
       },
+      RealtimeWebSocketUrl: realtimeWebSocketUrl,
       setTimeout,
     };
     const context = {

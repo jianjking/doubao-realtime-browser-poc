@@ -23,15 +23,10 @@
   });
 
   function buildFortuneAsrWebSocketUrl(location = window.location) {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostname = String(location.hostname || '');
-    if (!hostname) {
-      throw new Error('当前页面主机名无效');
-    }
-    const formattedHostname = hostname.includes(':')
-      ? `[${hostname}]`
-      : hostname;
-    return `${protocol}//${formattedHostname}:3001/fortune-asr`;
+    return window.RealtimeWebSocketUrl.resolveRealtimeWebSocketUrl(
+      '/fortune-asr',
+      location
+    );
   }
 
   function stopStream(stream) {

@@ -159,11 +159,36 @@ test('feature flag defaults off and server routes the optional path on the exist
   assert.match(serverSource, /server\.on\('upgrade'/);
   assert.match(
     serverSource,
+    /pathname = new URL\(request\.url,[\s\S]*?\)\.pathname;/
+  );
+  assert.match(
+    serverSource,
+    /pathname !== WEBSOCKET_PATH[\s\S]*pathname !== FORTUNE_ASR_WEBSOCKET_PATH[\s\S]*404 Not Found/
+  );
+  assert.match(
+    serverSource,
     /pathname === WEBSOCKET_PATH[\s\S]*fortuneAsrWebSocketServer/
   );
   assert.match(
     serverSource,
     /if \(fortuneAsrEnabled\) \{[\s\S]*require\('\.\/fortune_asr_relay'\)/
+  );
+});
+
+test('upgrade URL parsing keeps query strings out of the Relay pathname matrix', () => {
+  assert.equal(
+    new URL('/realtime?client=browser', 'http://127.0.0.1:3001').pathname,
+    '/realtime'
+  );
+  assert.equal(
+    new URL('/fortune-asr?client=browser', 'http://127.0.0.1:3001').pathname,
+    '/fortune-asr'
+  );
+  assert.equal(
+    ['/realtime', '/fortune-asr'].includes(
+      new URL('/unknown?path=/realtime', 'http://127.0.0.1:3001').pathname
+    ),
+    false
   );
 });
 

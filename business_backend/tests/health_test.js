@@ -115,6 +115,7 @@ test('configured business backend serves the authoritative mobile UI', async () 
       __dirname,
       '../../ui_prototypes/yuhuang_mobile_v1'
     ),
+    realtimeUiDirectory: path.resolve(__dirname, '../../public'),
     fortuneAudioWorkletFile,
   });
   const server = http.createServer(app);
@@ -169,6 +170,13 @@ test('configured business backend serves the authoritative mobile UI', async () 
       workletResponse.body,
       fs.readFileSync(fortuneAudioWorkletFile, 'utf8')
     );
+
+    const websocketResolverResponse = await requestPath(
+      address.port,
+      '/realtime-call/realtime_websocket_url.js'
+    );
+    assert.equal(websocketResolverResponse.statusCode, 200);
+    assert.match(websocketResolverResponse.body, /resolveRealtimeWebSocketUrl/);
 
     const oldRootResponse = await requestPath(
       address.port,

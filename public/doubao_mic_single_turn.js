@@ -1,6 +1,6 @@
 'use strict';
 
-const RELAY_URL = 'ws://127.0.0.1:3001/realtime';
+const RELAY_WEBSOCKET_PATH = '/realtime';
 const DEFAULT_CHARACTER_KEY = 'yuhuang';
 const TARGET_SAMPLE_RATE = 16000;
 const PCM_SAMPLES_PER_CHUNK = 320;
@@ -1737,7 +1737,12 @@ async function connectRelay(options = {}) {
     };
   }
 
-  const socket = new WebSocket(RELAY_URL);
+  const socket = new WebSocket(
+    window.RealtimeWebSocketUrl.resolveRealtimeWebSocketUrl(
+      RELAY_WEBSOCKET_PATH,
+      window.location
+    )
+  );
   const socketContext = {
     businessCallId,
     callId,

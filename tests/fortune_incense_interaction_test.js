@@ -18,6 +18,7 @@ const FORTUNE_ASR_JS_PATH = path.join(
   PROJECT_DIR,
   'ui_prototypes/yuhuang_mobile_v1/fortune_browser_asr.js'
 );
+const realtimeWebSocketUrl = require('../public/realtime_websocket_url');
 const WORKLET_PATH = path.join(
   PROJECT_DIR,
   'public/pcm_capture_processor.js'
@@ -1545,9 +1546,11 @@ function loadFortuneAsrRuntime(options = {}) {
       }
     },
     location: {
+      host: options.host || options.hostname || '192.168.10.24',
       hostname: options.hostname || '192.168.10.24',
       protocol: options.protocol || 'http:',
     },
+    RealtimeWebSocketUrl: realtimeWebSocketUrl,
     setTimeout(callback, delay) {
       const timer = {
         active: true,
@@ -1606,7 +1609,7 @@ function verifyRelayUrlAndInitialPrivacy() {
   assert.equal(runtime.audioContexts.length, 0);
   assert.equal(
     runtime.api.buildFortuneAsrWebSocketUrl(),
-    'ws://192.168.10.24:3001/fortune-asr'
+    'ws://192.168.10.24/fortune-asr'
   );
 
   const secureRuntime = loadFortuneAsrRuntime({
@@ -1615,7 +1618,7 @@ function verifyRelayUrlAndInitialPrivacy() {
   });
   assert.equal(
     secureRuntime.api.buildFortuneAsrWebSocketUrl(),
-    'wss://temple.example.test:3001/fortune-asr'
+    'wss://temple.example.test/fortune-asr'
   );
 }
 
