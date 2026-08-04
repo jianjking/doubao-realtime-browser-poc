@@ -303,6 +303,10 @@ function createApp(options = {}) {
     userStore,
     maskChineseMobile,
     accountService,
+    getPaymentCapabilities: paymentService
+      && typeof paymentProviderRegistry.getCapabilities === 'function'
+      ? paymentProviderRegistry.getCapabilities
+      : undefined,
   }));
   if (paymentService) {
     app.use('/api', createPaymentRouter({

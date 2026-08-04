@@ -251,6 +251,10 @@ function createAccountResponse(balanceCents) {
         },
         permissions: {
           canRecharge: true,
+          paymentProviders: {
+            alipay: true,
+            wechat: true,
+          },
         },
       };
     },

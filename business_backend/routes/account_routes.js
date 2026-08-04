@@ -10,6 +10,7 @@ function createAccountRouter({
   userStore,
   maskChineseMobile,
   accountService,
+  getPaymentCapabilities,
 }) {
   const accountRouter = express.Router();
 
@@ -32,9 +33,15 @@ function createAccountRouter({
           phoneMasked: maskChineseMobile(user.phoneE164),
         },
         account,
-        permissions: {
-          canRecharge: true,
-        },
+        permissions: typeof getPaymentCapabilities === 'function'
+          ? getPaymentCapabilities()
+          : {
+            canRecharge: false,
+            paymentProviders: {
+              alipay: false,
+              wechat: false,
+            },
+          },
       });
       return;
     }

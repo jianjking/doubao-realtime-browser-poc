@@ -948,10 +948,11 @@ async function verifyHomeGuardRechargeAndAccount() {
   await wait();
   assert.deepEqual(noState.locationAssignments, []);
   assert.equal(noState.test.getSessionAuthState(), 'unauthenticated');
-  assert.equal(noState.rechargeEntry.disabled, false);
+  assert.equal(noState.rechargeEntry.disabled, true);
+  assert.equal(noState.rechargeEntry.hidden, true);
   await noState.rechargeEntry.click();
   assert.equal(noState.rechargePanel.hidden, true);
-  assert.equal(noState.rechargeLoginOverlay.hidden, false);
+  assert.equal(noState.rechargeLoginOverlay.hidden, true);
   assert.equal(
     noState.fetchRequests.some(
       (request) => request.pathname === '/api/dev/recharge'
@@ -1000,7 +1001,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   assert.equal(guest.accountSecondary.textContent, '游客体验');
   assert.equal(
     guest.accountSummaryButton.attributes.get('aria-label'),
-    '查看游客个人信息，充值前需要登录'
+    '查看游客个人信息'
   );
 
   guest.accountSummaryButton.click();
@@ -1008,7 +1009,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   assert.equal(guest.profileStatus.textContent, '游客体验');
   assert.equal(guest.profilePhone.textContent, '未绑定');
   assert.equal(guest.profileVip.textContent, '游客');
-  assert.equal(guest.profileRecharge.textContent, '登录后可以充值');
+  assert.equal(guest.profileRecharge.textContent, '当前暂未开放充值');
   guest.document.dispatch('keydown', {
     key: 'Escape',
   });
@@ -1017,7 +1018,7 @@ async function verifyHomeGuardRechargeAndAccount() {
 
   await guest.rechargeEntry.click();
   assert.equal(guest.rechargePanel.hidden, true);
-  assert.equal(guest.rechargeLoginOverlay.hidden, false);
+  assert.equal(guest.rechargeLoginOverlay.hidden, true);
   assert.equal(await guest.test.handleRechargeConfirmation(), false);
   assert.equal(guest.test.getAccountBalanceCents(), null);
 
@@ -1070,7 +1071,7 @@ async function verifyHomeGuardRechargeAndAccount() {
   assert.equal(phone.profileStatus.textContent, '已登录');
   assert.equal(phone.profilePhone.textContent, '138****1234');
   assert.equal(phone.profileVip.textContent, '普通会员');
-  assert.equal(phone.profileRecharge.textContent, '可以使用充值演示');
+  assert.equal(phone.profileRecharge.textContent, '可以使用充值服务');
   phone.profileMainAction.click();
   assert.equal(phone.logoutConfirmOverlay.hidden, false);
   phone.cancelLogout.click();
@@ -1143,7 +1144,11 @@ function createJsonResponse(status, responseBody) {
   };
 }
 
-function createAccountResponse(balanceCents) {
+function createAccountResponse(balanceCents, {
+  alipay = true,
+  canRecharge = true,
+  wechat = true,
+} = {}) {
   return createJsonResponse(200, {
     principal: {
       type: 'user',
@@ -1158,9 +1163,106 @@ function createAccountResponse(balanceCents) {
       remainingSeconds: 0,
     },
     permissions: {
-      canRecharge: true,
+      canRecharge,
+      paymentProviders: {
+        alipay,
+        wechat,
+      },
     },
   });
+}
+
+async function verifyPaymentCapabilityUi() {
+  const phoneStorage = {
+    [AUTH_STORAGE_KEY]: JSON.stringify(createAuthState('phone')),
+  };
+  const createPaymentButton = (method, name) => {
+    const button = new FakeElement();
+    button.dataset.paymentMethod = method;
+    button.dataset.paymentName = name;
+    return button;
+  };
+
+  const wechatOnlyButton = createPaymentButton('wechat', '微信支付');
+  const hiddenAlipayButton = createPaymentButton('alipay', '支付宝支付');
+  const wechatOnly = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    paymentButtons: [wechatOnlyButton, hiddenAlipayButton],
+    fetchImpl: async () => createAccountResponse(1250, { alipay: false }),
+  });
+  await wait();
+  assert.equal(wechatOnly.rechargeEntry.hidden, false);
+  assert.equal(wechatOnlyButton.hidden, false);
+  assert.equal(hiddenAlipayButton.hidden, true);
+
+  const hiddenWechatButton = createPaymentButton('wechat', '微信支付');
+  const alipayOnlyButton = createPaymentButton('alipay', '支付宝支付');
+  const alipayOnly = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    paymentButtons: [hiddenWechatButton, alipayOnlyButton],
+    fetchImpl: async () => createAccountResponse(1250, { wechat: false }),
+  });
+  await wait();
+  assert.equal(alipayOnly.rechargeEntry.hidden, false);
+  assert.equal(hiddenWechatButton.hidden, true);
+  assert.equal(alipayOnlyButton.hidden, false);
+  assert.match(alipayOnly.rechargeSelectionSummary.textContent, /支付宝支付/);
+
+  let disabledCallCount = 0;
+  const disabledWechatButton = createPaymentButton('wechat', '微信支付');
+  const disabledAlipayButton = createPaymentButton('alipay', '支付宝支付');
+  const disabled = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    paymentButtons: [disabledWechatButton, disabledAlipayButton],
+    fetchImpl: async (pathname) => {
+      if (pathname === '/api/me') {
+        return createAccountResponse(9, {
+          alipay: false,
+          canRecharge: false,
+          wechat: false,
+        });
+      }
+      if (pathname === '/api/calls') {
+        disabledCallCount += 1;
+        return createJsonResponse(409, {
+          error: { code: 'INSUFFICIENT_BALANCE' },
+        });
+      }
+      throw new Error(`disabled recharge requested ${pathname}`);
+    },
+  });
+  await wait();
+  assert.equal(disabled.creditDisplay.textContent, '¥0.09');
+  assert.equal(disabled.rechargeEntry.hidden, true);
+  assert.equal(disabledWechatButton.hidden, true);
+  assert.equal(disabledAlipayButton.hidden, true);
+  await disabled.rechargeEntry.click();
+  assert.equal(disabled.rechargePanel.hidden, true);
+  assert.equal(await disabled.test.handleRechargeConfirmation(), false);
+  assert.equal(
+    disabled.fetchRequests.some(
+      (request) => request.pathname === '/api/payment-orders'
+    ),
+    false
+  );
+  assert.equal(await disabled.test.handleStartConversation(), false);
+  assert.equal(disabledCallCount, 1);
+  assert.equal(disabled.rechargePanel.hidden, true);
+  assert.equal(
+    disabled.toast.textContent,
+    '当前暂未开放话费充值，请稍后再试'
+  );
+
+  const inconsistent = loadHomeRuntime({
+    storageEntries: phoneStorage,
+    fetchImpl: async () => createAccountResponse(1250, {
+      alipay: false,
+      canRecharge: true,
+      wechat: false,
+    }),
+  });
+  await wait();
+  assert.equal(inconsistent.rechargeEntry.hidden, true);
 }
 
 function createGuestAccountResponse() {
@@ -1457,7 +1559,7 @@ async function verifyDevelopmentRechargeFlow() {
   assert.equal(networkGateRuntime.test.getSessionAuthState(), 'error');
   assert.equal(
     networkGateRuntime.toast.textContent,
-    '账户状态暂时无法确认，请稍后重试'
+    '当前暂未开放话费充值，请稍后再试'
   );
 
   let backendBalanceCents = 1250;
@@ -1501,7 +1603,7 @@ async function verifyDevelopmentRechargeFlow() {
   await wait();
   assert.equal(await guestRuntime.test.handleRechargeConfirmation(), false);
   assert.equal(guestRechargeCount, 0);
-  assert.equal(guestRuntime.rechargeLoginOverlay.hidden, false);
+  assert.equal(guestRuntime.rechargeLoginOverlay.hidden, true);
 
   const spoofedPhoneRuntime = loadHomeRuntime({
     sessionMode: 'guest',
@@ -1511,7 +1613,7 @@ async function verifyDevelopmentRechargeFlow() {
   await spoofedPhoneRuntime.rechargeEntry.click();
   assert.equal(spoofedPhoneRuntime.test.getSessionAuthState(), 'guest');
   assert.equal(spoofedPhoneRuntime.rechargePanel.hidden, true);
-  assert.equal(spoofedPhoneRuntime.rechargeLoginOverlay.hidden, false);
+  assert.equal(spoofedPhoneRuntime.rechargeLoginOverlay.hidden, true);
   assert.equal(
     spoofedPhoneRuntime.fetchRequests.some(
       (request) => request.pathname === '/api/dev/recharge'
@@ -2098,6 +2200,7 @@ function verifyStaticUiAndPrivacyBoundaries() {
 async function main() {
   await verifyAuthValidationAndPrivacy();
   await verifyHomeGuardRechargeAndAccount();
+  await verifyPaymentCapabilityUi();
   await verifyDevelopmentRechargeFlow();
   await verifyRealAccountAndCallFlow();
   await verifyAccountRefreshLifecycle();

@@ -25,6 +25,7 @@ function createPaymentProviderRegistry({
   mockProvider = new MockPaymentProvider(),
   wechatProvider = null,
   alipayProvider = null,
+  nodeEnv = '',
 } = {}) {
   const liveProviders = Object.freeze({
     alipay: alipayProvider,
@@ -39,7 +40,7 @@ function createPaymentProviderRegistry({
       error.publicMessage = 'Payment provider is invalid';
       throw error;
     }
-    if (mode === 'mock') {
+    if (mode === 'mock' && nodeEnv !== 'production') {
       return mockProvider;
     }
     if (mode === 'live' && liveProviders[provider]) {
@@ -51,8 +52,27 @@ function createPaymentProviderRegistry({
     throw createProviderModeError(mode);
   }
 
+  function getCapabilities() {
+    const mockAvailable = mode === 'mock'
+      && nodeEnv !== 'production'
+      && Boolean(mockProvider);
+    const paymentProviders = Object.freeze({
+      alipay: mode === 'live'
+        ? Boolean(liveProviders.alipay)
+        : mockAvailable,
+      wechat: mode === 'live'
+        ? Boolean(liveProviders.wechat)
+        : mockAvailable,
+    });
+    return Object.freeze({
+      canRecharge: paymentProviders.alipay || paymentProviders.wechat,
+      paymentProviders,
+    });
+  }
+
   return Object.freeze({
     get,
+    getCapabilities,
     liveProviders,
     mode,
     mockProvider,
@@ -83,6 +103,7 @@ function createConfiguredPaymentProviderRegistry({
     : null;
   return createPaymentProviderRegistry({
     mode: runtimeConfig.mode,
+    nodeEnv: runtimeConfig.nodeEnv,
     wechatProvider,
     alipayProvider,
   });

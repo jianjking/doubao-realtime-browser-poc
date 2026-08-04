@@ -138,6 +138,18 @@ test('payment routes gate guests and never expose dev recharge', async () => {
     assert.equal(guestCreate.body.error.code, 'USER_LOGIN_REQUIRED');
 
     const user = await login(harness.port, '13800000000');
+    const me = await requestJson(harness.port, {
+      path: '/api/me',
+      cookie: user.cookie,
+    });
+    assert.equal(me.statusCode, 200);
+    assert.deepEqual(me.body.permissions, {
+      canRecharge: true,
+      paymentProviders: {
+        alipay: true,
+        wechat: true,
+      },
+    });
     const oldRecharge = await requestJson(harness.port, {
       method: 'POST',
       path: '/api/dev/recharge',

@@ -250,7 +250,11 @@ test('phone login returns a sanitized user identity and session', async () => {
         remainingSeconds: 0,
       },
       permissions: {
-        canRecharge: true,
+        canRecharge: false,
+        paymentProviders: {
+          alipay: false,
+          wechat: false,
+        },
       },
     });
   } finally {

@@ -3449,7 +3449,11 @@ function createJsonResponse(status, body) {
   };
 }
 
-function createAccountApiResponse(balanceCents) {
+function createAccountApiResponse(balanceCents, {
+  alipay = true,
+  canRecharge = true,
+  wechat = true,
+} = {}) {
   return createJsonResponse(200, {
     principal: { type: 'user', id: 'paid-ui-user' },
     profile: { phoneMasked: '138****8000' },
@@ -3458,7 +3462,10 @@ function createAccountApiResponse(balanceCents) {
       balanceCents,
       remainingSeconds: 0,
     },
-    permissions: { canRecharge: true },
+    permissions: {
+      canRecharge,
+      paymentProviders: { alipay, wechat },
+    },
   });
 }
 
@@ -3499,6 +3506,48 @@ async function verifyPaidFortuneUiFlow() {
   assert.equal(guestSessionRequests, 0);
   assert.equal(guestRuntime.fortuneLoginOverlay.hidden, false);
   assert.match(guestRuntime.speechMessage.textContent, /请先登录后求签/);
+
+  const disabledRuntime = loadFortuneRuntime({
+    paidUi: true,
+    fetchImpl(pathname) {
+      if (pathname === '/api/fortune-config') {
+        return Promise.resolve(createPricingApiResponse());
+      }
+      if (pathname === '/api/me') {
+        return Promise.resolve(createAccountApiResponse(199, {
+          alipay: false,
+          canRecharge: false,
+          wechat: false,
+        }));
+      }
+      throw new Error(`disabled recharge requested ${pathname}`);
+    },
+  });
+  await flushPromises();
+  await flushPromises();
+  assert.equal(disabledRuntime.fortuneBalance.textContent, '¥1.99');
+  assert.equal(disabledRuntime.rechargeEntry.hidden, true);
+  clickSpeakControl(disabledRuntime);
+  await flushPromises();
+  assert.equal(disabledRuntime.asrSessions.length, 0);
+  assert.equal(
+    disabledRuntime.page.dataset.fortuneState,
+    'insufficient-balance'
+  );
+  assert.equal(disabledRuntime.fortuneError.hidden, false);
+  assert.equal(disabledRuntime.fortuneRechargeButton.hidden, true);
+  assert.equal(disabledRuntime.retryFortuneButton.disabled, true);
+  assert.match(
+    disabledRuntime.fortuneErrorMessage.textContent,
+    /当前暂未开放话费充值/
+  );
+  assert.equal(
+    disabledRuntime.fetchRequests.some(
+      (request) => request.pathname === '/api/fortune-sessions'
+        || request.pathname === '/api/payment-orders'
+    ),
+    false
+  );
 
   let sufficientBalance = 1250;
   const sufficientRuntime = loadFortuneRuntime({

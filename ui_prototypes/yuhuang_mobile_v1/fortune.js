@@ -266,6 +266,8 @@
   let drawPriceCents = null;
   let accountBalanceCents = null;
   let accountAccessState = 'loading';
+  let canRecharge = false;
+  let hasSeenInitialPageShow = false;
   let paidInitializationPromise = null;
   let activeFortuneClientRequestId = '';
   let currentCharge = null;
@@ -331,12 +333,50 @@
     return true;
   }
 
+  function applyFortunePaymentCapabilities(permissions) {
+    const providers = permissions && permissions.paymentProviders;
+    const hasProvider = Boolean(
+      providers
+      && (providers.wechat === true || providers.alipay === true)
+    );
+    canRecharge = Boolean(
+      permissions
+      && permissions.canRecharge === true
+      && hasProvider
+    );
+    const rechargeEntry = document.querySelector('.time-recharge-entry');
+    if (rechargeEntry) {
+      rechargeEntry.hidden = !canRecharge;
+    }
+    if (fortuneRechargeButton) {
+      fortuneRechargeButton.hidden = !canRecharge;
+    }
+    if (fortuneInsufficientRechargeButton) {
+      fortuneInsufficientRechargeButton.hidden = !canRecharge;
+    }
+    if (!canRecharge && activeFortuneOverlay === fortuneInsufficientOverlay) {
+      closeFortuneOverlay(fortuneInsufficientOverlay, false);
+      if (interactionState === INTERACTION_STATES.INSUFFICIENT_BALANCE) {
+        renderSpeechState();
+      }
+    }
+  }
+
   async function refreshFortuneAccount() {
-    const response = await window.fetch(ACCOUNT_API_URL, {
-      headers: { Accept: 'application/json' },
-    });
+    let response;
+    try {
+      response = await window.fetch(ACCOUNT_API_URL, {
+        headers: { Accept: 'application/json' },
+      });
+    } catch {
+      applyFortunePaymentCapabilities(null);
+      accountAccessState = 'error';
+      renderPaidSummary();
+      return false;
+    }
     const body = await readJson(response);
     if (response.status === 401 || response.status === 403) {
+      applyFortunePaymentCapabilities(null);
       accountAccessState = 'guest';
       accountBalanceCents = null;
       renderPaidSummary();
@@ -348,11 +388,13 @@
       && body.principal
       && body.principal.type === 'guest'
     ) {
+      applyFortunePaymentCapabilities(null);
       accountAccessState = 'guest';
       accountBalanceCents = null;
       renderPaidSummary();
       return false;
     }
+    applyFortunePaymentCapabilities(body && body.permissions);
     if (
       !response.ok
       || !body
@@ -529,7 +571,11 @@
       return;
     }
     const rechargeEntry = document.querySelector('.time-recharge-entry');
-    if (rechargeEntry && typeof rechargeEntry.focus === 'function') {
+    if (
+      canRecharge
+      && rechargeEntry
+      && typeof rechargeEntry.focus === 'function'
+    ) {
       rechargeEntry.focus();
     }
   }
@@ -557,6 +603,14 @@
   }
 
   function openFortuneRecharge() {
+    if (!canRecharge) {
+      if (activeFortuneOverlay) {
+        closeFortuneOverlay(activeFortuneOverlay, false);
+      }
+      interactionState = INTERACTION_STATES.INSUFFICIENT_BALANCE;
+      renderSpeechState();
+      return;
+    }
     if (activeFortuneOverlay) {
       closeFortuneOverlay(activeFortuneOverlay, false);
     }
@@ -1315,7 +1369,7 @@
     }
 
     if (interactionState === INTERACTION_STATES.INSUFFICIENT_BALANCE) {
-      if (fortuneInsufficientOverlay) {
+      if (canRecharge && fortuneInsufficientOverlay) {
         if (
           transcriptIsFinal
           && currentTranscript.trim() !== ''
@@ -1337,19 +1391,24 @@
       }
       page.classList.add('has-offered-wish');
       fortuneError.hidden = false;
-      retryFortuneButton.disabled = !(
+      retryFortuneButton.disabled = !canRecharge || !(
         transcriptIsFinal
         && currentTranscript.trim() !== ''
         && activeFortuneClientRequestId !== ''
       );
-      retryFortuneButton.textContent = '充值后继续求签';
+      retryFortuneButton.textContent = canRecharge
+        ? '充值后继续求签'
+        : '暂时无法继续求签';
       if (fortuneRechargeButton) {
-        fortuneRechargeButton.hidden = false;
+        fortuneRechargeButton.hidden = !canRecharge;
       }
       if (fortuneErrorTitle) {
         fortuneErrorTitle.textContent = '当前话费不足';
       }
-      if (
+      if (!canRecharge && fortuneErrorMessage) {
+        fortuneErrorMessage.textContent =
+          '当前暂未开放话费充值，请稍后再试。';
+      } else if (
         fortuneErrorMessage
         && Number.isSafeInteger(drawPriceCents)
         && Number.isSafeInteger(accountBalanceCents)
@@ -2494,6 +2553,10 @@
 
   function handlePageShow() {
     pageIsActive = true;
+    if (hasSeenInitialPageShow && paidUiEnabled) {
+      void refreshFortuneAccount();
+    }
+    hasSeenInitialPageShow = true;
     if (interactionState === INTERACTION_STATES.READY_TO_SPEAK) {
       resetWishPaper();
       renderSpeechState();

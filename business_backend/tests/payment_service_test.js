@@ -7,6 +7,9 @@ const {
   parsePaymentRuntimeConfig,
 } = require('../config/payments');
 const {
+  createPaymentProviderRegistry,
+} = require('../payments/payment_provider_registry');
+const {
   createPaymentHarness,
   seedUserAndAccount,
 } = require('./payment_test_helpers');
@@ -41,6 +44,13 @@ test('payment mode defaults closed and production rejects mock', () => {
     () => parsePaymentRuntimeConfig({
       NODE_ENV: 'production',
       PAYMENT_PROVIDER_MODE: 'mock',
+    }),
+    /forbidden in production/
+  );
+  assert.throws(
+    () => parsePaymentRuntimeConfig({
+      NODE_ENV: 'production',
+      PAYMENT_PROVIDER_MODE: 'disabled',
       PAYMENT_MOCK_CONFIRMATION_ENABLED: '1',
     }),
     /forbidden in production/
@@ -48,6 +58,53 @@ test('payment mode defaults closed and production rejects mock', () => {
   assert.throws(
     () => parsePaymentRuntimeConfig({ PAYMENT_PROVIDER_MODE: 'unknown' }),
     /PAYMENT_PROVIDER_MODE/
+  );
+});
+
+test('provider capabilities follow usable providers and fail closed', () => {
+  const unavailable = {
+    canRecharge: false,
+    paymentProviders: { alipay: false, wechat: false },
+  };
+  assert.deepEqual(
+    createPaymentProviderRegistry({ mode: 'disabled' }).getCapabilities(),
+    unavailable
+  );
+  assert.deepEqual(
+    createPaymentProviderRegistry({ mode: 'live' }).getCapabilities(),
+    unavailable
+  );
+  assert.deepEqual(createPaymentProviderRegistry({
+    mode: 'live',
+    wechatProvider: {},
+  }).getCapabilities(), {
+    canRecharge: true,
+    paymentProviders: { alipay: false, wechat: true },
+  });
+  assert.deepEqual(createPaymentProviderRegistry({
+    mode: 'live',
+    alipayProvider: {},
+  }).getCapabilities(), {
+    canRecharge: true,
+    paymentProviders: { alipay: true, wechat: false },
+  });
+  assert.deepEqual(
+    createPaymentProviderRegistry({ mode: 'mock' }).getCapabilities(),
+    {
+      canRecharge: true,
+      paymentProviders: { alipay: true, wechat: true },
+    }
+  );
+  assert.deepEqual(createPaymentProviderRegistry({
+    mode: 'mock',
+    nodeEnv: 'production',
+  }).getCapabilities(), unavailable);
+  assert.throws(
+    () => createPaymentProviderRegistry({
+      mode: 'mock',
+      nodeEnv: 'production',
+    }).get('wechat'),
+    (error) => error && error.statusCode === 503
   );
 });
 

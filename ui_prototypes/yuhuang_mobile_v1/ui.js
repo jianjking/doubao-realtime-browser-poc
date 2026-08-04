@@ -191,6 +191,11 @@
   let selectedRechargeAmountDisplay = '10';
   let selectedPaymentMethod = 'wechat';
   let selectedPaymentName = '微信支付';
+  let canRecharge = false;
+  let paymentProviders = Object.freeze({
+    wechat: false,
+    alipay: false,
+  });
   let accountBalanceCents = null;
   let accountBalanceState = 'loading';
   let accountLoadPromise = null;
@@ -299,6 +304,78 @@
     '.mock-payment-confirm'
   );
 
+  function readPaymentCapabilities(permissions) {
+    const providers = permissions
+      && permissions.paymentProviders;
+    const wechat = Boolean(providers && providers.wechat === true);
+    const alipay = Boolean(providers && providers.alipay === true);
+    return Object.freeze({
+      canRecharge: Boolean(
+        permissions
+        && permissions.canRecharge === true
+        && (wechat || alipay)
+      ),
+      paymentProviders: Object.freeze({ alipay, wechat }),
+    });
+  }
+
+  function renderPaymentCapabilities() {
+    if (rechargeEntry) {
+      rechargeEntry.hidden = !canRecharge;
+      rechargeEntry.setAttribute(
+        'aria-label',
+        canRecharge
+          ? '进入话费充值'
+          : '当前暂未开放话费充值'
+      );
+    }
+    const availableButtons = [];
+    document.querySelectorAll('.payment-option').forEach((button) => {
+      const available = paymentProviders[button.dataset.paymentMethod] === true;
+      button.hidden = !available;
+      button.setAttribute('aria-hidden', String(!available));
+      if (available) {
+        availableButtons.push(button);
+      }
+    });
+    if (canRecharge && !paymentProviders[selectedPaymentMethod]) {
+      const fallbackButton = availableButtons[0];
+      if (fallbackButton) {
+        selectedPaymentMethod = fallbackButton.dataset.paymentMethod;
+        selectedPaymentName = fallbackButton.dataset.paymentName;
+      }
+    }
+    document.querySelectorAll('.payment-option').forEach((button) => {
+      const isSelected = button.dataset.paymentMethod === selectedPaymentMethod
+        && button.hidden !== true;
+      const status = button.querySelector('.selection-status');
+      button.classList.toggle('is-selected', isSelected);
+      button.setAttribute('aria-checked', String(isSelected));
+      if (status) {
+        status.textContent = isSelected ? '已选' : '选择';
+      }
+    });
+    updateRechargeSelectionSummary();
+  }
+
+  function applyPaymentCapabilities(permissions) {
+    const capabilities = readPaymentCapabilities(permissions);
+    canRecharge = capabilities.canRecharge;
+    paymentProviders = capabilities.paymentProviders;
+    renderPaymentCapabilities();
+    renderAccountSummary(currentAuthState);
+    renderAccountProfile(currentAuthState);
+    if (
+      !canRecharge
+      && (
+        activeOverlay === rechargePanel
+        || activeOverlay === rechargeLoginOverlay
+      )
+    ) {
+      closeOverlay(activeOverlay, false);
+    }
+  }
+
   function isStrictAuthState(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return false;
@@ -388,19 +465,19 @@
         status: '已登录',
         phone: authState.phoneMasked,
         vip: '普通会员',
-        recharge: '可以使用充值演示',
+        recharge: canRecharge ? '可以使用充值服务' : '当前暂未开放充值',
         mainAction: '退出登录',
       };
     }
     return {
       primary: '游客用户',
       secondary: '游客体验',
-      summaryAria: '查看游客个人信息，充值前需要登录',
+      summaryAria: '查看游客个人信息',
       profileSummary: '游客用户 · 游客体验',
       status: '游客体验',
       phone: '未绑定',
       vip: '游客',
-      recharge: '登录后可以充值',
+      recharge: canRecharge ? '登录后可以充值' : '当前暂未开放充值',
       mainAction: '手机号登录／注册',
     };
   }
@@ -516,7 +593,7 @@
     window.location.assign('./index.html');
   }
 
-  function consumePendingAction() {
+  function consumePendingAction(hasAccountAccess) {
     const pendingAction = window.localStorage.getItem(
       PENDING_ACTION_STORAGE_KEY
     );
@@ -524,11 +601,13 @@
       window.localStorage.removeItem(PENDING_ACTION_STORAGE_KEY);
     }
     if (!TRUSTED_PENDING_ACTIONS.has(pendingAction)
-      || !isPhoneAuthenticated(currentAuthState)) {
+      || !isPhoneAuthenticated(currentAuthState)
+      || !hasAccountAccess
+      || (pendingAction === 'recharge' && !canRecharge)) {
       return;
     }
     window.setTimeout(() => {
-      if (pendingAction === 'recharge') {
+      if (pendingAction === 'recharge' && canRecharge) {
         openOverlay(rechargePanel, rechargeEntry);
       } else if (pendingAction === 'profile') {
         openAccountProfile(accountSummaryButton);
@@ -801,7 +880,9 @@
     if (rechargeEntry) {
       rechargeEntry.setAttribute(
         'aria-label',
-        `当前话费${ariaValue}，进入话费充值`
+        canRecharge
+          ? `当前话费${ariaValue}，进入话费充值`
+          : `当前话费${ariaValue}，暂未开放充值`
       );
     }
   }
@@ -882,13 +963,17 @@
     if (!rechargeEntry) {
       return;
     }
-    rechargeEntry.disabled = checking;
-    rechargeEntry.setAttribute('aria-disabled', String(checking));
+    rechargeEntry.disabled = checking || !canRecharge;
+    rechargeEntry.setAttribute(
+      'aria-disabled',
+      String(checking || !canRecharge)
+    );
   }
 
   function applyGuestSession(authStateName) {
     sessionAuthState = authStateName;
     saveCurrentAuthState(createGuestAuthState());
+    applyPaymentCapabilities(null);
     setAccountBalanceState('guest');
   }
 
@@ -907,6 +992,7 @@
 
   function handleAccountLoadFailure(hadConfirmedBalance) {
     sessionAuthState = 'error';
+    applyPaymentCapabilities(null);
     renderAccountSummary(currentAuthState);
     renderAccountProfile(currentAuthState);
     if (hadConfirmedBalance) {
@@ -971,6 +1057,7 @@
       const profile = responseBody && responseBody.profile;
       const account = responseBody && responseBody.account;
       const permissions = responseBody && responseBody.permissions;
+      applyPaymentCapabilities(permissions);
       if (
         response.ok
         && principal
@@ -992,7 +1079,6 @@
         || account.currency !== 'CNY'
         || !Number.isSafeInteger(account.balanceCents)
         || !permissions
-        || permissions.canRecharge !== true
       ) {
         handleAccountLoadFailure(hadConfirmedBalance);
         return false;
@@ -1483,7 +1569,12 @@
     const selectedButton = event.currentTarget;
     const paymentMethod = selectedButton.dataset.paymentMethod;
     const paymentName = selectedButton.dataset.paymentName;
-    if (!paymentMethod || !paymentName) {
+    if (
+      !paymentMethod
+      || !paymentName
+      || !canRecharge
+      || paymentProviders[paymentMethod] !== true
+    ) {
       showToast('请选择支付方式。');
       return;
     }
@@ -2032,6 +2123,10 @@
         sessionAuthState === 'guest'
         || sessionAuthState === 'unauthenticated'
       ) {
+        if (!canRecharge) {
+          showToast('当前暂未开放话费充值，请稍后再试');
+          return false;
+        }
         closeOverlay(rechargePanel, false);
         openRechargeLoginPrompt(rechargeEntry);
         return false;
@@ -2047,6 +2142,15 @@
         } else {
           showToast('账户状态暂时无法确认，请稍后重试');
         }
+        return false;
+      }
+      if (!canRecharge) {
+        closeOverlay(rechargePanel, false);
+        showToast('当前暂未开放话费充值，请稍后再试');
+        return false;
+      }
+      if (!paymentProviders[selectedPaymentMethod]) {
+        showToast('当前支付方式暂不可用，请选择其他方式');
         return false;
       }
 
@@ -2241,6 +2345,10 @@
   }
 
   async function handleRechargeEntryClick() {
+    if (!canRecharge) {
+      showToast('当前暂未开放话费充值，请稍后再试');
+      return;
+    }
     if (
       sessionAuthState === 'guest'
       || sessionAuthState === 'unauthenticated'
@@ -2249,7 +2357,11 @@
       return;
     }
     const hasRechargeAccess = await loadAccountState();
-    if (hasRechargeAccess && sessionAuthState === 'authenticated') {
+    if (
+      hasRechargeAccess
+      && sessionAuthState === 'authenticated'
+      && canRecharge
+    ) {
       openOverlay(rechargePanel, rechargeEntry);
       return;
     }
@@ -2260,7 +2372,9 @@
       openRechargeLoginPrompt(rechargeEntry);
       return;
     }
-    showToast('账户状态暂时无法确认，请稍后重试');
+    showToast(canRecharge
+      ? '账户状态暂时无法确认，请稍后重试'
+      : '当前暂未开放话费充值，请稍后再试');
   }
 
   function handleAuxiliaryAction(event) {
@@ -2289,8 +2403,12 @@
       && responseBody.error
       && responseBody.error.code;
     if (status === 409 && errorCode === 'INSUFFICIENT_BALANCE') {
-      showToast('账户话费不足，无法开始通话');
-      openOverlay(rechargePanel, rechargeEntry);
+      if (canRecharge) {
+        showToast('账户话费不足，无法开始通话');
+        openOverlay(rechargePanel, rechargeEntry);
+      } else {
+        showToast('当前暂未开放话费充值，请稍后再试');
+      }
       return;
     }
     if (status === 401 || status === 403) {
@@ -2390,6 +2508,7 @@
 
   function initializeUi() {
     getValidatedAuthState();
+    applyPaymentCapabilities(null);
 
     document.body.dataset.authReady = 'true';
     renderAccountSummary(currentAuthState);
@@ -2402,7 +2521,7 @@
     }
     void loadAccountState().then(async (hasAccountAccess) => {
       consumePendingAction(hasAccountAccess);
-      if (hasAccountAccess) {
+      if (hasAccountAccess && canRecharge) {
         await resumeStoredPaymentOrder();
       }
     });

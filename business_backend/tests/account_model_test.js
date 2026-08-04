@@ -396,6 +396,13 @@ test('user /api/me returns server-configured account values', async () => {
       balanceCents: 888,
       remainingSeconds: 600,
     });
+    assert.deepEqual(meBody.permissions, {
+      canRecharge: false,
+      paymentProviders: {
+        alipay: false,
+        wechat: false,
+      },
+    });
     assert.equal(JSON.stringify(meBody).includes('999999'), false);
     assert.equal(JSON.stringify(meBody).includes('USD'), false);
     assert.equal(JSON.stringify(meBody).includes('vip'), false);
