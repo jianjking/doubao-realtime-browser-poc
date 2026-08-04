@@ -7,7 +7,9 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  DEFAULT_BUSINESS_DATABASE_PATH,
   createBusinessDatabase,
+  resolveBusinessDatabasePath,
 } = require('../database/business_database');
 const {
   createBusinessStores,
@@ -18,6 +20,8 @@ const { createAccountService } = require('../services/account_service');
 const { createCallService } = require('../services/call_service');
 const { createRoleService } = require('../services/role_service');
 
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+
 function createTemporaryDatabasePath() {
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), 'business-database-test-')
@@ -27,6 +31,93 @@ function createTemporaryDatabasePath() {
     databasePath: path.join(directory, 'business.sqlite3'),
   };
 }
+
+test('production requires an external absolute SQLite path', () => {
+  for (const configuredPath of [
+    undefined,
+    '',
+    '   ',
+    'business.sqlite3',
+    './data/business.sqlite3',
+  ]) {
+    assert.throws(() => resolveBusinessDatabasePath(configuredPath, {
+      nodeEnv: 'production',
+    }), /absolute path in production/);
+  }
+
+  const projectDatabasePath = path.join(
+    PROJECT_ROOT,
+    'business_backend',
+    'data',
+    'production-test.sqlite3'
+  );
+  assert.throws(() => resolveBusinessDatabasePath(projectDatabasePath, {
+    nodeEnv: 'production',
+  }), /outside the project directory/);
+
+  const normalizedProjectPath = [
+    path.join(PROJECT_ROOT, 'temporary-path-segment'),
+    '..',
+    'business_backend',
+    'data',
+    'production-normalized-test.sqlite3',
+  ].join(path.sep);
+  assert.throws(() => resolveBusinessDatabasePath(normalizedProjectPath, {
+    nodeEnv: 'production',
+  }), /outside the project directory/);
+
+  const siblingPath = path.join(
+    path.dirname(PROJECT_ROOT),
+    `${path.basename(PROJECT_ROOT)}-data`,
+    'business.sqlite3'
+  );
+  assert.equal(
+    resolveBusinessDatabasePath(siblingPath, { nodeEnv: 'production' }),
+    path.resolve(siblingPath)
+  );
+});
+
+test('production creates only the configured external database directory', () => {
+  const temporary = createTemporaryDatabasePath();
+  const nestedDatabasePath = path.join(
+    temporary.directory,
+    'nested',
+    'business.sqlite3'
+  );
+  let database;
+  try {
+    database = createBusinessDatabase({
+      databasePath: nestedDatabasePath,
+      nodeEnv: 'production',
+    });
+    assert.equal(database.databasePath, path.resolve(nestedDatabasePath));
+    assert.equal(fs.existsSync(nestedDatabasePath), true);
+  } finally {
+    if (database) {
+      database.close();
+    }
+    fs.rmSync(temporary.directory, { recursive: true, force: true });
+  }
+});
+
+test('development and test retain existing database path behavior', () => {
+  assert.equal(
+    resolveBusinessDatabasePath(undefined, { nodeEnv: 'development' }),
+    DEFAULT_BUSINESS_DATABASE_PATH
+  );
+  assert.equal(
+    resolveBusinessDatabasePath(undefined, { nodeEnv: '' }),
+    DEFAULT_BUSINESS_DATABASE_PATH
+  );
+  assert.equal(
+    resolveBusinessDatabasePath(':memory:', { nodeEnv: 'test' }),
+    ':memory:'
+  );
+  assert.equal(
+    resolveBusinessDatabasePath('data/test.sqlite3', { nodeEnv: 'test' }),
+    path.resolve(PROJECT_ROOT, 'data/test.sqlite3')
+  );
+});
 
 async function withTemporaryStores(callback) {
   const temporary = createTemporaryDatabasePath();

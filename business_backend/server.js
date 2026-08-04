@@ -72,6 +72,7 @@ function startServer() {
   });
   const businessStores = createBusinessStores({
     databasePath: process.env.BUSINESS_DATABASE_PATH,
+    nodeEnv: process.env.NODE_ENV,
   });
   let app;
   try {

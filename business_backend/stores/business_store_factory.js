@@ -22,8 +22,16 @@ const {
   SQLiteSmsChallengeStore,
 } = require('./sqlite_sms_challenge_store');
 
-function createBusinessStores({ databasePath, clock } = {}) {
-  const database = createBusinessDatabase({ databasePath, clock });
+function createBusinessStores({
+  databasePath,
+  clock,
+  nodeEnv = process.env.NODE_ENV,
+} = {}) {
+  const database = createBusinessDatabase({
+    databasePath,
+    clock,
+    nodeEnv,
+  });
   try {
     return {
       accountStore: new SQLiteAccountStore(database.connection),

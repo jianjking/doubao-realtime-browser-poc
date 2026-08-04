@@ -13,7 +13,38 @@ const DEFAULT_BUSINESS_DATABASE_PATH = path.resolve(
   '../data/business.sqlite3'
 );
 
-function resolveBusinessDatabasePath(configuredPath) {
+function isPathInsideOrEqual(parentPath, candidatePath) {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return relativePath === ''
+    || (
+      relativePath !== '..'
+      && !relativePath.startsWith(`..${path.sep}`)
+      && !path.isAbsolute(relativePath)
+    );
+}
+
+function resolveBusinessDatabasePath(configuredPath, {
+  nodeEnv = process.env.NODE_ENV,
+} = {}) {
+  if (nodeEnv === 'production') {
+    if (
+      typeof configuredPath !== 'string'
+      || configuredPath.trim() === ''
+      || configuredPath.trim() !== configuredPath
+      || !path.isAbsolute(configuredPath)
+    ) {
+      throw new Error(
+        'BUSINESS_DATABASE_PATH must be an absolute path in production'
+      );
+    }
+    const resolvedProductionPath = path.resolve(configuredPath);
+    if (isPathInsideOrEqual(PROJECT_ROOT, resolvedProductionPath)) {
+      throw new Error(
+        'BUSINESS_DATABASE_PATH must be outside the project directory in production'
+      );
+    }
+    return resolvedProductionPath;
+  }
   if (configuredPath === undefined) {
     return DEFAULT_BUSINESS_DATABASE_PATH;
   }
@@ -37,8 +68,11 @@ function resolveBusinessDatabasePath(configuredPath) {
 function createBusinessDatabase({
   databasePath,
   clock = Date.now,
+  nodeEnv = process.env.NODE_ENV,
 } = {}) {
-  const resolvedPath = resolveBusinessDatabasePath(databasePath);
+  const resolvedPath = resolveBusinessDatabasePath(databasePath, {
+    nodeEnv,
+  });
   if (resolvedPath !== ':memory:') {
     fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
   }
