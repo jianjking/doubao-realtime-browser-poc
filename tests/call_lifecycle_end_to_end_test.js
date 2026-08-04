@@ -339,7 +339,7 @@ async function waitForCallStatus({
 function instrumentServerSource() {
   const source = fs.readFileSync(SERVER_PATH, 'utf8');
   const instrumented = source.replace(
-    /\nstartServer\(\);\s*$/,
+    /\nmodule\.exports = \{[\s\S]*?\};\s*\n\s*if \(require\.main === module\) startDirectServer\(\);\s*$/,
     `\nglobalThis.__serverTestExports = {
       handleBrowserConnection,
       handleBrowserMessage,

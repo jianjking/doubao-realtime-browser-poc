@@ -126,6 +126,7 @@ const CHARACTER_CONFIGS = Object.freeze({
   }),
 });
 const UPSTREAM_CLOSE_TIMEOUT_MS = 3000;
+const SERVER_SHUTDOWN_FORCE_TIMEOUT_MS = 2000;
 const BROWSER_PCM_SAMPLE_RATE = 16000;
 const BROWSER_PCM_CHUNK_BYTES = 640;
 const BROWSER_PCM_MAX_CHUNK_BYTES = 4096;
@@ -2479,10 +2480,33 @@ function handleBrowserConnection(
 }
 
 function startServer({
-  lifecycleEnv = process.env,
+  env = process.env,
+  host = HOST,
+  port = PORT,
+  lifecycleEnv = env,
   lifecycleTimeoutMs = 3000,
   lifecycleFetchImpl = globalThis.fetch,
+  installSignalHandlers = true,
+  signalProcess = process,
 } = {}) {
+  if (env === null || typeof env !== 'object' || Array.isArray(env)) {
+    throw new TypeError('env must be an object');
+  }
+  if (typeof host !== 'string' || host.trim() !== host || host === '') {
+    throw new TypeError('host must be a non-empty string');
+  }
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new TypeError('port must be an integer between 0 and 65535');
+  }
+  if (
+    typeof signalProcess !== 'object'
+    || signalProcess === null
+    || typeof signalProcess.once !== 'function'
+    || typeof signalProcess.removeListener !== 'function'
+  ) {
+    throw new TypeError('signalProcess must support process signal events');
+  }
+
   const internalCallLifecycleDependency =
     createRelayInternalCallLifecycleDependency({
       env: lifecycleEnv,
@@ -2492,7 +2516,7 @@ function startServer({
   const app = express();
   const server = http.createServer(app);
   const websocketServer = new WebSocketServer({ noServer: true });
-  const fortuneAsrEnabled = isFortuneAsrEnabled();
+  const fortuneAsrEnabled = isFortuneAsrEnabled(env);
   let fortuneAsrWebSocketServer = null;
   let handleFortuneAsrConnection = null;
 
@@ -2503,7 +2527,7 @@ function startServer({
     } = require('./fortune_asr_relay');
     fortuneAsrWebSocketServer = new WebSocketServer({ noServer: true });
     handleFortuneAsrConnection = createFortuneAsrRelayConnectionHandler({
-      asrClientFactory: createFortuneAsrClientFactoryFromEnv(),
+      asrClientFactory: createFortuneAsrClientFactoryFromEnv({ env }),
       logger: log,
     });
   }
@@ -2512,7 +2536,17 @@ function startServer({
     ? [websocketServer, fortuneAsrWebSocketServer]
     : [websocketServer];
   const contexts = new Set();
+  const fortuneAsrControllers = new Set();
   let shuttingDown = false;
+  let stopPromise = null;
+  const signalHandlers = new Map();
+
+  app.get('/health', (_request, response) => {
+    response.json({
+      status: 'ok',
+      service: 'realtime-relay',
+    });
+  });
 
   app.use((_request, response, next) => {
     if (shuttingDown) {
@@ -2533,7 +2567,7 @@ function startServer({
     let pathname;
 
     try {
-      pathname = new URL(request.url, `http://${HOST}:${PORT}`).pathname;
+      pathname = new URL(request.url, 'http://relay.local').pathname;
     } catch {
       log('[Relay] 拒绝了无法解析的 WebSocket 路径');
       socket.destroy();
@@ -2573,78 +2607,61 @@ function startServer({
 
   if (fortuneAsrWebSocketServer) {
     fortuneAsrWebSocketServer.on('connection', (socket) => {
-      handleFortuneAsrConnection(socket);
+      const controller = handleFortuneAsrConnection(socket);
+      fortuneAsrControllers.add(controller);
+      socket.once('close', () => fortuneAsrControllers.delete(controller));
     });
   }
 
+  let startSettled = false;
+  let resolveReady;
+  let rejectReady;
+  const ready = new Promise((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  ready.catch(() => {});
+
   server.on('error', (error) => {
+    if (!startSettled) {
+      startSettled = true;
+      rejectReady(error);
+    }
     log(`[Relay] HTTP Server 错误：${error.message}`);
   });
 
-  server.listen(PORT, HOST, () => {
-    log(`[Relay] HTTP: http://${HOST}:${PORT}`);
-    log(`[Relay] WebSocket: ws://${HOST}:${PORT}${WEBSOCKET_PATH}`);
+  server.listen(port, host, () => {
+    startSettled = true;
+    const address = server.address();
+    const listeningPort = address && typeof address === 'object'
+      ? address.port
+      : port;
+    log(`[Relay] HTTP: http://${host}:${listeningPort}`);
+    log(`[Relay] WebSocket: ws://${host}:${listeningPort}${WEBSOCKET_PATH}`);
     if (fortuneAsrWebSocketServer) {
       log(
         `[Relay] Fortune ASR WebSocket: `
-        + `ws://${HOST}:${PORT}${FORTUNE_ASR_WEBSOCKET_PATH}`
+        + `ws://${host}:${listeningPort}${FORTUNE_ASR_WEBSOCKET_PATH}`
       );
     }
+    resolveReady(address);
   });
 
-  process.once('SIGINT', () => {
-    if (shuttingDown) {
-      return;
+  function removeSignalHandlers() {
+    for (const [signal, handler] of signalHandlers) {
+      signalProcess.removeListener(signal, handler);
     }
+    signalHandlers.clear();
+  }
+
+  async function performStop() {
     shuttingDown = true;
-    log('[Relay] 收到 SIGINT，开始关闭');
+    removeSignalHandlers();
+    await ready.catch(() => {});
+    let shutdownFailed = false;
 
-    void (async () => {
-      let shutdownFailed = false;
-
-      for (const context of contexts) {
-        context.conversationAudioActive = false;
-        context.acceptingBrowserAudio = false;
-        context.singleTurnInputClosed = true;
-      }
-
-      await Promise.allSettled(
-        Array.from(contexts, (context) => (
-          closeDoubaoSession(context, 'server shutdown')
-        ))
-      );
-
-      for (const currentWebSocketServer of websocketServers) {
-        for (const client of currentWebSocketServer.clients) {
-          if (client.readyState === WebSocket.OPEN
-            || client.readyState === WebSocket.CONNECTING) {
-            client.close(1001, 'relay shutting down');
-          }
-        }
-      }
-
-      await Promise.all(websocketServers.map(
-        (currentWebSocketServer) => new Promise((resolve) => {
-          const forceCloseTimer = setTimeout(() => {
-            for (const client of currentWebSocketServer.clients) {
-              client.terminate();
-            }
-          }, 2000);
-
-          currentWebSocketServer.close((error) => {
-            clearTimeout(forceCloseTimer);
-            if (error) {
-              shutdownFailed = true;
-              log(`[Relay] WebSocketServer 关闭错误：${error.message}`);
-            } else {
-              log('[Relay] WebSocketServer 已关闭');
-            }
-            resolve();
-          });
-        })
-      ));
-
-      await new Promise((resolve) => {
+    const httpClosePromise = server.listening
+      ? new Promise((resolve) => {
         server.close((error) => {
           if (error) {
             shutdownFailed = true;
@@ -2654,17 +2671,125 @@ function startServer({
           }
           resolve();
         });
-      });
+      })
+      : Promise.resolve();
 
-      log(shutdownFailed
-        ? '[Relay] 关闭完成，但发生错误'
-        : '[Relay] 已正常停止');
-      process.exitCode = shutdownFailed ? 1 : 0;
-    })().catch((error) => {
-      log(`[Relay] SIGINT 清理失败：${error.message}`);
-      process.exitCode = 1;
-    });
+    for (const context of contexts) {
+      context.conversationAudioActive = false;
+      context.acceptingBrowserAudio = false;
+      context.singleTurnInputClosed = true;
+    }
+
+    await Promise.allSettled(
+      Array.from(contexts, (context) => (
+        closeDoubaoSession(context, 'server shutdown')
+      ))
+    );
+
+    for (const controller of fortuneAsrControllers) {
+      try {
+        controller.close();
+      } catch {
+        shutdownFailed = true;
+      }
+    }
+
+    for (const currentWebSocketServer of websocketServers) {
+      for (const client of currentWebSocketServer.clients) {
+        if (client.readyState === WebSocket.OPEN
+          || client.readyState === WebSocket.CONNECTING) {
+          client.close(1001, 'relay shutting down');
+        }
+      }
+    }
+
+    await Promise.all(websocketServers.map(
+      (currentWebSocketServer) => new Promise((resolve) => {
+        const forceCloseTimer = setTimeout(() => {
+          for (const client of currentWebSocketServer.clients) {
+            client.terminate();
+          }
+        }, SERVER_SHUTDOWN_FORCE_TIMEOUT_MS);
+
+        currentWebSocketServer.close((error) => {
+          clearTimeout(forceCloseTimer);
+          if (error) {
+            shutdownFailed = true;
+            log(`[Relay] WebSocketServer 关闭错误：${error.message}`);
+          } else {
+            log('[Relay] WebSocketServer 已关闭');
+          }
+          resolve();
+        });
+      })
+    ));
+
+    await httpClosePromise;
+
+    log(shutdownFailed
+      ? '[Relay] 关闭完成，但发生错误'
+      : '[Relay] 已正常停止');
+    if (shutdownFailed) {
+      throw new Error('Relay shutdown failed');
+    }
+  }
+
+  function stop() {
+    if (!stopPromise) {
+      stopPromise = performStop();
+    }
+    return stopPromise;
+  }
+
+  if (installSignalHandlers) {
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      const handler = () => {
+        log(`[Relay] 收到 ${signal}，开始关闭`);
+        void stop().then(() => {
+          signalProcess.exitCode = 0;
+        }).catch((error) => {
+          log(`[Relay] ${signal} 清理失败：${error.message}`);
+          signalProcess.exitCode = 1;
+        });
+      };
+      signalHandlers.set(signal, handler);
+      signalProcess.once(signal, handler);
+    }
+  }
+
+  return Object.freeze({
+    get address() {
+      return server.address();
+    },
+    get shuttingDown() {
+      return shuttingDown;
+    },
+    ready,
+    server,
+    stop,
   });
 }
 
-startServer();
+function startDirectServer() {
+  const relay = startServer();
+  void relay.ready.catch(async (error) => {
+    log(`[Relay] 启动失败：${error.message}`);
+    try {
+      await relay.stop();
+    } catch {
+      // The startup error remains the primary failure.
+    }
+    process.exitCode = 1;
+  });
+  return relay;
+}
+
+module.exports = {
+  FORTUNE_ASR_WEBSOCKET_PATH,
+  HOST,
+  PORT,
+  WEBSOCKET_PATH,
+  startServer,
+};
+
+if (require.main === module) startDirectServer();

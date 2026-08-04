@@ -8,6 +8,10 @@ node_modules/
 !.env.*.example
 *.pem
 *.key
+*.crt
+*.cer
+*.der
+*.jks
 *.p12
 *.pfx
 id_rsa

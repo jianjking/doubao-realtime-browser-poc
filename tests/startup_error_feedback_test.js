@@ -725,7 +725,7 @@ function verifySafeServerCharacterLogging() {
 
 function instrumentServerLoggingSource() {
   return fs.readFileSync(SERVER_JS_PATH, 'utf8').replace(
-    /\nstartServer\(\);\s*$/,
+    /\nmodule\.exports = \{[\s\S]*?\};\s*\n\s*if \(require\.main === module\) startDirectServer\(\);\s*$/,
     '\nglobalThis.__serverLoggingTestExports = {\n'
       + '  handleBrowserConnection,\n'
       + '};\n'
@@ -740,7 +740,7 @@ function instrumentServerStartupSource() {
         + '  globalThis.__startupLifecycleContexts = contexts;'
     )
     .replace(
-      /\nstartServer\(\);\s*$/,
+      /\nmodule\.exports = \{[\s\S]*?\};\s*\n\s*if \(require\.main === module\) startDirectServer\(\);\s*$/,
       '\nglobalThis.__startupLifecycleTestExports = {\n'
         + '  startServer,\n'
         + '};\n'
@@ -825,6 +825,7 @@ function createLifecycleStartupRuntime(environment = {}) {
         ...environment,
       },
       once() {},
+      removeListener() {},
     },
     require(moduleName) {
       if (moduleName === 'node:crypto') {
@@ -845,6 +846,7 @@ function createLifecycleStartupRuntime(environment = {}) {
       }
       if (moduleName === 'express') {
         const express = () => ({
+          get() {},
           use() {},
         });
         express.static = () => () => {};
