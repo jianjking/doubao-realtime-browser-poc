@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('node:path');
+
 const express = require('express');
 const {
   FORTUNE_CATALOG_VERSION,
@@ -65,6 +67,38 @@ const {
 const {
   createConfiguredSmsVerificationProvider,
 } = require('./sms/sms_verification_provider_factory');
+
+const HTML_EXTENSIONS = new Set(['.html', '.htm']);
+const REVALIDATED_STATIC_EXTENSIONS = new Set(['.css', '.js']);
+const LONG_CACHE_STATIC_EXTENSIONS = new Set([
+  '.avif',
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.webp',
+  '.woff',
+  '.woff2',
+]);
+
+function setStaticCacheHeaders(response, filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (HTML_EXTENSIONS.has(extension)) {
+    response.setHeader('Cache-Control', 'no-cache');
+    return;
+  }
+  if (REVALIDATED_STATIC_EXTENSIONS.has(extension)) {
+    response.setHeader(
+      'Cache-Control',
+      'public, max-age=0, must-revalidate'
+    );
+    return;
+  }
+  if (LONG_CACHE_STATIC_EXTENSIONS.has(extension)) {
+    response.setHeader('Cache-Control', 'public, max-age=604800');
+  }
+}
 
 function createApp(options = {}) {
   const nodeEnv = typeof options.nodeEnv === 'string'
@@ -250,6 +284,7 @@ function createApp(options = {}) {
       express.static(options.mobileUiDirectory, {
         dotfiles: 'deny',
         fallthrough: false,
+        setHeaders: setStaticCacheHeaders,
       })
     );
   }
@@ -265,6 +300,7 @@ function createApp(options = {}) {
       express.static(options.realtimeUiDirectory, {
         dotfiles: 'deny',
         fallthrough: false,
+        setHeaders: setStaticCacheHeaders,
       })
     );
   }

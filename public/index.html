@@ -16,12 +16,22 @@
     aria-label="玉皇大帝实时通话页面"
   >
     <div class="scene-layer">
-      <img
+      <picture>
+        <source
+          data-call-character-image-webp
+          srcset="./assets/characters/yuhuang/yuhuang-home-hero-v1.webp"
+          type="image/webp">
+        <img
         class="scene-image"
         data-call-character-image
         src="./assets/characters/yuhuang/yuhuang-home-hero-v1.png"
+        width="941"
+        height="1672"
+        decoding="async"
+        fetchpriority="high"
         alt="玉皇大帝角色主视觉"
-      >
+        >
+      </picture>
     </div>
 
     <header class="topbar" aria-label="页面导航">

@@ -17,7 +17,12 @@
     </div>
 
     <div class="scene-layer">
-      <img
+      <picture>
+        <source
+          data-character-image-webp
+          srcset="./assets/characters/yuhuang/yuhuang-home-hero-v1.webp"
+          type="image/webp">
+        <img
         class="scene-image"
         src="./assets/characters/yuhuang/yuhuang-home-hero-v1.png"
         width="941"
@@ -26,6 +31,7 @@
         draggable="false"
         decoding="async"
         fetchpriority="high">
+      </picture>
     </div>
 
     <header class="top-controls unified-top-controls" aria-label="页面导航">
@@ -267,12 +273,12 @@
             <h3 id="payment-methods-title">选择支付方式</h3>
             <div class="payment-options" role="radiogroup" aria-label="选择支付方式">
               <button class="payment-option is-selected" type="button" role="radio" aria-checked="true" data-payment-method="wechat" data-payment-name="微信支付">
-                <img class="payment-icon" src="./assets/payment/wechat-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
+                <img class="payment-icon" src="./assets/payment/wechat-pay-ui.png" width="38" height="38" alt="" aria-hidden="true" loading="lazy" decoding="async">
                 <span class="payment-name">微信支付</span>
                 <small class="selection-status">已选</small>
               </button>
               <button class="payment-option" type="button" role="radio" aria-checked="false" data-payment-method="alipay" data-payment-name="支付宝支付">
-                <img class="payment-icon" src="./assets/payment/alipay-pay-ui.png" width="38" height="38" alt="" aria-hidden="true">
+                <img class="payment-icon" src="./assets/payment/alipay-pay-ui.png" width="38" height="38" alt="" aria-hidden="true" loading="lazy" decoding="async">
                 <span class="payment-name">支付宝支付</span>
                 <small class="selection-status">选择</small>
               </button>
@@ -347,7 +353,7 @@
       <div class="account-profile-dialog overlay-card">
         <header class="overlay-header profile-header">
           <div class="profile-heading">
-            <img src="./assets/account/default-fu-avatar.svg" width="64" height="64" alt="">
+            <img src="./assets/account/default-fu-avatar.svg" width="64" height="64" alt="" loading="lazy" decoding="async">
             <div>
               <h2 id="account-profile-title">个人信息</h2>
               <p data-profile-summary>游客用户 · 游客体验</p>

@@ -263,6 +263,9 @@
   const characterImage = document.querySelector(
     '[data-call-character-image]'
   );
+  const characterImageWebp = document.querySelector(
+    '[data-call-character-image-webp]'
+  );
   const characterHeading = document.querySelector(
     '[data-call-character-heading]'
   );
@@ -367,6 +370,12 @@
       `${character.name}实时通话页面`
     );
     characterImage.style.removeProperty('display');
+    if (characterImageWebp) {
+      characterImageWebp.srcset = character.imageSrc.replace(
+        /\.png$/,
+        '.webp'
+      );
+    }
     characterImage.setAttribute('src', character.imageSrc);
     characterImage.setAttribute('alt', character.imageAlt);
     characterHeading.setAttribute(

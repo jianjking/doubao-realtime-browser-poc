@@ -171,6 +171,53 @@
     return callUrl.href;
   }
   const characterImagePreloadPromises = new Map();
+  let webpSupport = null;
+
+  function supportsWebp() {
+    if (webpSupport !== null) {
+      return webpSupport;
+    }
+    if (
+      !document
+      || typeof document.createElement !== 'function'
+    ) {
+      webpSupport = false;
+      return webpSupport;
+    }
+    const canvas = document.createElement('canvas');
+    if (
+      !canvas
+      || typeof canvas.toDataURL !== 'function'
+    ) {
+      webpSupport = false;
+      return webpSupport;
+    }
+    webpSupport = canvas.toDataURL('image/webp').indexOf(
+      'data:image/webp'
+    ) === 0;
+    return webpSupport;
+  }
+
+  function getCharacterImageSrc(character) {
+    if (!character || typeof character.imageSrc !== 'string') {
+      return '';
+    }
+    if (supportsWebp()) {
+      return character.imageSrc.replace(/\.png$/, '.webp');
+    }
+    return character.imageSrc;
+  }
+
+  function scheduleAdjacentCharacterWarmup(characterKey) {
+    const warmup = () => warmAdjacentCharacterImages(characterKey);
+    window.setTimeout(() => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(warmup, { timeout: 1500 });
+        return;
+      }
+      warmup();
+    }, 800);
+  }
   const auxiliaryMessages = {
     guide: '点击“开始通话”后，允许使用麦克风，随后直接开口即可。',
     culture: '传统文化内容正在准备中。',
@@ -1116,6 +1163,15 @@
       : `${character.name}语音正在准备中`;
 
     if (sceneImage) {
+      const sceneImageWebp = document.querySelector(
+        '[data-character-image-webp]'
+      );
+      if (sceneImageWebp) {
+        sceneImageWebp.srcset = character.imageSrc.replace(
+          /\.png$/,
+          '.webp'
+        );
+      }
       sceneImage.src = character.imageSrc;
       sceneImage.alt = character.imageAlt;
       window.clearTimeout(imageAnimationTimer);
@@ -1164,8 +1220,9 @@
   }
 
   function preloadCharacterImage(character) {
+    const imageSrc = getCharacterImageSrc(character);
     const cachedPromise = characterImagePreloadPromises.get(
-      character.imageSrc
+      imageSrc
     );
     if (cachedPromise) {
       return cachedPromise;
@@ -1175,18 +1232,18 @@
       const image = new Image();
       image.onload = resolve;
       image.onerror = reject;
-      image.src = character.imageSrc;
+      image.src = imageSrc;
     });
     characterImagePreloadPromises.set(
-      character.imageSrc,
+      imageSrc,
       preloadPromise
     );
     preloadPromise.catch(() => {
       if (
-        characterImagePreloadPromises.get(character.imageSrc)
+        characterImagePreloadPromises.get(imageSrc)
         === preloadPromise
       ) {
-        characterImagePreloadPromises.delete(character.imageSrc);
+        characterImagePreloadPromises.delete(imageSrc);
       }
     });
     return preloadPromise;
@@ -2650,7 +2707,7 @@
     setPaymentUiState('idle');
     updateRechargeSelectionSummary();
     if (homePage) {
-      warmAdjacentCharacterImages(currentCharacterKey);
+      scheduleAdjacentCharacterWarmup(currentCharacterKey);
     }
   }
 

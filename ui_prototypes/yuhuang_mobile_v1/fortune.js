@@ -72,6 +72,9 @@
   const fortuneCharacterImage = document.querySelector(
     '[data-fortune-character-image]'
   );
+  const fortuneCharacterImageWebp = document.querySelector(
+    '[data-fortune-character-image-webp]'
+  );
   const fortuneCharacterUnavailable = document.querySelector(
     '[data-fortune-character-unavailable]'
   );
@@ -655,6 +658,9 @@
   function renderUnavailableFortuneCharacter() {
     fortuneCharacterImage.hidden = true;
     fortuneCharacterImage.removeAttribute('src');
+    if (fortuneCharacterImageWebp) {
+      fortuneCharacterImageWebp.removeAttribute('srcset');
+    }
     fortuneCharacterImage.setAttribute('alt', '');
     fortuneCharacterUnavailable.hidden = false;
     page.dataset.fortuneCharacterKey = 'unavailable';
@@ -684,6 +690,12 @@
     fortuneCharacterUnavailable.hidden = true;
     fortuneCharacterImage.hidden = false;
     fortuneCharacterImage.dataset.characterKey = characterKey;
+    if (fortuneCharacterImageWebp) {
+      fortuneCharacterImageWebp.srcset = imageSrc.replace(
+        /\.png$/,
+        '.webp'
+      );
+    }
     fortuneCharacterImage.setAttribute('src', imageSrc);
     fortuneCharacterImage.setAttribute(
       'alt',
@@ -699,19 +711,7 @@
     );
   }
 
-  function preloadIntegratedFortuneScenes() {
-    Object.values(
-      INTEGRATED_FORTUNE_SCENE_SOURCES
-    ).forEach((sceneSource) => {
-      const sceneImage = new Image();
-
-      sceneImage.decoding = 'async';
-      sceneImage.src = sceneSource;
-    });
-  }
-
   renderFortuneCharacter();
-  preloadIntegratedFortuneScenes();
 
   function resetFortuneSceneSwipe() {
     fortuneSceneSwipePointerId = null;
