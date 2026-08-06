@@ -6,9 +6,99 @@
   <meta name="theme-color" content="#481a20">
   <title>登录 · 传统文化智慧陪伴</title>
   <link rel="icon" href="data:,">
+  <style>
+    :root { --app-height: 100vh; }
+    @supports (height: 100dvh) { :root { --app-height: 100dvh; } }
+    html.is-xianban-loading,
+    html.is-xianban-loading body { overflow: hidden; }
+    .xianban-startup-loader {
+      position: fixed;
+      z-index: 2147483000;
+      inset: 0;
+      display: grid;
+      width: 100%;
+      height: var(--app-height, 100vh);
+      place-items: center;
+      padding: max(28px, env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px)) max(28px, env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-left, 0px));
+      color: #fff3cf;
+      background: #2a0d12;
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      transition: opacity 320ms ease, visibility 320ms ease;
+    }
+    .xianban-startup-loader.is-complete { visibility: hidden; opacity: 0; }
+    .xianban-loader-panel {
+      display: grid;
+      width: min(100%, 360px);
+      justify-items: center;
+      gap: 14px;
+      text-align: center;
+    }
+    .xianban-loader-seal {
+      display: grid;
+      width: 72px;
+      height: 72px;
+      place-items: center;
+      border: 2px solid #d9ae58;
+      border-radius: 50%;
+      color: #f8d987;
+      background: #571820;
+      box-shadow: 0 0 0 5px rgba(217, 174, 88, 0.14);
+      font-family: "STKaiti", "KaiTi", serif;
+      font-size: 38px;
+      font-weight: 800;
+    }
+    .xianban-loader-title { margin: 0; font-size: 32px; font-weight: 800; line-height: 1.2; }
+    .xianban-loader-copy { margin: -4px 0 4px; color: #f0dca8; font-size: 18px; line-height: 1.55; }
+    .xianban-loader-progress {
+      width: 100%;
+      height: 14px;
+      overflow: hidden;
+      border: 1px solid rgba(239, 207, 132, 0.7);
+      border-radius: 999px;
+      background: #16070a;
+    }
+    .xianban-loader-progress > span { display: block; width: 12%; height: 100%; border-radius: inherit; background: #e0b65e; }
+    .xianban-loader-percent { margin: -5px 0 0; color: #fff7df; font-size: 17px; font-weight: 800; }
+    .xianban-loader-status { min-height: 48px; margin: 0; color: #f4dfae; font-size: 16px; line-height: 1.5; }
+    .xianban-loader-status[hidden],
+    .xianban-loader-reload[hidden] { display: none; }
+    .xianban-loader-reload {
+      min-width: 152px;
+      min-height: 52px;
+      padding: 8px 22px;
+      border: 1px solid #f1d083;
+      border-radius: 8px;
+      color: #3a1015;
+      background: #f0c86f;
+      font-size: 18px;
+      font-weight: 800;
+    }
+    @media (prefers-reduced-motion: reduce) { .xianban-startup-loader { transition: none; } }
+  </style>
+  <script>
+    document.documentElement.classList.add('is-xianban-loading');
+    window.__xianbanStartupAt = window.performance.now();
+    document.documentElement.style.setProperty(
+      '--app-height',
+      Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight) + 'px'
+    );
+  </script>
   <link rel="stylesheet" href="./auth.css">
 </head>
 <body>
+  <div class="xianban-startup-loader" data-xianban-loader role="status" aria-live="polite" aria-label="页面正在加载">
+    <div class="xianban-loader-panel">
+      <div class="xianban-loader-seal" aria-hidden="true">仙</div>
+      <p class="xianban-loader-title">仙伴</p>
+      <p class="xianban-loader-copy">正在连接仙境，请稍候……</p>
+      <div class="xianban-loader-progress" role="progressbar" aria-label="页面加载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="12">
+        <span data-loader-progress-bar></span>
+      </div>
+      <p class="xianban-loader-percent" data-loader-progress-text>12%</p>
+      <p class="xianban-loader-status" data-loader-status hidden></p>
+      <button class="xianban-loader-reload" data-loader-reload type="button" hidden>重新加载</button>
+    </div>
+  </div>
   <main class="auth-page">
     <div class="auth-ambient" aria-hidden="true">
       <span class="auth-halo"></span>
@@ -76,6 +166,11 @@
       <p class="auth-status" role="status" aria-live="polite" aria-atomic="true"></p>
     </section>
   </main>
-  <script src="./auth.js"></script>
+  <script
+    src="./startup-loader.js"
+    onerror="document.querySelector('[data-loader-status]').hidden=false;document.querySelector('[data-loader-status]').textContent='加载程序未能启动，请重新加载';document.querySelector('[data-loader-reload]').hidden=false;document.querySelector('[data-loader-reload]').onclick=function(){window.location.reload()}"></script>
+  <script
+    src="./auth.js"
+    onerror="window.XianBanStartup&&window.XianBanStartup.fail('页面脚本未能加载，请重新加载后再试')"></script>
 </body>
 </html>

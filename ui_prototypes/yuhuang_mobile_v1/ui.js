@@ -2712,4 +2712,10 @@
   }
 
   initializeUi();
+  if (
+    window.XianBanStartup
+    && typeof window.XianBanStartup.markAppReady === 'function'
+  ) {
+    window.XianBanStartup.markAppReady();
+  }
 })();
