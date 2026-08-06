@@ -11,13 +11,56 @@ const UI_ROOT = path.join(
   'ui_prototypes',
   'yuhuang_mobile_v1'
 );
+const MOBILE_PAGES = ['index.html', 'choice.html', 'home.html'];
+const MONKEY_ASSET_FILENAME = 'sunwukong-loader-runner-v1.webp';
+const FULL_MONKEY_ASSET_FILENAME = 'sunwukong-home-hero-v2.webp';
+const MONKEY_ASSET = path.join(
+  UI_ROOT,
+  'assets',
+  'characters',
+  'sunwukong',
+  MONKEY_ASSET_FILENAME
+);
 
 function readUiFile(filename) {
   return fs.readFileSync(path.join(UI_ROOT, filename), 'utf8');
 }
 
+function readWebpDimensions(buffer) {
+  assert.equal(buffer.subarray(0, 4).toString('ascii'), 'RIFF');
+  assert.equal(buffer.subarray(8, 12).toString('ascii'), 'WEBP');
+
+  const chunkType = buffer.subarray(12, 16).toString('ascii');
+  if (chunkType === 'VP8X') {
+    return {
+      width: 1 + buffer.readUIntLE(24, 3),
+      height: 1 + buffer.readUIntLE(27, 3),
+    };
+  }
+  if (chunkType === 'VP8 ') {
+    return {
+      width: buffer.readUInt16LE(26) & 0x3fff,
+      height: buffer.readUInt16LE(28) & 0x3fff,
+    };
+  }
+  if (chunkType === 'VP8L') {
+    const bits = buffer.readUInt32LE(21);
+    return {
+      width: 1 + (bits & 0x3fff),
+      height: 1 + ((bits >> 14) & 0x3fff),
+    };
+  }
+  assert.fail(`Unsupported WebP chunk type: ${chunkType}`);
+}
+
+function getLoaderMonkeyTag(html) {
+  const match = html.match(/<img\b(?=[^>]*\bdata-loader-monkey\b)[^>]*>/);
+  assert.ok(match, 'loader monkey image should exist');
+  return match[0];
+}
+
 test('key mobile pages expose an immediate accessible loading layer', () => {
-  for (const filename of ['index.html', 'choice.html', 'home.html']) {
+  for (const filename of MOBILE_PAGES) {
     const html = readUiFile(filename);
     const loaderStylePosition = html.indexOf('.xianban-startup-loader');
     const pageStylesheetPosition = html.indexOf('rel="stylesheet"');
@@ -35,15 +78,55 @@ test('key mobile pages expose an immediate accessible loading layer', () => {
     assert.match(html, /role="progressbar"/);
     assert.match(html, /data-loader-progress-text>12%/);
     assert.match(html, /data-loader-reload[^>]*hidden/);
+    assert.match(html, />仙伴<\/p>/);
+    assert.match(html, /正在连接仙境，请稍候……/);
+    assert.match(html, /data-loader-stage>正在打开仙伴/);
+    assert.match(html, /data-loader-estimate-text>预计还需 5～10 秒/);
+    assert.match(
+      html,
+      /data-loader-comfort>首次打开可能稍慢，请您耐心等一会儿/
+    );
+    assert.match(html, /data-loader-reload-note[^>]*hidden/);
+    assert.match(html, /如果长时间没有进入，可以尝试重新加载/);
+    assert.match(html, /data-loader-monkey/);
+    assert.match(html, /loading="lazy"/);
+    assert.match(html, /decoding="async"/);
+    assert.match(html, /onerror="this\.hidden=true"/);
+    assert.match(html, /radial-gradient/);
+    assert.match(html, /linear-gradient\(180deg, #742530/);
     assert.match(html, /src="\.\/startup-loader\.js"/);
     assert.ok(
       loaderMarkupPosition < html.indexOf('src="./startup-loader.js"')
     );
     assert.match(
       html,
-      /src="\.\/startup-loader\.js"\s+onerror="[^"]*data-loader-status[^"]*data-loader-reload[^"]*"/
+      /src="\.\/startup-loader\.js"\s+onerror="[^"]*data-loader-status[^"]*data-loader-reload-note[^"]*data-loader-reload[^"]*"/
     );
   }
+});
+
+test('all mobile pages keep the same loader HTML and critical CSS', () => {
+  const loaderStyles = [];
+  const loaderMarkup = [];
+
+  for (const filename of MOBILE_PAGES) {
+    const html = readUiFile(filename);
+    loaderStyles.push(html.match(/<style>([\s\S]*?)<\/style>/)[1]);
+    loaderMarkup.push(
+      html.slice(
+        html.indexOf('<div class="xianban-startup-loader"'),
+        Math.min(
+          ...[
+            html.indexOf('<main'),
+            html.indexOf('<div class="app-shell"'),
+          ].filter((position) => position >= 0)
+        )
+      ).trim()
+    );
+  }
+
+  assert.equal(new Set(loaderStyles).size, 1);
+  assert.equal(new Set(loaderMarkup).size, 1);
 });
 
 test('startup loader waits for real milestones and supports slow networks', () => {
@@ -61,8 +144,9 @@ test('startup loader waits for real milestones and supports slow networks', () =
   assert.match(loaderJs, /8000/);
   assert.match(loaderJs, /24000/);
   assert.match(loaderJs, /当前网络较慢，仙伴仍在努力加载/);
-  assert.match(loaderJs, /资源加载时间较长，请继续等待/);
+  assert.match(loaderJs, /资源加载时间较长，请您再耐心等一会儿/);
   assert.match(loaderJs, /window\.location\.reload\(\)/);
+  assert.match(loaderJs, /reloadButton\.disabled = true/);
   assert.match(loaderJs, /window\.clearTimeout\(viewportUpdateTimer\)/);
   assert.match(loaderJs, /window\.removeEventListener\('resize'/);
   assert.match(loaderJs, /visualViewport\.removeEventListener\('resize'/);
@@ -72,6 +156,100 @@ test('startup loader waits for real milestones and supports slow networks', () =
   assert.match(homeJs, /typeof window\.XianBanStartup\.markAppReady/);
   assert.match(authJs, /XianBanStartup\.markAppReady\(\)/);
   assert.match(homeJs, /XianBanStartup\.markAppReady\(\)/);
+});
+
+test('loader stages, estimates, comfort rotation, and cleanup stay bounded', () => {
+  const loaderJs = readUiFile('startup-loader.js');
+  const expectedStageMessages = [
+    '正在打开仙伴',
+    '正在准备页面',
+    '正在迎接神仙伙伴',
+    '正在同步陪伴信息',
+    '马上就准备好了',
+    '仙伴已准备好',
+  ];
+  const expectedComfortMessages = [
+    '首次打开可能稍慢，请您耐心等一会儿',
+    '仙伴正在准备陪您说话',
+    '神仙伙伴正在赶来的路上',
+    '请别着急，马上就好',
+    '网络较慢时，准备时间会多一点',
+  ];
+
+  for (const message of expectedStageMessages) {
+    assert.ok(loaderJs.includes(`'${message}'`));
+  }
+  for (const message of expectedComfortMessages) {
+    assert.ok(loaderJs.includes(`'${message}'`));
+  }
+
+  assert.match(loaderJs, /value >= 90[\s\S]*value >= 70[\s\S]*value >= 40[\s\S]*value >= 20/);
+  assert.match(loaderJs, /if \(nextStageIndex < stageIndex\)/);
+  assert.match(loaderJs, /elapsedSeconds < 4/);
+  assert.match(loaderJs, /预计还需 5～10 秒/);
+  assert.match(loaderJs, /elapsedSeconds < 8/);
+  assert.match(loaderJs, /预计还需 5～15 秒/);
+  assert.match(loaderJs, /elapsedSeconds < 15/);
+  assert.match(loaderJs, /当前网络较慢，可能还需 10～20 秒/);
+  assert.match(loaderJs, /elapsedSeconds < 24/);
+  assert.match(loaderJs, /首次打开资源较多，请再耐心等一会儿/);
+  assert.match(loaderJs, /加载时间较长，您可以继续等待或重新加载/);
+  assert.match(loaderJs, /estimateText\.textContent = '即将进入'/);
+  assert.match(loaderJs, /setInterval\(rotateComfortMessage, 4500\)/);
+  assert.match(loaderJs, /clearInterval\(estimateTimer\)/);
+  assert.match(loaderJs, /clearInterval\(comfortTimer\)/);
+  assert.match(loaderJs, /window\.addEventListener\('pagehide', cleanupPage\)/);
+  assert.match(loaderJs, /window\.cancelAnimationFrame\(progressFrame\)/);
+  assert.equal((loaderJs.match(/setTargetProgress\(100\)/g) || []).length, 1);
+});
+
+test('monkey animation is optional, motion-safe, and uses a lightweight WebP', () => {
+  const loaderJs = readUiFile('startup-loader.js');
+  const monkeyBuffer = fs.readFileSync(MONKEY_ASSET);
+  const dimensions = readWebpDimensions(monkeyBuffer);
+
+  assert.ok(fs.existsSync(MONKEY_ASSET));
+  assert.ok(monkeyBuffer.length > 0);
+  assert.ok(monkeyBuffer.length <= 50 * 1024);
+  assert.ok(dimensions.width >= 68 * 2);
+  assert.ok(dimensions.height >= 80 * 2);
+  assert.ok(Math.max(dimensions.width, dimensions.height) <= 360);
+  assert.notDeepEqual(dimensions, { width: 941, height: 1672 });
+  assert.match(loaderJs, /monkeyImage\.hidden = true/);
+  assert.match(loaderJs, /monkeyImage\.naturalWidth === 0/);
+  assert.doesNotMatch(loaderJs, /monkeyImage\.addEventListener\(['"]load/);
+  assert.doesNotMatch(loaderJs, /monkeyImage\.decode\(/);
+  assert.doesNotMatch(loaderJs, /sunwukong-loader-runner-v1\.webp/);
+
+  for (const filename of MOBILE_PAGES) {
+    const html = readUiFile(filename);
+    const monkeyTag = getLoaderMonkeyTag(html);
+    const preloadTags = html.match(/<link\b[^>]*>/g) || [];
+
+    assert.match(monkeyTag, new RegExp(MONKEY_ASSET_FILENAME));
+    assert.doesNotMatch(monkeyTag, new RegExp(FULL_MONKEY_ASSET_FILENAME));
+    assert.match(monkeyTag, /width="272"/);
+    assert.match(monkeyTag, /height="320"/);
+    assert.match(monkeyTag, /alt=""/);
+    assert.match(monkeyTag, /aria-hidden="true"/);
+    assert.match(monkeyTag, /loading="lazy"/);
+    assert.match(monkeyTag, /decoding="async"/);
+    assert.match(monkeyTag, /fetchpriority="low"/);
+    assert.match(monkeyTag, /onerror="this\.hidden=true"/);
+    assert.doesNotMatch(monkeyTag, /data-(?:startup-)?critical-resource/);
+    assert.doesNotMatch(monkeyTag, /data-startup-critical-image/);
+    assert.equal(
+      preloadTags.some((tag) => tag.includes(MONKEY_ASSET_FILENAME)),
+      false
+    );
+    assert.match(html, /@keyframes xianban-monkey-run/);
+    assert.match(html, /translate3d\(/);
+    assert.match(html, /scaleX\(-1\)/);
+    assert.match(html, /animation: xianban-monkey-run 6\.6s/);
+    assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
+    assert.match(html, /animation: xianban-monkey-breathe 3\.6s/);
+    assert.doesNotMatch(html, /https?:\/\/[^"']+(?:\.gif|\.mp4|\.woff)/i);
+  }
 });
 
 test('choice and home layouts use dynamic viewport and safe-area bounds', () => {
