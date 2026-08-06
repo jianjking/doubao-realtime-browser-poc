@@ -384,8 +384,9 @@ PAYMENT_MOCK_CONFIRMATION_ENABLED="${PAYMENT_MOCK_CONFIRMATION_ENABLED:-1}"
 FORTUNE_DRAW_PRICE_CENTS="${FORTUNE_DRAW_PRICE_CENTS:-200}"
 if [[ "$PAYMENT_PROVIDER_MODE" != "disabled" \
   && "$PAYMENT_PROVIDER_MODE" != "mock" \
-  && "$PAYMENT_PROVIDER_MODE" != "live" ]]; then
-  printf '错误：PAYMENT_PROVIDER_MODE 必须是 disabled、mock 或 live。\n' >&2
+  && "$PAYMENT_PROVIDER_MODE" != "live" \
+  && "$PAYMENT_PROVIDER_MODE" != "alipay" ]]; then
+  printf '错误：PAYMENT_PROVIDER_MODE 必须是 disabled、mock、live 或 alipay。\n' >&2
   exit 1
 fi
 if [[ "$PAYMENT_MOCK_CONFIRMATION_ENABLED" != "0" \
@@ -397,6 +398,11 @@ if [[ "${NODE_ENV-}" == "production" \
   && ( "$PAYMENT_PROVIDER_MODE" == "mock" \
     || "$PAYMENT_MOCK_CONFIRMATION_ENABLED" == "1" ) ]]; then
   printf '错误：生产环境禁止启用 Mock 支付。\n' >&2
+  exit 1
+fi
+if [[ "$PAYMENT_PROVIDER_MODE" == "alipay" \
+  && "$PAYMENT_MOCK_CONFIRMATION_ENABLED" != "0" ]]; then
+  printf '错误：alipay 模式禁止启用 Mock 支付。\n' >&2
   exit 1
 fi
 export PAYMENT_PROVIDER_MODE

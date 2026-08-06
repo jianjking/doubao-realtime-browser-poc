@@ -121,7 +121,7 @@ async function createOrder(port, cookie, {
   });
 }
 
-async function startLiveHarness() {
+async function startLiveHarness(mode = 'live') {
   const keys = createTemporaryPaymentKeys();
   const platform = await startFakePaymentPlatform(keys);
   const stores = createBusinessStores({ databasePath: ':memory:' });
@@ -136,7 +136,7 @@ async function startLiveHarness() {
     allowTestUrls: true,
   });
   const providerRegistry = createPaymentProviderRegistry({
-    mode: 'live',
+    mode,
     wechatProvider,
     alipayProvider,
   });
@@ -146,7 +146,7 @@ async function startLiveHarness() {
     paymentProviderRegistry: providerRegistry,
     paymentRuntimeConfig: {
       alipay: { configured: true, enabled: true },
-      mode: 'live',
+      mode,
       mockConfirmationEnabled: false,
       nodeEnv: 'test',
       wechat: { configured: true, enabled: true },
@@ -242,6 +242,15 @@ test('Alipay raw form callback is strict, unauthenticated, and idempotent', asyn
     assert.equal(created.statusCode, 201);
     assert.equal(created.body.checkout.kind, 'alipay_wap');
     const order = getStoredOrder(harness.stores, created.body.order);
+    const returnVisit = await request(harness.port, {
+      method: 'GET',
+      path: `/payment-return?out_trade_no=${order.merchantOrderNo}`,
+    });
+    assert.equal(returnVisit.statusCode, 404);
+    assert.equal(
+      harness.stores.accountStore.findByUserId(user.userId).balanceCents,
+      1250
+    );
     const notification = createAlipayNotification(harness.keys, {
       out_trade_no: order.merchantOrderNo,
       total_amount: '23.01',
@@ -272,6 +281,99 @@ test('Alipay raw form callback is strict, unauthenticated, and idempotent', asyn
     assert.equal(
       harness.stores.accountLedgerStore.findByAccountId(user.userId).length,
       1
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+test('alipay mode exposes only Alipay and never falls back to Mock', async () => {
+  const harness = await startLiveHarness('alipay');
+  try {
+    const user = await login(harness.port);
+    const rejectedWechatOrder = await createOrder(harness.port, user.cookie, {
+      provider: 'wechat',
+      amountCents: 1000,
+      clientRequestId: '30000000-0000-4000-8000-000000000008',
+    });
+    assert.equal(rejectedWechatOrder.statusCode, 503);
+    assert.equal(
+      rejectedWechatOrder.body.error.code,
+      'PAYMENT_PROVIDER_NOT_CONFIGURED'
+    );
+
+    const created = await createOrder(harness.port, user.cookie, {
+      provider: 'alipay',
+      amountCents: 901,
+      clientRequestId: '30000000-0000-4000-8000-000000000009',
+    });
+    assert.equal(created.statusCode, 201);
+    assert.equal(created.body.checkout.kind, 'alipay_wap');
+    const order = getStoredOrder(harness.stores, created.body.order);
+    const notification = createAlipayNotification(harness.keys, {
+      out_trade_no: order.merchantOrderNo,
+      total_amount: '9.01',
+      receipt_amount: '9.01',
+      trade_no: `ALI_ONLY_${order.merchantOrderNo}`,
+      notify_id: 'ALI_ONLY_NOTICE_1',
+    });
+    const callback = await request(harness.port, {
+      method: 'POST',
+      path: '/api/payment-notifications/alipay',
+      contentType: 'application/x-www-form-urlencoded',
+      body: notification.rawBody,
+    });
+    assert.equal(callback.statusCode, 200);
+    assert.equal(callback.rawBody, 'success');
+    assert.equal(
+      harness.stores.accountStore.findByUserId(user.userId).balanceCents,
+      2151
+    );
+
+    const queryCreated = await createOrder(harness.port, user.cookie, {
+      provider: 'alipay',
+      amountCents: 333,
+      clientRequestId: '30000000-0000-4000-8000-000000000010',
+    });
+    assert.equal(queryCreated.statusCode, 201);
+    const queryOrder = getStoredOrder(harness.stores, queryCreated.body.order);
+    harness.platform.alipayTrades.set(queryOrder.merchantOrderNo, {
+      code: '10000',
+      msg: 'Success',
+      out_trade_no: queryOrder.merchantOrderNo,
+      trade_no: 'ALI_QUERY_IDEMPOTENT',
+      trade_status: 'TRADE_SUCCESS',
+      total_amount: '3.33',
+      send_pay_date: '2026-08-02 16:00:00',
+    });
+    for (let index = 0; index < 2; index += 1) {
+      const queried = await request(harness.port, {
+        method: 'GET',
+        path: `/api/payment-orders/${queryOrder.id}`,
+        cookie: user.cookie,
+      });
+      assert.equal(queried.statusCode, 200);
+      assert.equal(queried.body.order.status, 'credited');
+    }
+    assert.equal(
+      harness.stores.accountStore.findByUserId(user.userId).balanceCents,
+      2484
+    );
+    assert.equal(
+      harness.stores.accountLedgerStore.findByAccountId(user.userId).length,
+      2
+    );
+
+    const rejectedWechatCallback = await request(harness.port, {
+      method: 'POST',
+      path: '/api/payment-notifications/wechat',
+      contentType: 'application/json',
+      body: '{}',
+    });
+    assert.equal(rejectedWechatCallback.statusCode, 503);
+    assert.equal(
+      rejectedWechatCallback.body.error.code,
+      'PAYMENT_PROVIDER_NOT_CONFIGURED'
     );
   } finally {
     await harness.close();

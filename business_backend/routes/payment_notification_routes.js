@@ -15,7 +15,12 @@ const {
 const PAYMENT_NOTIFICATION_BODY_LIMIT = '32kb';
 
 function requireLiveProvider(providerRegistry, provider) {
-  if (providerRegistry.mode !== 'live') {
+  const providerModeAllowed = providerRegistry.mode === 'live'
+    || (
+      providerRegistry.mode === 'alipay'
+      && provider === 'alipay'
+    );
+  if (!providerModeAllowed) {
     throw createProviderModeError(
       providerRegistry.mode === 'disabled' ? 'disabled' : 'live'
     );

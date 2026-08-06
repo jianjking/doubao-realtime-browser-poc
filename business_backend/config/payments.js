@@ -2,13 +2,19 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const net = require('node:net');
 
 const PAYMENT_NOTICE = '模拟支付，不会产生真实扣款';
 const MIN_PAYMENT_AMOUNT_CENTS = 1;
 const MAX_PAYMENT_AMOUNT_CENTS = 100000;
 const PAYMENT_ORDER_TTL_MS = 15 * 60 * 1000;
 const PAYMENT_PROVIDERS = Object.freeze(['wechat', 'alipay']);
-const PAYMENT_PROVIDER_MODES = Object.freeze(['disabled', 'mock', 'live']);
+const PAYMENT_PROVIDER_MODES = Object.freeze([
+  'disabled',
+  'mock',
+  'live',
+  'alipay',
+]);
 const WECHAT_PAY_API_ORIGIN = 'https://api.mch.weixin.qq.com';
 const ALIPAY_GATEWAY_URL = 'https://openapi.alipay.com/gateway.do';
 
@@ -26,7 +32,65 @@ function hasEveryString(env, names) {
   ));
 }
 
-function parseHttpsUrl(value, name, { allowQuery = true } = {}) {
+function isNonPublicHostname(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '');
+  const ipVersion = net.isIP(host);
+  if (
+    host === 'localhost'
+    || host.endsWith('.localhost')
+    || host.endsWith('.local')
+    || host.endsWith('.internal')
+    || host.endsWith('.example')
+    || host.endsWith('.invalid')
+    || host.endsWith('.test')
+    || (ipVersion === 0 && !host.includes('.'))
+  ) {
+    return true;
+  }
+  if (ipVersion === 4) {
+    const parts = host.split('.').map(Number);
+    const [first, second] = parts;
+    return (
+      first === 0
+      || first === 10
+      || (first === 100 && second >= 64 && second <= 127)
+      || first === 127
+      || (first === 169 && second === 254)
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 0)
+      || (first === 192 && second === 168)
+      || (first === 198 && second >= 18 && second <= 19)
+      || (first === 198 && second === 51)
+      || (first === 203 && second === 0 && parts[2] === 113)
+      || first >= 224
+    );
+  }
+  if (ipVersion === 6) {
+    if (host.startsWith('::ffff:')) {
+      return isNonPublicHostname(host.slice('::ffff:'.length));
+    }
+    return (
+      host === '::'
+      || host === '::1'
+      || host.startsWith('fc')
+      || host.startsWith('fd')
+      || host.startsWith('fe8')
+      || host.startsWith('fe9')
+      || host.startsWith('fea')
+      || host.startsWith('feb')
+      || host.startsWith('ff')
+      || host === '2001:db8'
+      || host.startsWith('2001:db8:')
+    );
+  }
+  return false;
+}
+
+function parseHttpsUrl(
+  value,
+  name,
+  { allowQuery = true, requirePublicHost = false } = {}
+) {
   let url;
   try {
     url = new URL(value);
@@ -39,10 +103,67 @@ function parseHttpsUrl(value, name, { allowQuery = true } = {}) {
     || url.password !== ''
     || url.hash !== ''
     || (!allowQuery && url.search !== '')
+    || (requirePublicHost && isNonPublicHostname(url.hostname))
   ) {
     throw new Error(`${name} must be a valid HTTPS URL`);
   }
   return url.toString();
+}
+
+function normalizeRsaKeyMaterial(keyBytes, keyKind) {
+  let material = Buffer.isBuffer(keyBytes)
+    ? keyBytes
+    : Buffer.from(String(keyBytes), 'utf8');
+  const text = material.toString('utf8').trim();
+  if (
+    text !== ''
+    && !text.includes('-----BEGIN')
+    && /^[A-Za-z0-9+/\r\n]+={0,2}$/.test(text.replace(/\s+/g, ''))
+  ) {
+    const base64 = text.replace(/\s+/g, '');
+    const label = keyKind === 'public' ? 'PUBLIC KEY' : 'PRIVATE KEY';
+    material = Buffer.from(
+      `-----BEGIN ${label}-----\n${base64}\n-----END ${label}-----\n`,
+      'utf8'
+    );
+  }
+  return material;
+}
+
+function parseRsaKey(keyBytes, keyKind, name) {
+  const material = normalizeRsaKeyMaterial(keyBytes, keyKind);
+  const asciiMaterial = material.toString('ascii');
+  if (
+    keyKind === 'public'
+    && asciiMaterial.includes('-----BEGIN')
+    && !/-----BEGIN (?:RSA )?PUBLIC KEY-----/.test(asciiMaterial)
+  ) {
+    throw new Error(`${name} must contain a valid RSA public key`);
+  }
+  if (keyKind === 'public') {
+    let containsCertificate = false;
+    try {
+      new crypto.X509Certificate(material);
+      containsCertificate = true;
+    } catch {
+      // Public-key mode accepts key material, never certificates.
+    }
+    if (containsCertificate) {
+      throw new Error(`${name} must contain a valid RSA public key`);
+    }
+  }
+  let key;
+  try {
+    key = keyKind === 'private'
+      ? crypto.createPrivateKey(material)
+      : crypto.createPublicKey(material);
+  } catch {
+    throw new Error(`${name} must contain a valid RSA ${keyKind} key`);
+  }
+  if (key.asymmetricKeyType !== 'rsa') {
+    throw new Error(`${name} must contain a valid RSA ${keyKind} key`);
+  }
+  return key;
 }
 
 function loadRsaKey(filePath, keyKind, name) {
@@ -56,26 +177,43 @@ function loadRsaKey(filePath, keyKind, name) {
   } catch {
     throw new Error(`${name} could not be read`);
   }
-  if (
-    keyKind === 'public'
-    && /-----BEGIN (?:RSA )?PRIVATE KEY-----/.test(
-      keyBytes.toString('ascii')
-    )
-  ) {
-    throw new Error(`${name} must contain a valid RSA public key`);
+  return parseRsaKey(keyBytes, keyKind, name);
+}
+
+function resolveAlipayKeySource(env, fileNames, inlineNames) {
+  for (const name of fileNames) {
+    if (typeof env[name] === 'string' && env[name].trim() !== '') {
+      return Object.freeze({
+        kind: 'file',
+        name,
+        value: env[name].trim(),
+      });
+    }
   }
-  let key;
-  try {
-    key = keyKind === 'private'
-      ? crypto.createPrivateKey(keyBytes)
-      : crypto.createPublicKey(keyBytes);
-  } catch {
-    throw new Error(`${name} must contain a valid RSA ${keyKind} key`);
+  for (const name of inlineNames) {
+    if (typeof env[name] === 'string' && env[name].trim() !== '') {
+      return Object.freeze({
+        kind: 'inline',
+        name,
+        value: env[name],
+      });
+    }
   }
-  if (key.asymmetricKeyType !== 'rsa') {
-    throw new Error(`${name} must contain a valid RSA ${keyKind} key`);
+  return null;
+}
+
+function loadAlipayKey(source, keyKind) {
+  if (source.kind === 'file') {
+    return loadRsaKey(source.value, keyKind, source.name);
   }
-  return key;
+  let value = source.value;
+  if (typeof value === 'string' && value.includes('\\n')) {
+    value = value.replace(/\\n/g, '\n');
+  }
+  if (Buffer.byteLength(value, 'utf8') > 64 * 1024) {
+    throw new Error(`${source.name} is too large`);
+  }
+  return parseRsaKey(value, keyKind, source.name);
 }
 
 function parseWechatLiveConfig(env, enabled) {
@@ -136,25 +274,39 @@ function parseWechatLiveConfig(env, enabled) {
     notifyUrl: parseHttpsUrl(
       env.WECHAT_PAY_NOTIFY_URL,
       'WECHAT_PAY_NOTIFY_URL',
-      { allowQuery: false }
+      { allowQuery: false, requirePublicHost: true }
     ),
     platformPublicKey,
     platformPublicKeyId: env.WECHAT_PAY_PUBLIC_KEY_ID,
   });
 }
 
-function parseAlipayLiveConfig(env, enabled) {
+function parseAlipayLiveConfig(env, enabled, { strict = false } = {}) {
   if (!enabled) {
+    if (strict) {
+      throw new Error('ALIPAY_ENABLED must be 1 in alipay mode');
+    }
     return Object.freeze({ configured: false, enabled: false });
   }
+  const appPrivateKeySource = resolveAlipayKeySource(
+    env,
+    ['ALIPAY_APP_PRIVATE_KEY_FILE', 'ALIPAY_APP_PRIVATE_KEY_PATH'],
+    ['ALIPAY_PRIVATE_KEY', 'ALIPAY_APP_PRIVATE_KEY']
+  );
+  const publicKeySource = resolveAlipayKeySource(
+    env,
+    ['ALIPAY_PUBLIC_KEY_FILE', 'ALIPAY_PUBLIC_KEY_PATH'],
+    ['ALIPAY_PUBLIC_KEY']
+  );
   const requiredNames = [
     'ALIPAY_APP_ID',
-    'ALIPAY_APP_PRIVATE_KEY_PATH',
-    'ALIPAY_PUBLIC_KEY_PATH',
     'ALIPAY_NOTIFY_URL',
     'ALIPAY_RETURN_URL',
   ];
-  if (!hasEveryString(env, requiredNames)) {
+  if (!hasEveryString(env, requiredNames) || !appPrivateKeySource || !publicKeySource) {
+    if (strict) {
+      throw new Error('Alipay live configuration is incomplete');
+    }
     return Object.freeze({ configured: false, enabled: true });
   }
   if (!/^\d{8,32}$/.test(env.ALIPAY_APP_ID)) {
@@ -175,24 +327,16 @@ function parseAlipayLiveConfig(env, enabled) {
   }
   return Object.freeze({
     appId: env.ALIPAY_APP_ID,
-    appPrivateKey: loadRsaKey(
-      env.ALIPAY_APP_PRIVATE_KEY_PATH,
-      'private',
-      'ALIPAY_APP_PRIVATE_KEY_PATH'
-    ),
+    appPrivateKey: loadAlipayKey(appPrivateKeySource, 'private'),
     configured: true,
     enabled: true,
     gatewayUrl,
     notifyUrl: parseHttpsUrl(
       env.ALIPAY_NOTIFY_URL,
       'ALIPAY_NOTIFY_URL',
-      { allowQuery: false }
+      { allowQuery: false, requirePublicHost: true }
     ),
-    platformPublicKey: loadRsaKey(
-      env.ALIPAY_PUBLIC_KEY_PATH,
-      'public',
-      'ALIPAY_PUBLIC_KEY_PATH'
-    ),
+    platformPublicKey: loadAlipayKey(publicKeySource, 'public'),
     returnUrl: parseHttpsUrl(
       env.ALIPAY_RETURN_URL,
       'ALIPAY_RETURN_URL'
@@ -211,7 +355,7 @@ function parsePaymentRuntimeConfig(env = process.env) {
     : env.PAYMENT_PROVIDER_MODE;
   if (!PAYMENT_PROVIDER_MODES.includes(mode)) {
     throw new Error(
-      'PAYMENT_PROVIDER_MODE must be disabled, mock, or live'
+      'PAYMENT_PROVIDER_MODE must be disabled, mock, live, or alipay'
     );
   }
 
@@ -235,13 +379,22 @@ function parsePaymentRuntimeConfig(env = process.env) {
 
   const wechatEnabled = parseEnabledFlag(env, 'WECHAT_PAY_ENABLED');
   const alipayEnabled = parseEnabledFlag(env, 'ALIPAY_ENABLED');
+  if (mode === 'alipay' && mockConfirmationEnabled) {
+    throw new Error('Mock payment confirmation is forbidden in alipay mode');
+  }
+  const parseWechat = mode === 'live';
+  const parseAlipay = mode === 'live' || mode === 'alipay';
 
   return Object.freeze({
-    alipay: parseAlipayLiveConfig(env, alipayEnabled),
+    alipay: parseAlipay
+      ? parseAlipayLiveConfig(env, alipayEnabled, { strict: mode === 'alipay' })
+      : Object.freeze({ configured: false, enabled: alipayEnabled }),
     mode,
     mockConfirmationEnabled,
     nodeEnv: typeof env.NODE_ENV === 'string' ? env.NODE_ENV : '',
-    wechat: parseWechatLiveConfig(env, wechatEnabled),
+    wechat: parseWechat
+      ? parseWechatLiveConfig(env, wechatEnabled)
+      : Object.freeze({ configured: false, enabled: wechatEnabled }),
   });
 }
 

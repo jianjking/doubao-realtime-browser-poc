@@ -88,6 +88,21 @@ test('provider capabilities follow usable providers and fail closed', () => {
     canRecharge: true,
     paymentProviders: { alipay: true, wechat: false },
   });
+  const alipayOnlyProvider = {};
+  const alipayOnlyRegistry = createPaymentProviderRegistry({
+    mode: 'alipay',
+    alipayProvider: alipayOnlyProvider,
+    mockProvider: {},
+  });
+  assert.deepEqual(alipayOnlyRegistry.getCapabilities(), {
+    canRecharge: true,
+    paymentProviders: { alipay: true, wechat: false },
+  });
+  assert.equal(alipayOnlyRegistry.get('alipay'), alipayOnlyProvider);
+  assert.throws(
+    () => alipayOnlyRegistry.get('wechat'),
+    (error) => error && error.statusCode === 503
+  );
   assert.deepEqual(
     createPaymentProviderRegistry({ mode: 'mock' }).getCapabilities(),
     {

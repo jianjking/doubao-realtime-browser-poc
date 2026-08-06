@@ -41,11 +41,11 @@ PAYMENT_PROVIDER_MODE=disabled
 PAYMENT_MOCK_CONFIRMATION_ENABLED=0
 ```
 
-`start_full_demo.sh` 会为本地完整演示显式设置 `mock` 和 `1`，并在启动日志与充值页面显示“模拟支付，不会产生真实扣款”。`NODE_ENV=production` 时禁止启用 Mock 支付或 Mock 完成接口。`live` 模式不会降级成 Mock；某个渠道未启用或资料不完整时，该渠道返回 `PAYMENT_PROVIDER_NOT_CONFIGURED`。
+`start_full_demo.sh` 会为本地完整演示显式设置 `mock` 和 `1`，并在启动日志与充值页面显示“模拟支付，不会产生真实扣款”。`NODE_ENV=production` 时禁止启用 Mock 支付或 Mock 完成接口。`live` 模式保留为微信/支付宝双渠道兼容模式；支付宝正式模式使用 `PAYMENT_PROVIDER_MODE=alipay`，只暴露支付宝且要求 `PAYMENT_MOCK_CONFIRMATION_ENABLED=0`。真实模式不会降级成 Mock；配置不完整时启动失败或返回 `PAYMENT_PROVIDER_NOT_CONFIGURED`。
 
-## Live 配置入口
+## Live 与支付宝配置入口
 
-仓库内不得填写或提交真实值、PEM、回调报文或 APIv3 密钥。私钥与平台公钥只从仓库外文件读取；通知地址必须为 HTTPS 且不得带查询参数。配置名称如下：
+仓库内不得填写或提交真实值、PEM、回调报文或 APIv3 密钥。生产环境优先从仓库外文件读取支付宝密钥；兼容的内联变量仅用于受控环境，文件配置存在时不会回退到内联值。通知地址必须为公网 HTTPS 且不得带查询参数。配置名称如下：
 
 ```text
 WECHAT_PAY_ENABLED
@@ -61,15 +61,19 @@ WECHAT_PAY_H5_RETURN_URL
 
 ALIPAY_ENABLED
 ALIPAY_APP_ID
+ALIPAY_APP_PRIVATE_KEY_FILE
 ALIPAY_APP_PRIVATE_KEY_PATH
+ALIPAY_PRIVATE_KEY
+ALIPAY_PUBLIC_KEY_FILE
 ALIPAY_PUBLIC_KEY_PATH
+ALIPAY_PUBLIC_KEY
 ALIPAY_NOTIFY_URL
 ALIPAY_RETURN_URL
 ALIPAY_SELLER_ID
 ALIPAY_GATEWAY_URL
 ```
 
-生产代码固定使用微信官方 API Host 和支付宝官方 HTTPS Gateway；本地伪平台地址只能通过测试构造参数注入。微信 JSAPI 还要求服务端提供经过可信 OAuth 流程绑定的 OpenID，绝不接受前端请求体自报 OpenID。
+支付宝实现使用传统 RSA2 应用公钥模式，不是证书模式。`ALIPAY_PUBLIC_KEY`/`ALIPAY_PUBLIC_KEY_FILE` 必须是支付宝公钥，不是应用公钥；应用私钥必须与该 AppId 在开放平台上传的应用公钥配对。生产代码固定使用微信官方 API Host 和支付宝官方 HTTPS Gateway；本地伪平台地址只能通过测试构造参数注入。`ALIPAY_RETURN_URL` 只用于浏览器返回体验，不能触发入账；入账只接受验签后的异步通知或主动查询结果。微信 JSAPI 还要求服务端提供经过可信 OAuth 流程绑定的 OpenID，绝不接受前端请求体自报 OpenID。
 
 ## 离线验证
 

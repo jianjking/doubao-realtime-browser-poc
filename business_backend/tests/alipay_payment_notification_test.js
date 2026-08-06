@@ -159,6 +159,21 @@ test('Alipay notification rejects signature, identity, status, and amount errors
       () => harness.paymentService.processVerifiedProviderEvent(wrongEvent),
       (error) => error && error.code === 'PAYMENT_AMOUNT_MISMATCH'
     );
+    const unknownOrder = createAlipayNotification(keys, {
+      out_trade_no: 'MO_ALIPAY_UNKNOWN',
+      trade_no: 'ALI_UNKNOWN_ORDER',
+      notify_id: 'ALI_UNKNOWN_ORDER_NOTICE',
+      total_amount: '7.25',
+      receipt_amount: '7.25',
+    });
+    const unknownEvent = await provider.verifyNotification({
+      parameters: parseAlipayFormBodyStrict(unknownOrder.rawBody),
+      rawBody: unknownOrder.rawBody,
+    });
+    assert.throws(
+      () => harness.paymentService.processVerifiedProviderEvent(unknownEvent),
+      (error) => error && error.code === 'PAYMENT_ORDER_NOT_FOUND'
+    );
     assert.equal(
       harness.stores.accountStore.findByUserId('payment-user-1').balanceCents,
       1250

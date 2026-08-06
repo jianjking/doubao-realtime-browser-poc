@@ -76,6 +76,13 @@ test('Alipay RSA2 signatures are canonical and parameter changes fail', () => {
     );
     assert.equal(
       verifyAlipayNotificationParameters(
+        notificationShape,
+        keys.alipayPlatform.publicKey
+      ),
+      false
+    );
+    assert.equal(
+      verifyAlipayNotificationParameters(
         { ...notificationShape, app_id: '0000000000000001' },
         keys.alipayApp.publicKey
       ),

@@ -11,6 +11,7 @@ const {
 
 const CLIENT_REQUEST_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LIVE_PAYMENT_MODES = new Set(['live', 'alipay']);
 
 function createPaymentError(statusCode, code, publicMessage) {
   const error = new Error(publicMessage);
@@ -269,7 +270,7 @@ function createPaymentService({
     requireActiveUserAndAccount(userId);
     const order = requireOwnedOrder(userId, orderId);
     if (
-      providerRegistry.mode === 'live'
+      LIVE_PAYMENT_MODES.has(providerRegistry.mode)
       && ['pending', 'paid'].includes(order.status)
     ) {
       try {
@@ -636,7 +637,7 @@ function createPaymentService({
       );
     }
     const provider = providerRegistry.get(order.provider);
-    if (providerRegistry.mode === 'live') {
+    if (LIVE_PAYMENT_MODES.has(providerRegistry.mode)) {
       const providerResult = await provider.closePayment(order);
       if (providerResult && providerResult.verifiedEvent) {
         const credited = processVerifiedProviderEvent(

@@ -32,6 +32,15 @@ function createPaymentProviderRegistry({
     wechat: wechatProvider,
   });
 
+  function isLiveProviderAvailable(provider) {
+    if (mode === 'live') {
+      return Boolean(liveProviders[provider]);
+    }
+    return mode === 'alipay'
+      && provider === 'alipay'
+      && Boolean(liveProviders.alipay);
+  }
+
   function get(provider) {
     if (!PAYMENT_PROVIDERS.includes(provider)) {
       const error = new Error('Payment provider is invalid');
@@ -43,7 +52,7 @@ function createPaymentProviderRegistry({
     if (mode === 'mock' && nodeEnv !== 'production') {
       return mockProvider;
     }
-    if (mode === 'live' && liveProviders[provider]) {
+    if (isLiveProviderAvailable(provider)) {
       return liveProviders[provider];
     }
     if (mode !== 'mock') {
@@ -57,11 +66,11 @@ function createPaymentProviderRegistry({
       && nodeEnv !== 'production'
       && Boolean(mockProvider);
     const paymentProviders = Object.freeze({
-      alipay: mode === 'live'
-        ? Boolean(liveProviders.alipay)
+      alipay: ['live', 'alipay'].includes(mode)
+        ? isLiveProviderAvailable('alipay')
         : mockAvailable,
       wechat: mode === 'live'
-        ? Boolean(liveProviders.wechat)
+        ? isLiveProviderAvailable('wechat')
         : mockAvailable,
     });
     return Object.freeze({
@@ -87,14 +96,18 @@ function createConfiguredPaymentProviderRegistry({
   if (!runtimeConfig || typeof runtimeConfig !== 'object') {
     throw new TypeError('runtimeConfig is required');
   }
-  const wechatProvider = runtimeConfig.wechat
+  const wechatProvider = runtimeConfig.mode === 'live'
+    && runtimeConfig.wechat
+    && runtimeConfig.wechat.enabled === true
     && runtimeConfig.wechat.configured === true
     ? new WeChatPaymentProvider({
       config: runtimeConfig.wechat,
       ...wechatProviderOptions,
     })
     : null;
-  const alipayProvider = runtimeConfig.alipay
+  const alipayProvider = ['live', 'alipay'].includes(runtimeConfig.mode)
+    && runtimeConfig.alipay
+    && runtimeConfig.alipay.enabled === true
     && runtimeConfig.alipay.configured === true
     ? new AlipayPaymentProvider({
       config: runtimeConfig.alipay,
