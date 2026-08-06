@@ -252,17 +252,43 @@ test('monkey animation is optional, motion-safe, and uses a lightweight WebP', (
   }
 });
 
-test('choice and home layouts use dynamic viewport and safe-area bounds', () => {
+test('choice uses width-first mobile layout while home keeps dynamic viewport', () => {
   const choiceCss = readUiFile('choice-poster.css');
   const homeCss = readUiFile('ui.css');
   const loaderJs = readUiFile('startup-loader.js');
+  const mobileChoiceCss = choiceCss.slice(
+    choiceCss.indexOf('@media (max-width: 767px)')
+  );
 
   assert.match(loaderJs, /window\.visualViewport\.height/);
   assert.match(loaderJs, /--app-height/);
-  assert.match(choiceCss, /--choice-usable-height/);
   assert.match(choiceCss, /safe-area-inset-top/);
   assert.match(choiceCss, /safe-area-inset-bottom/);
-  assert.match(choiceCss, /height: var\(--app-height, 100vh\)/);
+  assert.match(choiceCss, /@media \(min-width: 768px\)/);
+  assert.match(choiceCss, /max-width:\s*852px;/);
+  assert.notEqual(mobileChoiceCss, '');
+  assert.match(
+    mobileChoiceCss,
+    /html,\s*body\s*\{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*none;[\s\S]*?overflow-y:\s*auto;/
+  );
+  assert.match(
+    mobileChoiceCss,
+    /\.choice-page\s*\{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*none;[\s\S]*?height:\s*auto;/
+  );
+  assert.match(
+    mobileChoiceCss,
+    /\.choice-poster-stage\s*\{[\s\S]*?width:\s*100%;[\s\S]*?padding:\s*0 0 calc\(12px \+ var\(--safe-bottom\)\);/
+  );
+  assert.match(
+    mobileChoiceCss,
+    /\.choice-poster-frame\s*\{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*none;[\s\S]*?height:\s*auto;/
+  );
+  assert.match(
+    mobileChoiceCss,
+    /\.choice-poster-image\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*auto;[\s\S]*?object-fit:\s*initial;/
+  );
+  assert.doesNotMatch(mobileChoiceCss, /--choice-usable-height/);
+  assert.doesNotMatch(mobileChoiceCss, /transform:\s*scale\(/);
   assert.match(homeCss, /--app-height: 100dvh/);
   assert.match(homeCss, /grid-template-rows:\s*minmax\(0, 1fr\)\s*clamp/);
   assert.doesNotMatch(homeCss, /min-height: 640px/);

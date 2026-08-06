@@ -380,3 +380,74 @@ body {
     font-size: 18px;
   }
 }
+
+@media (min-width: 768px) {
+  .choice-poster-frame {
+    max-width: 852px;
+    max-height: 1846px;
+  }
+}
+
+@media (max-width: 767px) {
+  html,
+  body {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body {
+    min-height: var(--app-height, 100vh);
+  }
+
+  .choice-page {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    min-height: var(--app-height, 100vh);
+    height: auto;
+    margin-inline: 0;
+    padding-inline: 0;
+    overflow: visible;
+  }
+
+  .choice-poster-stage {
+    position: relative;
+    inset: auto;
+    display: block;
+    width: 100%;
+    max-width: none;
+    margin-inline: 0;
+    padding: 0 0 calc(12px + var(--safe-bottom));
+    overflow: visible;
+  }
+
+  .choice-poster-frame {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: none;
+    margin-inline: 0;
+    border-radius: 0;
+  }
+
+  .choice-poster-frame > picture {
+    display: block;
+    width: 100%;
+  }
+
+  .choice-poster-image {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    object-fit: initial;
+  }
+}
