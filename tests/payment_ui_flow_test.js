@@ -18,6 +18,12 @@ const HTML_PATH = path.join(
   'yuhuang_mobile_v1',
   'home.html'
 );
+const FORTUNE_HTML_PATH = path.join(
+  PROJECT_ROOT,
+  'ui_prototypes',
+  'yuhuang_mobile_v1',
+  'fortune.html'
+);
 
 test('mobile recharge source uses an order and verified-result flow', () => {
   const source = fs.readFileSync(UI_PATH, 'utf8');
@@ -49,13 +55,20 @@ test('mobile recharge source uses an order and verified-result flow', () => {
   }
 });
 
-test('mobile payment copy is explicit and contains a separate confirmation', () => {
-  const html = fs.readFileSync(HTML_PATH, 'utf8');
-  assert.match(html, /模拟支付，不会产生真实扣款/);
-  assert.match(html, /创建支付订单/);
-  assert.match(html, /模拟完成支付/);
-  assert.match(html, /data-payment-order-amount/);
-  assert.match(html, /data-payment-order-provider/);
-  assert.match(html, /data-payment-method="wechat"/);
-  assert.match(html, /data-payment-method="alipay"/);
+test('payment panels start neutral and defer mode copy to capabilities', () => {
+  const source = fs.readFileSync(UI_PATH, 'utf8');
+  for (const htmlPath of [HTML_PATH, FORTUNE_HTML_PATH]) {
+    const html = fs.readFileSync(htmlPath, 'utf8');
+    assert.doesNotMatch(html, /模拟支付|界面演示|开发态模拟|测试支付/);
+    assert.match(html, /data-payment-panel-copy>充值服务暂未开放/);
+    assert.match(html, /data-payment-mode-notice hidden/);
+    assert.match(html, /data-payment-method="wechat"[^>]*hidden/);
+    assert.match(html, /data-payment-method="alipay"[^>]*hidden/);
+    assert.match(html, /创建支付订单/);
+    assert.match(html, /data-payment-order-amount/);
+    assert.match(html, /data-payment-order-provider/);
+  }
+  assert.match(source, /模拟支付，不会产生真实扣款/);
+  assert.match(source, /支付完成后，话费将自动到账/);
+  assert.match(source, /支付结果以到账状态为准/);
 });

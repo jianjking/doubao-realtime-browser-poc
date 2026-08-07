@@ -176,6 +176,12 @@ test('guest creation returns a cookie usable with GET /api/me', async () => {
       account: null,
       permissions: {
         canRecharge: false,
+        paymentMode: 'disabled',
+        paymentProviders: {
+          alipay: false,
+          wechat: false,
+        },
+        publicPaymentEntryEnabled: false,
       },
     });
   } finally {

@@ -35,6 +35,7 @@ test('payment mode defaults closed and production rejects mock', () => {
     mode: 'disabled',
     mockConfirmationEnabled: false,
     nodeEnv: '',
+    publicEntryEnabled: false,
     wechat: {
       configured: false,
       enabled: false,
@@ -62,41 +63,52 @@ test('payment mode defaults closed and production rejects mock', () => {
 });
 
 test('provider capabilities follow usable providers and fail closed', () => {
-  const unavailable = {
+  const unavailable = (paymentMode) => ({
     canRecharge: false,
+    paymentMode,
     paymentProviders: { alipay: false, wechat: false },
-  };
+    publicPaymentEntryEnabled: false,
+  });
   assert.deepEqual(
     createPaymentProviderRegistry({ mode: 'disabled' }).getCapabilities(),
-    unavailable
+    unavailable('disabled')
   );
   assert.deepEqual(
     createPaymentProviderRegistry({ mode: 'live' }).getCapabilities(),
-    unavailable
+    unavailable('live')
   );
   assert.deepEqual(createPaymentProviderRegistry({
     mode: 'live',
     wechatProvider: {},
+    publicEntryEnabled: true,
   }).getCapabilities(), {
     canRecharge: true,
+    paymentMode: 'live',
     paymentProviders: { alipay: false, wechat: true },
+    publicPaymentEntryEnabled: true,
   });
   assert.deepEqual(createPaymentProviderRegistry({
     mode: 'live',
     alipayProvider: {},
+    publicEntryEnabled: true,
   }).getCapabilities(), {
     canRecharge: true,
+    paymentMode: 'live',
     paymentProviders: { alipay: true, wechat: false },
+    publicPaymentEntryEnabled: true,
   });
   const alipayOnlyProvider = {};
   const alipayOnlyRegistry = createPaymentProviderRegistry({
     mode: 'alipay',
     alipayProvider: alipayOnlyProvider,
     mockProvider: {},
+    publicEntryEnabled: true,
   });
   assert.deepEqual(alipayOnlyRegistry.getCapabilities(), {
     canRecharge: true,
+    paymentMode: 'alipay',
     paymentProviders: { alipay: true, wechat: false },
+    publicPaymentEntryEnabled: true,
   });
   assert.equal(alipayOnlyRegistry.get('alipay'), alipayOnlyProvider);
   assert.throws(
@@ -104,22 +116,49 @@ test('provider capabilities follow usable providers and fail closed', () => {
     (error) => error && error.statusCode === 503
   );
   assert.deepEqual(
-    createPaymentProviderRegistry({ mode: 'mock' }).getCapabilities(),
+    createPaymentProviderRegistry({
+      mode: 'mock',
+      publicEntryEnabled: true,
+    }).getCapabilities(),
     {
       canRecharge: true,
+      paymentMode: 'mock',
       paymentProviders: { alipay: true, wechat: true },
+      publicPaymentEntryEnabled: true,
     }
   );
   assert.deepEqual(createPaymentProviderRegistry({
     mode: 'mock',
     nodeEnv: 'production',
-  }).getCapabilities(), unavailable);
+  }).getCapabilities(), unavailable('mock'));
   assert.throws(
     () => createPaymentProviderRegistry({
       mode: 'mock',
       nodeEnv: 'production',
     }).get('wechat'),
     (error) => error && error.statusCode === 503
+  );
+});
+
+test('configured provider stays private until the public entry gate opens', () => {
+  const provider = {};
+  const privateRegistry = createPaymentProviderRegistry({
+    mode: 'alipay',
+    alipayProvider: provider,
+  });
+  assert.equal(privateRegistry.get('alipay'), provider);
+  assert.deepEqual(
+    privateRegistry.getCapabilities(),
+    {
+      canRecharge: false,
+      paymentMode: 'alipay',
+      paymentProviders: { alipay: false, wechat: false },
+      publicPaymentEntryEnabled: false,
+    }
+  );
+  assert.throws(
+    () => privateRegistry.getForPublicOrderCreation('alipay'),
+    (error) => error && error.code === 'PAYMENT_PUBLIC_ENTRY_DISABLED'
   );
 });
 

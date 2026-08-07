@@ -252,10 +252,12 @@ function createAccountResponse(balanceCents) {
         },
         permissions: {
           canRecharge: true,
+          paymentMode: 'mock',
           paymentProviders: {
             alipay: true,
             wechat: true,
           },
+          publicPaymentEntryEnabled: true,
         },
       };
     },
@@ -275,6 +277,12 @@ function createGuestAccountResponse() {
         account: null,
         permissions: {
           canRecharge: false,
+          paymentMode: 'disabled',
+          paymentProviders: {
+            alipay: false,
+            wechat: false,
+          },
+          publicPaymentEntryEnabled: false,
         },
       };
     },

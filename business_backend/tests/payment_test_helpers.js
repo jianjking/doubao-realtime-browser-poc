@@ -40,13 +40,14 @@ function createPaymentHarness({
   mockConfirmationEnabled = true,
   nodeEnv = 'test',
   orderTtlMs,
+  publicEntryEnabled = true,
   providerRegistry: injectedProviderRegistry,
 } = {}) {
   let now = initialNow;
   const clock = () => now;
   const stores = createBusinessStores({ databasePath, clock });
   const providerRegistry = injectedProviderRegistry
-    || createPaymentProviderRegistry({ mode });
+    || createPaymentProviderRegistry({ mode, publicEntryEnabled });
   const paymentService = createPaymentService({
     ...stores,
     providerRegistry,

@@ -369,6 +369,10 @@ function parsePaymentRuntimeConfig(env = process.env) {
     );
   }
   const mockConfirmationEnabled = rawMockConfirmation === '1';
+  const publicEntryEnabled = parseEnabledFlag(
+    env,
+    'PAYMENT_PUBLIC_ENTRY_ENABLED'
+  );
 
   if (
     env.NODE_ENV === 'production'
@@ -392,6 +396,7 @@ function parsePaymentRuntimeConfig(env = process.env) {
     mode,
     mockConfirmationEnabled,
     nodeEnv: typeof env.NODE_ENV === 'string' ? env.NODE_ENV : '',
+    publicEntryEnabled,
     wechat: parseWechat
       ? parseWechatLiveConfig(env, wechatEnabled)
       : Object.freeze({ configured: false, enabled: wechatEnabled }),

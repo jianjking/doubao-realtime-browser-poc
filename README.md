@@ -39,9 +39,10 @@
 ```text
 PAYMENT_PROVIDER_MODE=disabled
 PAYMENT_MOCK_CONFIRMATION_ENABLED=0
+PAYMENT_PUBLIC_ENTRY_ENABLED=0
 ```
 
-`start_full_demo.sh` 会为本地完整演示显式设置 `mock` 和 `1`，并在启动日志与充值页面显示“模拟支付，不会产生真实扣款”。`NODE_ENV=production` 时禁止启用 Mock 支付或 Mock 完成接口。`live` 模式保留为微信/支付宝双渠道兼容模式；支付宝正式模式使用 `PAYMENT_PROVIDER_MODE=alipay`，只暴露支付宝且要求 `PAYMENT_MOCK_CONFIRMATION_ENABLED=0`。真实模式不会降级成 Mock；配置不完整时启动失败或返回 `PAYMENT_PROVIDER_NOT_CONFIGURED`。
+`PAYMENT_PUBLIC_ENTRY_ENABLED` 是独立的公众充值入口门禁，默认 `0`。只有该值为 `1` 且对应 provider 已完整配置时，`/api/me` 才会向普通用户公开可用充值渠道，创建新支付订单的公开 API 也才可用；关闭门禁不会影响已有订单的通知、查询和关单。`start_full_demo.sh` 会为本地完整演示显式设置 `mock`、Mock 完成和公众入口，并在充值页面显示“模拟支付，不会产生真实扣款”。`NODE_ENV=production` 时禁止启用 Mock 支付或 Mock 完成接口。`live` 模式保留为微信/支付宝双渠道兼容模式；支付宝正式模式使用 `PAYMENT_PROVIDER_MODE=alipay`，只暴露支付宝且要求 `PAYMENT_MOCK_CONFIRMATION_ENABLED=0`。真实模式不会降级成 Mock；配置不完整时启动失败或返回 `PAYMENT_PROVIDER_NOT_CONFIGURED`。
 
 ## Live 与支付宝配置入口
 

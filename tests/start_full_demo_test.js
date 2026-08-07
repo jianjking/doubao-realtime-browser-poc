@@ -279,6 +279,7 @@ ${scriptCommand}`;
     FORTUNE_TEXT_MODEL_TIMEOUT_MS: DEFAULT_FORTUNE_TIMEOUT_MS,
     PAYMENT_PROVIDER_MODE: 'mock',
     PAYMENT_MOCK_CONFIRMATION_ENABLED: '1',
+    PAYMENT_PUBLIC_ENTRY_ENABLED: '1',
     FORTUNE_DRAW_PRICE_CENTS: '200',
     ...expectedEnvironment,
   };
@@ -457,6 +458,13 @@ async function main() {
     source,
     /PAYMENT_MOCK_CONFIRMATION_ENABLED="\$\{PAYMENT_MOCK_CONFIRMATION_ENABLED:-1\}"/
   );
+  assert.match(
+    source,
+    /if \[\[ -z "\$\{PAYMENT_PUBLIC_ENTRY_ENABLED\+x\}" \]\]/
+  );
+  assert.match(source, /PAYMENT_PUBLIC_ENTRY_ENABLED=0/);
+  assert.match(source, /PAYMENT_PUBLIC_ENTRY_ENABLED=1/);
+  assert.match(source, /^export PAYMENT_PUBLIC_ENTRY_ENABLED$/m);
   assert.match(source, /生产环境禁止启用 Mock 支付/);
   assert.match(
     source,

@@ -398,10 +398,12 @@ test('user /api/me returns server-configured account values', async () => {
     });
     assert.deepEqual(meBody.permissions, {
       canRecharge: false,
+      paymentMode: 'disabled',
       paymentProviders: {
         alipay: false,
         wechat: false,
       },
+      publicPaymentEntryEnabled: false,
     });
     assert.equal(JSON.stringify(meBody).includes('999999'), false);
     assert.equal(JSON.stringify(meBody).includes('USD'), false);
@@ -517,6 +519,12 @@ test('guest /api/me still has no account', async () => {
       account: null,
       permissions: {
         canRecharge: false,
+        paymentMode: 'disabled',
+        paymentProviders: {
+          alipay: false,
+          wechat: false,
+        },
+        publicPaymentEntryEnabled: false,
       },
     });
   } finally {

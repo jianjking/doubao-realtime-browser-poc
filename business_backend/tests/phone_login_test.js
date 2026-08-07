@@ -251,10 +251,12 @@ test('phone login returns a sanitized user identity and session', async () => {
       },
       permissions: {
         canRecharge: false,
+        paymentMode: 'disabled',
         paymentProviders: {
           alipay: false,
           wechat: false,
         },
+        publicPaymentEntryEnabled: false,
       },
     });
   } finally {
@@ -460,6 +462,12 @@ test('guest authentication behavior remains unchanged', async () => {
       account: null,
       permissions: {
         canRecharge: false,
+        paymentMode: 'disabled',
+        paymentProviders: {
+          alipay: false,
+          wechat: false,
+        },
+        publicPaymentEntryEnabled: false,
       },
     });
   } finally {

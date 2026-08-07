@@ -139,6 +139,7 @@ async function startLiveHarness(mode = 'live') {
     mode,
     wechatProvider,
     alipayProvider,
+    publicEntryEnabled: true,
   });
   const app = createApp({
     businessStores: stores,
@@ -149,6 +150,7 @@ async function startLiveHarness(mode = 'live') {
       mode,
       mockConfirmationEnabled: false,
       nodeEnv: 'test',
+      publicEntryEnabled: true,
       wechat: { configured: true, enabled: true },
     },
   });

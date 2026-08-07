@@ -215,6 +215,7 @@ function createApp(options = {}) {
     mode: 'disabled',
     mockConfirmationEnabled: false,
     nodeEnv: '',
+    publicEntryEnabled: false,
     wechat: { configured: false, enabled: false },
   };
   const paymentProviderRegistry = options.paymentProviderRegistry

@@ -48,7 +48,14 @@ function loadRuntime({
   let source = fs.readFileSync(UI_PATH, 'utf8');
   const replacement = `
   globalThis.__livePaymentUiTest = {
+    applyPaymentCapabilities,
     getAccountBalanceCents: () => accountBalanceCents,
+    getPaymentCapabilities: () => ({
+      canRecharge,
+      paymentMode,
+      paymentProviders,
+      publicPaymentEntryEnabled,
+    }),
     getPaymentUiState: () => paymentUiState,
     launchAlipayWap,
     launchLiveCheckout,
@@ -63,6 +70,12 @@ function loadRuntime({
   const createdElements = [];
   const body = new FakeElement('body', eventLog);
   body.dataset = {};
+  const paymentCopyElements = {
+    '#recharge-panel-title': new FakeElement('h2', eventLog),
+    '[data-payment-panel-copy]': new FakeElement('p', eventLog),
+    '#payment-methods-title': new FakeElement('h3', eventLog),
+    '[data-payment-mode-notice]': new FakeElement('p', eventLog),
+  };
   const document = {
     body,
     addEventListener() {},
@@ -71,8 +84,8 @@ function loadRuntime({
       createdElements.push(element);
       return element;
     },
-    querySelector() {
-      return null;
+    querySelector(selector) {
+      return paymentCopyElements[selector] || null;
     },
     querySelectorAll() {
       return [];
@@ -134,10 +147,84 @@ function loadRuntime({
     createdElements,
     eventLog,
     locationAssignments,
+    paymentCopyElements,
     storage,
     window,
   };
 }
+
+test('runtime capabilities keep disabled, mock, and Alipay copy distinct', () => {
+  const cases = [
+    {
+      name: 'disabled',
+      permissions: {
+        canRecharge: false,
+        paymentMode: 'disabled',
+        paymentProviders: { alipay: false, wechat: false },
+        publicPaymentEntryEnabled: false,
+      },
+      expected: ['话费充值', '充值服务暂未开放', '选择支付方式', '', true],
+    },
+    {
+      name: 'alipay-private',
+      permissions: {
+        canRecharge: false,
+        paymentMode: 'alipay',
+        paymentProviders: { alipay: false, wechat: false },
+        publicPaymentEntryEnabled: false,
+      },
+      expected: ['话费充值', '充值服务暂未开放', '选择支付方式', '', true],
+    },
+    {
+      name: 'mock',
+      permissions: {
+        canRecharge: true,
+        paymentMode: 'mock',
+        paymentProviders: { alipay: true, wechat: true },
+        publicPaymentEntryEnabled: true,
+      },
+      expected: [
+        '开发演示充值',
+        '仅用于模拟支付，不会产生真实扣款',
+        '选择模拟支付方式',
+        '模拟支付，不会产生真实扣款',
+        false,
+      ],
+    },
+    {
+      name: 'alipay-public',
+      permissions: {
+        canRecharge: true,
+        paymentMode: 'alipay',
+        paymentProviders: { alipay: true, wechat: false },
+        publicPaymentEntryEnabled: true,
+      },
+      expected: [
+        '话费充值',
+        '支付完成后，话费将自动到账',
+        '选择支付方式',
+        '请确认金额后安全支付，支付结果以到账状态为准',
+        false,
+      ],
+    },
+  ];
+  for (const testCase of cases) {
+    const runtime = loadRuntime();
+    runtime.api.applyPaymentCapabilities(testCase.permissions);
+    const elements = runtime.paymentCopyElements;
+    const actual = [
+      elements['#recharge-panel-title'].textContent,
+      elements['[data-payment-panel-copy]'].textContent,
+      elements['#payment-methods-title'].textContent,
+      elements['[data-payment-mode-notice]'].textContent,
+      elements['[data-payment-mode-notice]'].hidden,
+    ];
+    assert.deepEqual(actual, testCase.expected, testCase.name);
+    if (testCase.name === 'alipay-public') {
+      assert.doesNotMatch(actual.join(' '), /模拟|界面演示|测试支付/);
+    }
+  }
+});
 
 function validJsapiCheckout() {
   return {

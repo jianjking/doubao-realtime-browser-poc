@@ -13,6 +13,21 @@ function createAccountRouter({
   getPaymentCapabilities,
 }) {
   const accountRouter = express.Router();
+  const disabledPaymentPermissions = Object.freeze({
+    canRecharge: false,
+    paymentMode: 'disabled',
+    paymentProviders: Object.freeze({
+      alipay: false,
+      wechat: false,
+    }),
+    publicPaymentEntryEnabled: false,
+  });
+
+  function readPaymentPermissions() {
+    return typeof getPaymentCapabilities === 'function'
+      ? getPaymentCapabilities()
+      : disabledPaymentPermissions;
+  }
 
   accountRouter.get('/me', requireSession, (request, response) => {
     if (request.auth.principal.type === 'user') {
@@ -33,15 +48,7 @@ function createAccountRouter({
           phoneMasked: maskChineseMobile(user.phoneE164),
         },
         account,
-        permissions: typeof getPaymentCapabilities === 'function'
-          ? getPaymentCapabilities()
-          : {
-            canRecharge: false,
-            paymentProviders: {
-              alipay: false,
-              wechat: false,
-            },
-          },
+        permissions: readPaymentPermissions(),
       });
       return;
     }
@@ -50,7 +57,12 @@ function createAccountRouter({
       principal: request.auth.principal,
       account: null,
       permissions: {
+        ...readPaymentPermissions(),
         canRecharge: false,
+        paymentProviders: {
+          alipay: false,
+          wechat: false,
+        },
       },
     });
   });

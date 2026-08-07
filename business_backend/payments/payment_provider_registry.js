@@ -20,12 +20,21 @@ function createProviderModeError(mode) {
   return error;
 }
 
+function createPublicEntryDisabledError() {
+  const error = new Error('Public payment entry is disabled');
+  error.statusCode = 503;
+  error.code = 'PAYMENT_PUBLIC_ENTRY_DISABLED';
+  error.publicMessage = error.message;
+  return error;
+}
+
 function createPaymentProviderRegistry({
   mode = 'disabled',
   mockProvider = new MockPaymentProvider(),
   wechatProvider = null,
   alipayProvider = null,
   nodeEnv = '',
+  publicEntryEnabled = false,
 } = {}) {
   const liveProviders = Object.freeze({
     alipay: alipayProvider,
@@ -61,11 +70,19 @@ function createPaymentProviderRegistry({
     throw createProviderModeError(mode);
   }
 
+  function getForPublicOrderCreation(provider) {
+    const paymentProvider = get(provider);
+    if (publicEntryEnabled !== true) {
+      throw createPublicEntryDisabledError();
+    }
+    return paymentProvider;
+  }
+
   function getCapabilities() {
     const mockAvailable = mode === 'mock'
       && nodeEnv !== 'production'
       && Boolean(mockProvider);
-    const paymentProviders = Object.freeze({
+    const providerAvailability = Object.freeze({
       alipay: ['live', 'alipay'].includes(mode)
         ? isLiveProviderAvailable('alipay')
         : mockAvailable,
@@ -73,14 +90,23 @@ function createPaymentProviderRegistry({
         ? isLiveProviderAvailable('wechat')
         : mockAvailable,
     });
+    const effectivePublicEntryEnabled = publicEntryEnabled === true
+      && (providerAvailability.alipay || providerAvailability.wechat);
+    const paymentProviders = Object.freeze({
+      alipay: effectivePublicEntryEnabled && providerAvailability.alipay,
+      wechat: effectivePublicEntryEnabled && providerAvailability.wechat,
+    });
     return Object.freeze({
       canRecharge: paymentProviders.alipay || paymentProviders.wechat,
+      paymentMode: mode,
       paymentProviders,
+      publicPaymentEntryEnabled: effectivePublicEntryEnabled,
     });
   }
 
   return Object.freeze({
     get,
+    getForPublicOrderCreation,
     getCapabilities,
     liveProviders,
     mode,
@@ -117,6 +143,7 @@ function createConfiguredPaymentProviderRegistry({
   return createPaymentProviderRegistry({
     mode: runtimeConfig.mode,
     nodeEnv: runtimeConfig.nodeEnv,
+    publicEntryEnabled: runtimeConfig.publicEntryEnabled === true,
     wechatProvider,
     alipayProvider,
   });
@@ -126,4 +153,5 @@ module.exports = {
   createConfiguredPaymentProviderRegistry,
   createPaymentProviderRegistry,
   createProviderModeError,
+  createPublicEntryDisabledError,
 };

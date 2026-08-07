@@ -1164,10 +1164,12 @@ function createAccountResponse(balanceCents, {
     },
     permissions: {
       canRecharge,
+      paymentMode: 'mock',
       paymentProviders: {
         alipay,
         wechat,
       },
+      publicPaymentEntryEnabled: true,
     },
   });
 }
@@ -1274,6 +1276,12 @@ function createGuestAccountResponse() {
     account: null,
     permissions: {
       canRecharge: false,
+      paymentMode: 'disabled',
+      paymentProviders: {
+        alipay: false,
+        wechat: false,
+      },
+      publicPaymentEntryEnabled: false,
     },
   });
 }
@@ -2177,11 +2185,10 @@ function verifyStaticUiAndPrivacyBoundaries() {
     homeHtml,
     /class="package-option is-selected"[^>]*data-package-cents="1000"[^>]*aria-pressed="true"/
   );
-  assert.match(
-    homeHtml,
-    /模拟支付，不会产生真实扣款/
-  );
-  assert.match(homeHtml, /先创建支付订单，再确认支付结果/);
+  assert.doesNotMatch(homeHtml, /模拟支付|界面演示|测试支付/);
+  assert.match(homeHtml, /data-payment-panel-copy>充值服务暂未开放/);
+  assert.match(homeJs, /模拟支付，不会产生真实扣款/);
+  assert.match(homeJs, /支付完成后，话费将自动到账/);
   assert.doesNotMatch(homeHtml, /data-package-value=/);
   assert.doesNotMatch(homeJs, /parseFloat\s*\(/);
   assert.match(

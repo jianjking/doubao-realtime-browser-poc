@@ -231,10 +231,12 @@
   let selectedPaymentMethod = 'wechat';
   let selectedPaymentName = '微信支付';
   let canRecharge = false;
+  let paymentMode = 'disabled';
   let paymentProviders = Object.freeze({
     wechat: false,
     alipay: false,
   });
+  let publicPaymentEntryEnabled = false;
   let accountBalanceCents = null;
   let accountBalanceState = 'loading';
   let accountLoadPromise = null;
@@ -343,23 +345,89 @@
   const mockPaymentConfirmButton = document.querySelector(
     '.mock-payment-confirm'
   );
+  const mockPaymentWarning = document.querySelector(
+    '.mock-payment-warning'
+  );
+  const paymentPanelTitle = document.querySelector(
+    '#recharge-panel-title'
+  );
+  const paymentPanelCopy = document.querySelector(
+    '[data-payment-panel-copy]'
+  );
+  const paymentMethodsTitle = document.querySelector(
+    '#payment-methods-title'
+  );
+  const paymentModeNotice = document.querySelector(
+    '[data-payment-mode-notice]'
+  );
 
   function readPaymentCapabilities(permissions) {
+    const mode = permissions
+      && ['disabled', 'mock', 'live', 'alipay']
+        .includes(permissions.paymentMode)
+      ? permissions.paymentMode
+      : 'disabled';
+    const publicEntryEnabled = Boolean(
+      permissions
+      && permissions.publicPaymentEntryEnabled === true
+      && mode !== 'disabled'
+    );
     const providers = permissions
       && permissions.paymentProviders;
-    const wechat = Boolean(providers && providers.wechat === true);
-    const alipay = Boolean(providers && providers.alipay === true);
+    const wechat = Boolean(
+      publicEntryEnabled
+      && providers
+      && providers.wechat === true
+    );
+    const alipay = Boolean(
+      publicEntryEnabled
+      && providers
+      && providers.alipay === true
+    );
     return Object.freeze({
       canRecharge: Boolean(
         permissions
         && permissions.canRecharge === true
         && (wechat || alipay)
       ),
+      paymentMode: mode,
       paymentProviders: Object.freeze({ alipay, wechat }),
+      publicPaymentEntryEnabled: publicEntryEnabled,
     });
   }
 
+  function renderPaymentModeCopy() {
+    const isMock = canRecharge && paymentMode === 'mock';
+    const isLive = canRecharge && ['live', 'alipay'].includes(paymentMode);
+    if (paymentPanelTitle) {
+      paymentPanelTitle.textContent = isMock
+        ? '开发演示充值'
+        : '话费充值';
+    }
+    if (paymentPanelCopy) {
+      paymentPanelCopy.textContent = isMock
+        ? '仅用于模拟支付，不会产生真实扣款'
+        : isLive
+          ? '支付完成后，话费将自动到账'
+          : '充值服务暂未开放';
+    }
+    if (paymentMethodsTitle) {
+      paymentMethodsTitle.textContent = isMock
+        ? '选择模拟支付方式'
+        : '选择支付方式';
+    }
+    if (paymentModeNotice) {
+      paymentModeNotice.textContent = isMock
+        ? '模拟支付，不会产生真实扣款'
+        : isLive
+          ? '请确认金额后安全支付，支付结果以到账状态为准'
+          : '';
+      paymentModeNotice.hidden = !isMock && !isLive;
+    }
+  }
+
   function renderPaymentCapabilities() {
+    renderPaymentModeCopy();
     if (rechargeEntry) {
       rechargeEntry.hidden = !canRecharge;
       rechargeEntry.setAttribute(
@@ -401,7 +469,9 @@
   function applyPaymentCapabilities(permissions) {
     const capabilities = readPaymentCapabilities(permissions);
     canRecharge = capabilities.canRecharge;
+    paymentMode = capabilities.paymentMode;
     paymentProviders = capabilities.paymentProviders;
+    publicPaymentEntryEnabled = capabilities.publicPaymentEntryEnabled;
     renderPaymentCapabilities();
     renderAccountSummary(currentAuthState);
     renderAccountProfile(currentAuthState);
@@ -1844,20 +1914,34 @@
         || statePresentation[2];
     }
     if (mockPaymentConfirmButton) {
-      const canConfirm = Boolean(
+      const isMockOrder = Boolean(
         currentPaymentOrder
-        && currentPaymentOrder.status === 'pending'
         && currentPaymentOrder.requestedScene === 'mock'
+      );
+      const canConfirm = Boolean(
+        isMockOrder
+        && currentPaymentOrder.status === 'pending'
         && (state === 'awaiting-payment' || state === 'payment-error')
       );
-      mockPaymentConfirmButton.hidden = !currentPaymentOrder
-        || currentPaymentOrder.requestedScene !== 'mock';
+      mockPaymentConfirmButton.hidden = !isMockOrder;
       mockPaymentConfirmButton.disabled = !canConfirm;
-      mockPaymentConfirmButton.textContent = state === 'confirming-payment'
-        ? '正在模拟完成支付……'
-        : state === 'verifying-payment'
-          ? '正在确认支付结果……'
-          : '模拟完成支付';
+      mockPaymentConfirmButton.textContent = isMockOrder
+        ? state === 'confirming-payment'
+          ? '正在模拟完成支付……'
+          : state === 'verifying-payment'
+            ? '正在确认支付结果……'
+            : '模拟完成支付'
+        : '';
+    }
+    if (mockPaymentWarning) {
+      const isMockOrder = Boolean(
+        currentPaymentOrder
+        && currentPaymentOrder.requestedScene === 'mock'
+      );
+      mockPaymentWarning.hidden = !isMockOrder;
+      mockPaymentWarning.textContent = isMockOrder
+        ? '模拟支付，不会产生真实扣款'
+        : '';
     }
   }
 

@@ -3528,7 +3528,9 @@ function createAccountApiResponse(balanceCents, {
     },
     permissions: {
       canRecharge,
+      paymentMode: 'mock',
       paymentProviders: { alipay, wechat },
+      publicPaymentEntryEnabled: true,
     },
   });
 }
@@ -3553,7 +3555,12 @@ async function verifyPaidFortuneUiFlow() {
         return Promise.resolve(createJsonResponse(200, {
           principal: { type: 'guest', id: 'guest-ui' },
           account: null,
-          permissions: { canRecharge: false },
+          permissions: {
+            canRecharge: false,
+            paymentMode: 'disabled',
+            paymentProviders: { alipay: false, wechat: false },
+            publicPaymentEntryEnabled: false,
+          },
         }));
       }
       guestSessionRequests += 1;

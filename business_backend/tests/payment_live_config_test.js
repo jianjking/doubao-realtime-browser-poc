@@ -12,6 +12,9 @@ const {
   parsePaymentRuntimeConfig,
 } = require('../config/payments');
 const {
+  createConfiguredPaymentProviderRegistry,
+} = require('../payments/payment_provider_registry');
+const {
   createTemporaryPaymentKeys,
 } = require('./payment_live_test_helpers');
 
@@ -20,6 +23,7 @@ function createValidEnvironment(keys) {
     NODE_ENV: 'test',
     PAYMENT_PROVIDER_MODE: 'live',
     PAYMENT_MOCK_CONFIRMATION_ENABLED: '0',
+    PAYMENT_PUBLIC_ENTRY_ENABLED: '1',
     WECHAT_PAY_ENABLED: '1',
     WECHAT_PAY_MCH_ID: '0000000000',
     WECHAT_PAY_APP_ID: 'wxTESTAPPID001',
@@ -51,6 +55,7 @@ test('live configuration loads valid RSA keys and HTTPS channel settings', () =>
     const config = parsePaymentRuntimeConfig(createValidEnvironment(keys));
     assert.equal(config.mode, 'live');
     assert.equal(config.mockConfirmationEnabled, false);
+    assert.equal(config.publicEntryEnabled, true);
     assert.equal(config.wechat.configured, true);
     assert.equal(config.wechat.apiV3Key.length, 32);
     assert.equal(config.wechat.merchantPrivateKey.type, 'private');
@@ -72,6 +77,18 @@ test('enabled but incomplete live channel stays explicitly unconfigured', () => 
   });
   assert.deepEqual(config.wechat, { configured: false, enabled: true });
   assert.deepEqual(config.alipay, { configured: false, enabled: true });
+});
+
+test('public payment entry defaults closed and rejects invalid flags', () => {
+  assert.equal(parsePaymentRuntimeConfig({}).publicEntryEnabled, false);
+  for (const value of ['', 'yes', '2', 'true']) {
+    assert.throws(
+      () => parsePaymentRuntimeConfig({
+        PAYMENT_PUBLIC_ENTRY_ENABLED: value,
+      }),
+      /PAYMENT_PUBLIC_ENTRY_ENABLED must be 0 or 1/
+    );
+  }
 });
 
 test('live configuration rejects unsafe secrets, URLs, gateway, and flags', () => {
@@ -134,6 +151,49 @@ test('alipay mode loads file-first keys and normalizes a Base64 public key', () 
       ALIPAY_PRIVATE_KEY: privateKeyBase64,
     });
     assert.equal(inlineConfig.alipay.appPrivateKey.type, 'private');
+  } finally {
+    keys.cleanup();
+  }
+});
+
+test('ready Alipay configuration stays private until the public gate opens', () => {
+  const keys = createTemporaryPaymentKeys();
+  try {
+    const privateConfig = parsePaymentRuntimeConfig({
+      ...createValidEnvironment(keys),
+      PAYMENT_PROVIDER_MODE: 'alipay',
+      PAYMENT_PUBLIC_ENTRY_ENABLED: '0',
+    });
+    assert.equal(privateConfig.alipay.configured, true);
+    assert.equal(privateConfig.publicEntryEnabled, false);
+    assert.deepEqual(
+      createConfiguredPaymentProviderRegistry({
+        runtimeConfig: privateConfig,
+      }).getCapabilities(),
+      {
+        canRecharge: false,
+        paymentMode: 'alipay',
+        paymentProviders: { alipay: false, wechat: false },
+        publicPaymentEntryEnabled: false,
+      }
+    );
+
+    const publicConfig = parsePaymentRuntimeConfig({
+      ...createValidEnvironment(keys),
+      PAYMENT_PROVIDER_MODE: 'alipay',
+      PAYMENT_PUBLIC_ENTRY_ENABLED: '1',
+    });
+    assert.deepEqual(
+      createConfiguredPaymentProviderRegistry({
+        runtimeConfig: publicConfig,
+      }).getCapabilities(),
+      {
+        canRecharge: true,
+        paymentMode: 'alipay',
+        paymentProviders: { alipay: true, wechat: false },
+        publicPaymentEntryEnabled: true,
+      }
+    );
   } finally {
     keys.cleanup();
   }

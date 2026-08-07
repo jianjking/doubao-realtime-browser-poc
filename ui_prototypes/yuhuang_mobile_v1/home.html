@@ -495,7 +495,7 @@
         <header class="overlay-header">
           <div>
             <h2 id="recharge-panel-title">话费充值</h2>
-            <p>先创建支付订单，再确认支付结果</p>
+            <p data-payment-panel-copy>充值服务暂未开放</p>
           </div>
           <button class="overlay-close" type="button" aria-label="关闭话费充值" data-close-overlay>关闭</button>
         </header>
@@ -558,20 +558,18 @@
           <section class="payment-methods" aria-labelledby="payment-methods-title">
             <h3 id="payment-methods-title">选择支付方式</h3>
             <div class="payment-options" role="radiogroup" aria-label="选择支付方式">
-              <button class="payment-option is-selected" type="button" role="radio" aria-checked="true" data-payment-method="wechat" data-payment-name="微信支付">
+              <button class="payment-option is-selected" type="button" role="radio" aria-checked="true" data-payment-method="wechat" data-payment-name="微信支付" hidden>
                 <img class="payment-icon" src="./assets/payment/wechat-pay-ui.png" width="38" height="38" alt="" aria-hidden="true" loading="lazy" decoding="async">
                 <span class="payment-name">微信支付</span>
                 <small class="selection-status">已选</small>
               </button>
-              <button class="payment-option" type="button" role="radio" aria-checked="false" data-payment-method="alipay" data-payment-name="支付宝支付">
+              <button class="payment-option" type="button" role="radio" aria-checked="false" data-payment-method="alipay" data-payment-name="支付宝支付" hidden>
                 <img class="payment-icon" src="./assets/payment/alipay-pay-ui.png" width="38" height="38" alt="" aria-hidden="true" loading="lazy" decoding="async">
                 <span class="payment-name">支付宝支付</span>
                 <small class="selection-status">选择</small>
               </button>
             </div>
-            <p class="payment-demo-note" data-payment-mock-notice>
-              模拟支付，不会产生真实扣款
-            </p>
+            <p class="payment-demo-note" data-payment-mode-notice hidden></p>
           </section>
         </div>
 
@@ -594,12 +592,8 @@
                 <dd data-payment-order-provider>--</dd>
               </div>
             </dl>
-            <button class="mock-payment-confirm" type="button">
-              模拟完成支付
-            </button>
-            <p class="mock-payment-warning">
-              模拟支付，不会产生真实扣款
-            </p>
+            <button class="mock-payment-confirm" type="button" hidden></button>
+            <p class="mock-payment-warning" hidden></p>
           </section>
           <p class="recharge-result" role="status" aria-live="polite" aria-atomic="true" hidden></p>
         </div>

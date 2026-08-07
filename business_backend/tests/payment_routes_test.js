@@ -6,6 +6,9 @@ const test = require('node:test');
 
 const { createApp } = require('../app');
 const {
+  createPaymentProviderRegistry,
+} = require('../payments/payment_provider_registry');
+const {
   createBusinessStores,
 } = require('../stores/business_store_factory');
 const {
@@ -67,6 +70,8 @@ async function startHarness({
   mode = 'mock',
   mockConfirmationEnabled = true,
   nodeEnv = 'test',
+  paymentProviderRegistry,
+  publicEntryEnabled = true,
 } = {}) {
   const stores = createBusinessStores({ databasePath: ':memory:' });
   const app = createApp({
@@ -76,7 +81,9 @@ async function startHarness({
       mode,
       mockConfirmationEnabled,
       nodeEnv,
+      publicEntryEnabled,
     },
+    ...(paymentProviderRegistry ? { paymentProviderRegistry } : {}),
   });
   const server = await new Promise((resolve) => {
     const listeningServer = app.listen(0, '127.0.0.1', () => {
@@ -92,6 +99,51 @@ async function startHarness({
     },
   };
 }
+
+test('configured Alipay remains private when the public entry gate is closed', async () => {
+  const paymentProviderRegistry = createPaymentProviderRegistry({
+    mode: 'alipay',
+    alipayProvider: {},
+    publicEntryEnabled: false,
+  });
+  const harness = await startHarness({
+    mode: 'alipay',
+    mockConfirmationEnabled: false,
+    paymentProviderRegistry,
+    publicEntryEnabled: false,
+  });
+  try {
+    const user = await login(harness.port, '13800000009');
+    const me = await requestJson(harness.port, {
+      path: '/api/me',
+      cookie: user.cookie,
+    });
+    assert.deepEqual(me.body.permissions, {
+      canRecharge: false,
+      paymentMode: 'alipay',
+      paymentProviders: { alipay: false, wechat: false },
+      publicPaymentEntryEnabled: false,
+    });
+    const created = await createOrder(harness.port, user.cookie, {
+      provider: 'alipay',
+      clientRequestId: '99999999-9999-4999-8999-999999999999',
+    });
+    assert.equal(created.statusCode, 503);
+    assert.equal(
+      created.body.error.code,
+      'PAYMENT_PUBLIC_ENTRY_DISABLED'
+    );
+    assert.equal(
+      harness.stores.paymentOrderStore.findByUserAndClientRequestId(
+        user.userId,
+        '99999999-9999-4999-8999-999999999999'
+      ),
+      null
+    );
+  } finally {
+    await harness.close();
+  }
+});
 
 async function login(port, phone) {
   const { challengeId } = await requestSmsChallenge(port, phone);
@@ -145,10 +197,12 @@ test('payment routes gate guests and never expose dev recharge', async () => {
     assert.equal(me.statusCode, 200);
     assert.deepEqual(me.body.permissions, {
       canRecharge: true,
+      paymentMode: 'mock',
       paymentProviders: {
         alipay: true,
         wechat: true,
       },
+      publicPaymentEntryEnabled: true,
     });
     const oldRecharge = await requestJson(harness.port, {
       method: 'POST',

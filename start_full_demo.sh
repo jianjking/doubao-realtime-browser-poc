@@ -381,6 +381,13 @@ fi
 
 PAYMENT_PROVIDER_MODE="${PAYMENT_PROVIDER_MODE:-mock}"
 PAYMENT_MOCK_CONFIRMATION_ENABLED="${PAYMENT_MOCK_CONFIRMATION_ENABLED:-1}"
+if [[ -z "${PAYMENT_PUBLIC_ENTRY_ENABLED+x}" ]]; then
+  if [[ "${NODE_ENV-}" == "production" ]]; then
+    PAYMENT_PUBLIC_ENTRY_ENABLED=0
+  else
+    PAYMENT_PUBLIC_ENTRY_ENABLED=1
+  fi
+fi
 FORTUNE_DRAW_PRICE_CENTS="${FORTUNE_DRAW_PRICE_CENTS:-200}"
 if [[ "$PAYMENT_PROVIDER_MODE" != "disabled" \
   && "$PAYMENT_PROVIDER_MODE" != "mock" \
@@ -392,6 +399,11 @@ fi
 if [[ "$PAYMENT_MOCK_CONFIRMATION_ENABLED" != "0" \
   && "$PAYMENT_MOCK_CONFIRMATION_ENABLED" != "1" ]]; then
   printf '错误：PAYMENT_MOCK_CONFIRMATION_ENABLED 必须是 0 或 1。\n' >&2
+  exit 1
+fi
+if [[ "$PAYMENT_PUBLIC_ENTRY_ENABLED" != "0" \
+  && "$PAYMENT_PUBLIC_ENTRY_ENABLED" != "1" ]]; then
+  printf '错误：PAYMENT_PUBLIC_ENTRY_ENABLED 必须是 0 或 1。\n' >&2
   exit 1
 fi
 if [[ "${NODE_ENV-}" == "production" \
@@ -407,6 +419,7 @@ if [[ "$PAYMENT_PROVIDER_MODE" == "alipay" \
 fi
 export PAYMENT_PROVIDER_MODE
 export PAYMENT_MOCK_CONFIRMATION_ENABLED
+export PAYMENT_PUBLIC_ENTRY_ENABLED
 export FORTUNE_DRAW_PRICE_CENTS
 
 configure_voice_service_credentials

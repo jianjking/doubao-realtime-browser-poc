@@ -194,7 +194,10 @@ function createPaymentService({
     context = {},
   }) {
     validateCreateRequest({ provider, amountCents, clientRequestId });
-    const paymentProvider = providerRegistry.get(provider);
+    const paymentProvider = typeof providerRegistry.getForPublicOrderCreation
+      === 'function'
+      ? providerRegistry.getForPublicOrderCreation(provider)
+      : providerRegistry.get(provider);
     const account = requireActiveUserAndAccount(userId);
 
     const existingOrder =
