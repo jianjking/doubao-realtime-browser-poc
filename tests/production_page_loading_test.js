@@ -51,8 +51,10 @@ test('production pages expose compatible responsive image assets', () => {
   assert.match(fortuneHtml, /data-fortune-character-image-webp/);
   assert.match(fortuneHtml, /src=""/);
   assert.doesNotMatch(fortuneJs, /preloadIntegratedFortuneScenes/);
-  assert.match(homeJs, /setTimeout\(\(\) => \{/);
-  assert.match(homeJs, /requestIdleCallback\(warmup/);
+  assert.match(homeJs, /preloadAllHomeCharacterImages/);
+  assert.match(homeJs, /home-all-character-images/);
+  assert.doesNotMatch(homeJs, /warmAdjacentCharacterImages/);
+  assert.doesNotMatch(homeJs, /requestIdleCallback\(warmup/);
 
   const imagePairs = [
     [

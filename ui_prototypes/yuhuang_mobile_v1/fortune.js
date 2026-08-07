@@ -21,6 +21,16 @@
     'shawujing',
     'tangseng',
   ]);
+  const FORTUNE_CHARACTER_NAMES = Object.freeze({
+    yuhuang: '玉皇大帝',
+    sunwukong: '孙悟空',
+    guanyin: '观音菩萨',
+    caishen: '财神爷',
+    rulai: '如来佛祖',
+    zhubajie: '猪八戒',
+    shawujing: '沙悟净',
+    tangseng: '唐僧',
+  });
   const INTEGRATED_FORTUNE_SCENE_SOURCES = Object.freeze({
     guanyin:
       './assets/fortune/scenes/fortune-scene-guanyin-v1.png',
@@ -77,6 +87,9 @@
   );
   const fortuneCharacterUnavailable = document.querySelector(
     '[data-fortune-character-unavailable]'
+  );
+  const fortuneCharacterName = document.querySelector(
+    '[data-fortune-character-name]'
   );
   const acolyteImage = document.querySelector('.acolyte-character');
   const incenseState = document.querySelector('[data-incense-state]');
@@ -199,6 +212,7 @@
     !page
     || !fortuneCharacterImage
     || !fortuneCharacterUnavailable
+    || !fortuneCharacterName
     || !incenseState
     || !acolyteGuidance
     || !waitingState
@@ -263,6 +277,8 @@
   let interpretationAudioRequestController = null;
   let interpretationAudioRequestGeneration = 0;
   let interpretationAudioAutoPlayAttemptCount = 0;
+  let currentFortuneCharacterKey = null;
+  let fortuneCharacterRenderId = 0;
   let fortuneSceneSwipePointerId = null;
   let fortuneSceneSwipeStartX = 0;
   let fortuneSceneSwipeStartY = 0;
@@ -277,6 +293,8 @@
   let currentCharge = null;
   let activeFortuneOverlay = null;
   let activeFortuneOverlayTrigger = null;
+  const fortuneVisualPreloadPromises = new Map();
+  const unavailableFortuneSceneKeys = new Set();
 
   function formatCny(cents) {
     if (!Number.isSafeInteger(cents)) {
@@ -631,6 +649,9 @@
   }
 
   function resolveRequestedCharacterKey() {
+    if (currentFortuneCharacterKey !== null) {
+      return currentFortuneCharacterKey;
+    }
     const searchParams = new URLSearchParams(window.location.search);
     return searchParams.has('characterKey')
       ? searchParams.get('characterKey')
@@ -719,7 +740,81 @@
     });
   }
 
-  function renderUnavailableFortuneCharacter() {
+  function supportsWebp() {
+    if (!document || typeof document.createElement !== 'function') {
+      return false;
+    }
+    const canvas = document.createElement('canvas');
+    return Boolean(
+      canvas
+      && typeof canvas.toDataURL === 'function'
+      && canvas.toDataURL('image/webp').startsWith('data:image/webp')
+    );
+  }
+
+  function getPreferredFortuneVisualSource(pngSource) {
+    return supportsWebp()
+      ? pngSource.replace(/\.png$/, '.webp')
+      : pngSource;
+  }
+
+  function preloadFortuneVisual(url) {
+    const cachedPromise = fortuneVisualPreloadPromises.get(url);
+    if (cachedPromise) {
+      return cachedPromise;
+    }
+    const preloadPromise = new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve({ status: 'ready', url });
+      image.onerror = () => resolve({ status: 'fallback', url });
+      image.src = url;
+    });
+    fortuneVisualPreloadPromises.set(url, preloadPromise);
+    return preloadPromise;
+  }
+
+  async function preloadAllFortuneExperienceVisuals() {
+    const sceneResults = await Promise.all(
+      INTEGRATED_FORTUNE_CHARACTER_ORDER.map(async (characterKey) => {
+        const url = getPreferredFortuneVisualSource(
+          INTEGRATED_FORTUNE_SCENE_SOURCES[characterKey]
+        );
+        const result = await preloadFortuneVisual(url);
+        if (result.status === 'fallback') {
+          unavailableFortuneSceneKeys.add(characterKey);
+        }
+        return { ...result, characterKey };
+      })
+    );
+    const pageVisualSources = [
+      getPreferredFortuneVisualSource(
+        './assets/fortune/daotong-guide-v1.png'
+      ),
+      './assets/payment/wechat-pay-ui.png',
+      './assets/payment/alipay-pay-ui.png',
+      './assets/account/default-fu-avatar.svg',
+    ];
+    const pageResults = await Promise.all(
+      pageVisualSources.map(preloadFortuneVisual)
+    );
+    pageResults.filter((result) => result.status === 'fallback').forEach(
+      (result) => {
+        document.querySelectorAll('img[src]').forEach((image) => {
+          if (image.getAttribute('src') === result.url) {
+            image.hidden = true;
+          }
+        });
+        document.querySelectorAll('source[srcset]').forEach((source) => {
+          if (source.getAttribute('srcset').startsWith(result.url)) {
+            source.removeAttribute('srcset');
+          }
+        });
+      }
+    );
+    return sceneResults.concat(pageResults);
+  }
+
+  function renderUnavailableFortuneCharacter(characterKey = null) {
     fortuneCharacterImage.hidden = true;
     fortuneCharacterImage.removeAttribute('src');
     if (fortuneCharacterImageWebp) {
@@ -727,18 +822,25 @@
     }
     fortuneCharacterImage.setAttribute('alt', '');
     fortuneCharacterUnavailable.hidden = false;
-    page.dataset.fortuneCharacterKey = 'unavailable';
-    page.dataset.fortuneSceneMode = 'unavailable';
+    page.dataset.fortuneCharacterKey = characterKey || 'unavailable';
+    page.dataset.fortuneSceneMode = INTEGRATED_FORTUNE_CHARACTER_ORDER.includes(
+      characterKey
+    ) ? 'integrated' : 'unavailable';
   }
 
-  function renderFortuneCharacter() {
-    const characterKey = resolveRequestedCharacterKey();
+  function renderFortuneCharacter(characterKey = resolveRequestedCharacterKey()) {
+    const renderId = ++fortuneCharacterRenderId;
     const imageSrc = resolveFortuneCharacterImageSrc(characterKey);
 
     if (imageSrc === null) {
+      fortuneCharacterName.textContent = '当前神仙';
       renderUnavailableFortuneCharacter();
       return Promise.resolve(false);
     }
+
+    currentFortuneCharacterKey = characterKey;
+    fortuneCharacterName.textContent = FORTUNE_CHARACTER_NAMES[characterKey];
+    document.title = `${FORTUNE_CHARACTER_NAMES[characterKey]} · 上香求签`;
 
     const usesIntegratedScene =
       Object.prototype.hasOwnProperty.call(
@@ -750,6 +852,11 @@
     page.dataset.fortuneSceneMode = usesIntegratedScene
       ? 'integrated'
       : 'character';
+
+    if (unavailableFortuneSceneKeys.has(characterKey)) {
+      renderUnavailableFortuneCharacter(characterKey);
+      return Promise.resolve(false);
+    }
 
     fortuneCharacterUnavailable.hidden = true;
     fortuneCharacterImage.hidden = false;
@@ -770,11 +877,23 @@
 
     return waitForStartupImage(
       fortuneCharacterImage,
-      renderUnavailableFortuneCharacter
+      () => {
+        if (
+          renderId === fortuneCharacterRenderId
+          && currentFortuneCharacterKey === characterKey
+        ) {
+          unavailableFortuneSceneKeys.add(characterKey);
+          renderUnavailableFortuneCharacter(characterKey);
+        }
+      }
     );
   }
 
-  const fortuneSceneReadyPromise = renderFortuneCharacter();
+  const fortuneExperienceVisualsReadyPromise =
+    preloadAllFortuneExperienceVisuals();
+  const fortuneSceneReadyPromise = window.XianBanStartup
+    ? fortuneExperienceVisualsReadyPromise.then(() => renderFortuneCharacter())
+    : renderFortuneCharacter();
   if (!window.XianBanStartup) {
     fortuneSceneReadyPromise.catch(() => {});
   }
@@ -821,6 +940,7 @@
 
     const nextCharacterKey =
       INTEGRATED_FORTUNE_CHARACTER_ORDER[nextIndex];
+    currentFortuneCharacterKey = nextCharacterKey;
 
     const nextUrl = new URL(window.location.href);
 
@@ -842,10 +962,7 @@
       nextUrl.href
     );
 
-    renderFortuneCharacter();
-    page.classList.add(
-      'has-swiped-fortune-scene'
-    );
+    void renderFortuneCharacter(nextCharacterKey).catch(() => {});
     return true;
   }
 
@@ -2413,7 +2530,7 @@
         },
         body: JSON.stringify({
           clientRequestId: activeFortuneClientRequestId,
-          characterKey: resolveRequestedCharacterKey(),
+          characterKey: currentFortuneCharacterKey,
           situationText: currentTranscript.trim(),
         }),
         signal: fortuneRequestController.signal,
@@ -2665,7 +2782,7 @@
   }
 
   function navigateToFortuneLogin() {
-    const characterKey = resolveRequestedCharacterKey();
+    const characterKey = currentFortuneCharacterKey;
     window.location.assign(
       './index.html?mode=phone&returnAction=fortune'
         + `&characterKey=${encodeURIComponent(characterKey)}`
@@ -2771,6 +2888,14 @@
       {
         blocking: false,
         failureMessage: '神仙主视觉暂时无法显示，页面已进入降级模式',
+      }
+    );
+    startup.registerTask(
+      'fortune-all-experience-visuals',
+      fortuneExperienceVisualsReadyPromise,
+      {
+        blocking: false,
+        failureMessage: '部分求签画面暂时无法显示，页面已使用简化模式',
       }
     );
     startup.registerTask(

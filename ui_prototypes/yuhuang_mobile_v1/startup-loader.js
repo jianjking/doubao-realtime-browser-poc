@@ -105,7 +105,6 @@
   let hasFailed = false;
   let isFinishing = false;
   let isDisposed = false;
-  let completionTimer = 0;
   let removalTimer = 0;
   let firstSlowNoticeTimer = 0;
   let secondSlowNoticeTimer = 0;
@@ -171,12 +170,10 @@
   }
 
   function clearLoadingTimers() {
-    window.clearTimeout(completionTimer);
     window.clearTimeout(firstSlowNoticeTimer);
     window.clearTimeout(secondSlowNoticeTimer);
     window.clearInterval(estimateTimer);
     window.clearInterval(comfortTimer);
-    completionTimer = 0;
     firstSlowNoticeTimer = 0;
     secondSlowNoticeTimer = 0;
     estimateTimer = 0;
@@ -300,19 +297,16 @@
     progressFrame = 0;
     if (targetProgress === 100) {
       renderProgress(100);
-      completionTimer = window.setTimeout(() => {
-        completionTimer = 0;
-        loader.classList.add('is-complete');
-        loader.setAttribute('aria-hidden', 'true');
-        root.classList.remove('is-xianban-loading');
-        window.dispatchEvent(new CustomEvent('xianban:startup-complete'));
-        removeMilestoneListeners();
-        clearLoadingTimers();
-        if (reloadButton) {
-          reloadButton.removeEventListener('click', handleReload);
-        }
-        removalTimer = window.setTimeout(() => loader.remove(), 380);
-      }, 240);
+      loader.classList.add('is-complete');
+      loader.setAttribute('aria-hidden', 'true');
+      root.classList.remove('is-xianban-loading');
+      window.dispatchEvent(new CustomEvent('xianban:startup-complete'));
+      removeMilestoneListeners();
+      clearLoadingTimers();
+      if (reloadButton) {
+        reloadButton.removeEventListener('click', handleReload);
+      }
+      removalTimer = window.setTimeout(() => loader.remove(), 380);
     }
   }
 
@@ -466,20 +460,22 @@
       setTargetProgress(18);
       return;
     }
-    setTargetProgress(imageReady ? 80 : 70);
     const requiredTasks = Array.from(tasks.values()).filter(
       (task) => task.required
     );
     const settledRequiredTasks = requiredTasks.filter(
       (task) => task.status !== 'pending'
     );
-    if (imageReady && appReady && !hasPendingRequiredTasks()) {
-      setTargetProgress(95);
-    } else if (requiredTasks.length > 0) {
-      const taskProgress = 80 + Math.round(
-        (settledRequiredTasks.length / requiredTasks.length) * 14
+    if (requiredTasks.length > 0) {
+      const taskProgress = 24 + Math.round(
+        (settledRequiredTasks.length / requiredTasks.length) * 66
       );
-      setTargetProgress(Math.min(taskProgress, 94));
+      setTargetProgress(Math.min(taskProgress, 90));
+    } else {
+      setTargetProgress(imageReady ? 30 : 24);
+    }
+    if (imageReady && appReady && !hasPendingRequiredTasks()) {
+      setTargetProgress(windowReady ? 95 : 92);
     }
     finishWhenAllowed();
   }
@@ -553,7 +549,7 @@
   if (!domReady) {
     document.addEventListener('DOMContentLoaded', handleDomReady, { once: true });
   }
-  setTargetProgress(38);
+  setTargetProgress(18);
 
   if (criticalImage) {
     if (criticalImage.complete && criticalImage.naturalWidth > 0) {

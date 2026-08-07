@@ -459,8 +459,8 @@ function loadHomeRuntime(options = {}) {
       loadPublicRoleCatalog,
       openCurrentRolePricing,
       openOverlay,
+      preloadAllHomeCharacterImages,
       selectCharacter,
-      warmAdjacentCharacterImages,
     };`
   );
 
@@ -784,6 +784,7 @@ function loadHomeRuntime(options = {}) {
     callButtonLabel,
     creditDisplay,
     fetchRequests,
+    homeShell,
     imageRequests,
     localStorage,
     locationAssignments,
@@ -1290,16 +1291,18 @@ async function verifyHomeConfigurationAndPreloading() {
     );
   }
 
-  runtime.test.warmAdjacentCharacterImages('yuhuang');
-  await wait();
+  const preloadResults = await runtime.test.preloadAllHomeCharacterImages(
+    Promise.resolve(false)
+  );
   assert.deepEqual(
     new Set(runtime.imageRequests),
-    new Set([
-      UI_MATRIX[1].homeImage,
-      UI_MATRIX[7].homeImage,
-    ])
+    new Set(UI_MATRIX.map((character) => character.homeImage))
   );
-  assert.equal(runtime.imageRequests.length, 2);
+  assert.equal(runtime.imageRequests.length, UI_MATRIX.length);
+  assert.equal(
+    preloadResults.every((result) => result.status === 'ready'),
+    true
+  );
 
   const targetRuntime = loadHomeRuntime();
   assert.equal(
@@ -1310,11 +1313,7 @@ async function verifyHomeConfigurationAndPreloading() {
   assert.equal(targetRuntime.test.getCurrentCharacterKey(), 'rulai');
   assert.deepEqual(
     new Set(targetRuntime.imageRequests),
-    new Set([
-      UI_MATRIX[3].homeImage,
-      UI_MATRIX[4].homeImage,
-      UI_MATRIX[5].homeImage,
-    ])
+    new Set([UI_MATRIX[4].homeImage])
   );
 }
 
@@ -1366,9 +1365,13 @@ async function verifySwipeAndImageSafety() {
   });
   assert.equal(
     await failedImage.test.selectCharacter('sunwukong', 'swipe-left'),
-    false
+    true
   );
-  assert.equal(failedImage.test.getCurrentCharacterKey(), 'yuhuang');
+  assert.equal(failedImage.test.getCurrentCharacterKey(), 'sunwukong');
+  assert.equal(
+    failedImage.homeShell.classList.contains('is-character-image-unavailable'),
+    true
+  );
 
   const race = loadHomeRuntime({
     imageDelays: {
@@ -2629,7 +2632,7 @@ async function main() {
   process.stdout.write(`roles=${UI_MATRIX.map((role) => role.key).join(',')}\n`);
   process.stdout.write(
     'verified=auth-entry,home-guard,account-profile,recharge-gate,'
-      + 'swipe-only,trusted-urls,adjacent-preload,39px,41px,'
+      + 'swipe-only,trusted-urls,complete-character-preload,39px,41px,'
       + 'vertical-swipe,overlay-lock,image-failure,race-safety,call-states,'
       + 'ended,restart,return-url-navigation,new-websocket,current-character-hello,'
       + 'business-call-id-url,unavailable-keys,'

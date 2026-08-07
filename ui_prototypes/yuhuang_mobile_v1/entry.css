@@ -3294,54 +3294,86 @@ a {
   touch-action: pan-y;
 }
 
-/*
- * 用户尚未成功滑动时持续显示提示。
- *
- * 只有在：
- * 1. 当前仍允许切换角色；
- * 2. 用户还没有成功切换过角色；
- *
- * 这两个条件同时满足时才显示。
- */
-.fortune-page[data-fortune-scene-mode="integrated"]::after {
+.fortune-character-switcher {
   position: absolute;
-  z-index: 28;
-  top: max(
-    112px,
-    calc(env(safe-area-inset-top, 0px) + 102px)
-  );
+  z-index: 29;
+  top: max(110px, calc(env(safe-area-inset-top, 0px) + 100px));
   left: 50%;
-  padding: 5px 13px;
+  display: grid;
+  gap: 3px;
+  min-width: 188px;
+  max-width: calc(100% - 36px);
+  padding: 8px 14px 9px;
   border: 1px solid rgba(255, 224, 159, 0.56);
-  border-radius: 999px;
+  border-radius: 12px;
   color: #fff1c7;
-  background: rgba(52, 14, 16, 0.68);
+  background: rgba(52, 14, 16, 0.72);
   box-shadow: 0 5px 14px rgba(18, 4, 5, 0.26);
-  content: "左右滑动切换神仙";
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  opacity: 0;
-  pointer-events: none;
+  text-align: center;
   text-shadow: 0 1px 5px rgba(16, 3, 4, 0.86);
-  transform: translate(-50%, 5px);
-  transition:
-    opacity 220ms ease,
-    transform 220ms ease;
+  transform: translateX(-50%);
+  transition: opacity 180ms ease, visibility 180ms ease;
   backdrop-filter: blur(6px);
+  pointer-events: none;
 }
 
-/*
- * 求签还没有开始说话，并且用户还没有成功滑动过，
- * 提示一直保持显示。
- */
-.fortune-page[
-  data-fortune-scene-mode="integrated"
-][
-  data-fortune-state="ready-to-speak"
-]:not(.has-swiped-fortune-scene)::after {
+.fortune-character-switcher strong {
+  overflow-wrap: anywhere;
+  font-size: 23px;
+  line-height: 1.25;
+}
+
+.fortune-character-switcher span {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.fortune-page[data-fortune-state="ready-to-speak"] .fortune-character-switcher {
   opacity: 1;
-  transform: translate(-50%, 0);
+  visibility: visible;
+}
+
+.fortune-page[data-fortune-state]:not([data-fortune-state="ready-to-speak"])
+  .fortune-character-switcher {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"] .acolyte-copy h2 {
+  font-size: 18px;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"] .acolyte-copy p {
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"] .incense-state,
+.fortune-page[data-fortune-scene-mode="integrated"] .wish-offering-complete p,
+.fortune-page[data-fortune-scene-mode="integrated"] .fortune-draw-animation > p {
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"] .speak-control-button,
+.fortune-page[data-fortune-scene-mode="integrated"] .fortune-retry-button,
+.fortune-page[data-fortune-scene-mode="integrated"] .fortune-interpret-button,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .fortune-interpretation-retry-button,
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .fortune-interpretation-audio-button,
+.fortune-page[data-fortune-scene-mode="integrated"] .fortune-reset-button {
+  font-size: 19px;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"] .wish-paper .wish-paper-status {
+  font-size: 17px;
+}
+
+.fortune-page[data-fortune-scene-mode="integrated"]
+  .fortune-interpretation-audio p {
+  font-size: 17px;
 }
 
 /* ========== FORTUNE SCENE SWIPE V1 END ========== */

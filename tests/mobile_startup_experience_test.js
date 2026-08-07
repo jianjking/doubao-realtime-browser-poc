@@ -210,11 +210,14 @@ test('startup loader gates required tasks without a fixed minimum delay', () => 
   assert.match(loaderJs, /task\.status = 'failed'/);
   assert.match(loaderJs, /hasPendingRequiredTasks\(\)/);
   assert.match(loaderJs, /Math\.min\(value, 95\)/);
+  assert.match(loaderJs, /settledRequiredTasks\.length \/ requiredTasks\.length/);
+  assert.match(loaderJs, /\* 66/);
   assert.match(loaderJs, /finishFrame = requestFrame[\s\S]*?stableFrame = requestFrame/);
   assert.match(loaderJs, /tasks\.clear\(\)/);
   assert.match(loaderJs, /xianban:startup-complete/);
   assert.doesNotMatch(loaderJs, /minimumVisibleUntil/);
   assert.doesNotMatch(loaderJs, /startedAt \+ 550/);
+  assert.doesNotMatch(loaderJs, /completionTimer/);
 });
 
 test('home startup registers image, account, UI, worklet and layout gates', () => {
@@ -232,12 +235,16 @@ test('home startup registers image, account, UI, worklet and layout gates', () =
   assert.match(startupBlock, /'ui-initialization'/);
   assert.match(startupBlock, /'account-state'/);
   assert.match(startupBlock, /'home-current-character-image'/);
+  assert.match(startupBlock, /'home-all-character-images'/);
+  assert.match(startupBlock, /'home-page-visuals'/);
   assert.match(startupBlock, /'home-audioworklet'/);
   assert.match(startupBlock, /'home-css-layout'/);
   assert.match(startupBlock, /'home-role-catalog'/);
   assert.match(startupBlock, /\/realtime-call\/pcm_capture_processor\.js/);
   assert.match(homeJs, /response\.arrayBuffer\(\)/);
-  assert.match(homeJs, /xianban:startup-complete/);
+  assert.match(homeJs, /preloadAllHomeCharacterImages/);
+  assert.match(homeJs, /Array\.from\(rolePricingByKey\.keys\(\)\)/);
+  assert.doesNotMatch(homeJs, /warmAdjacentCharacterImages/);
   assert.doesNotMatch(startupBlock, /getUserMedia\s*\(/);
   assert.doesNotMatch(startupBlock, /new WebSocket\s*\(/);
   assert.doesNotMatch(startupBlock, /fetch\(CALL_API_URL/);
@@ -261,6 +268,7 @@ test('fortune uses the shared loader and registers complete startup gates', () =
   );
   assert.match(fortuneJs, /fortuneSceneReadyPromise/);
   assert.match(startupBlock, /'fortune-scene-image'/);
+  assert.match(startupBlock, /'fortune-all-experience-visuals'/);
   assert.match(startupBlock, /'fortune-acolyte-image'/);
   assert.match(startupBlock, /'fortune-paid-state'/);
   assert.match(startupBlock, /'fortune-asr-api'/);
@@ -268,11 +276,46 @@ test('fortune uses the shared loader and registers complete startup gates', () =
   assert.match(startupBlock, /'fortune-css-layout'/);
   assert.match(startupBlock, /'fortune-ui-initialization'/);
   assert.match(startupBlock, /'fortune-button-bindings'/);
+  assert.match(fortuneJs, /INTEGRATED_FORTUNE_CHARACTER_ORDER\.map/);
+  assert.match(fortuneJs, /preloadAllFortuneExperienceVisuals/);
+  assert.match(fortuneJs, /daotong-guide-v1\.png/);
+  assert.match(fortuneJs, /wechat-pay-ui\.png/);
+  assert.match(fortuneJs, /default-fu-avatar\.svg/);
   assert.match(startupBlock, /\/realtime-assets\/pcm_capture_processor\.js/);
   assert.doesNotMatch(startupBlock, /getUserMedia\s*\(/);
   assert.doesNotMatch(startupBlock, /new WebSocket\s*\(/);
   assert.doesNotMatch(startupBlock, /createSession\s*\(/);
   assert.doesNotMatch(startupBlock, /fetch\(FORTUNE_SESSION_API_URL/);
+});
+
+test('fortune swipe state, persistent guidance and senior typography stay aligned', () => {
+  const fortuneHtml = readUiFile('fortune.html');
+  const fortuneJs = readUiFile('fortune.js');
+  const fortuneCss = readUiFile('entry.css');
+
+  assert.match(fortuneHtml, /data-fortune-character-name>观音菩萨/);
+  assert.match(fortuneHtml, /‹ 左右滑动切换神仙 ›/);
+  assert.match(fortuneJs, /let currentFortuneCharacterKey = null/);
+  assert.match(fortuneJs, /characterKey: currentFortuneCharacterKey/);
+  assert.match(fortuneJs, /currentFortuneCharacterKey = nextCharacterKey/);
+  assert.doesNotMatch(`${fortuneJs}\n${fortuneCss}`, /has-swiped-fortune-scene/);
+  assert.match(
+    fortuneCss,
+    /\.fortune-character-switcher strong\s*\{[\s\S]*?font-size:\s*23px;/
+  );
+  assert.match(
+    fortuneCss,
+    /\.fortune-character-switcher span\s*\{[\s\S]*?font-size:\s*17px;/
+  );
+  assert.match(
+    fortuneCss,
+    /\.acolyte-copy p\s*\{[\s\S]*?font-size:\s*17px;[\s\S]*?line-height:\s*1\.55;/
+  );
+  assert.match(
+    fortuneCss,
+    /\.fortune-page\[data-fortune-scene-mode="integrated"\][\s\S]*?\.fortune-reset-button\s*\{[\s\S]*?font-size:\s*19px;/
+  );
+  assert.match(fortuneCss, /font-size:\s*11px;[\s\S]*?line-height:\s*1\.35;/);
 });
 
 test('loader stages, estimates, comfort rotation, and cleanup stay bounded', () => {

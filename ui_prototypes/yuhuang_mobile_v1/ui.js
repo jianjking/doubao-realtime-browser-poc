@@ -171,6 +171,8 @@
     return callUrl.href;
   }
   const characterImagePreloadPromises = new Map();
+  const unavailableCharacterImageKeys = new Set();
+  const startupVisualPreloadPromises = new Map();
   let webpSupport = null;
 
   function supportsWebp() {
@@ -208,16 +210,6 @@
     return character.imageSrc;
   }
 
-  function scheduleAdjacentCharacterWarmup(characterKey) {
-    const warmup = () => warmAdjacentCharacterImages(characterKey);
-    window.setTimeout(() => {
-      if (typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(warmup, { timeout: 1500 });
-        return;
-      }
-      warmup();
-    }, 800);
-  }
   const auxiliaryMessages = {
     guide: '点击“开始通话”后，允许使用麦克风，随后直接开口即可。',
     culture: '传统文化内容正在准备中。',
@@ -1233,25 +1225,108 @@
       return cachedPromise;
     }
 
+    if (
+      homePage
+      && sceneImage
+      && typeof sceneImage.complete === 'boolean'
+      && character.key === currentCharacterKey
+    ) {
+      const existingImagePromise = waitForStartupImage(
+        sceneImage,
+        degradeHomeCharacterImage
+      ).then(() => ({ characterKey: character.key, status: 'ready' }));
+      characterImagePreloadPromises.set(imageSrc, existingImagePromise);
+      existingImagePromise.catch(() => {});
+      return existingImagePromise;
+    }
+
     const preloadPromise = new Promise((resolve, reject) => {
       const image = new Image();
-      image.onload = resolve;
-      image.onerror = reject;
+      image.onload = () => {
+        unavailableCharacterImageKeys.delete(character.key);
+        resolve({ characterKey: character.key, status: 'ready' });
+      };
+      image.onerror = () => {
+        unavailableCharacterImageKeys.add(character.key);
+        reject(new Error(`home character image failed: ${character.key}`));
+      };
       image.src = imageSrc;
     });
     characterImagePreloadPromises.set(
       imageSrc,
       preloadPromise
     );
-    preloadPromise.catch(() => {
-      if (
-        characterImagePreloadPromises.get(imageSrc)
-        === preloadPromise
-      ) {
-        characterImagePreloadPromises.delete(imageSrc);
+    preloadPromise.catch(() => {});
+    return preloadPromise;
+  }
+
+  function preloadStartupVisual(url) {
+    const normalizedUrl = String(url || '').trim();
+    if (normalizedUrl === '') {
+      return Promise.resolve({ status: 'fallback', url: normalizedUrl });
+    }
+    const cachedPromise = startupVisualPreloadPromises.get(normalizedUrl);
+    if (cachedPromise) {
+      return cachedPromise;
+    }
+    const preloadPromise = new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve({ status: 'ready', url: normalizedUrl });
+      image.onerror = () => resolve({ status: 'fallback', url: normalizedUrl });
+      image.src = normalizedUrl;
+    });
+    startupVisualPreloadPromises.set(normalizedUrl, preloadPromise);
+    return preloadPromise;
+  }
+
+  function collectStartupDocumentVisuals() {
+    const sources = new Set();
+    document.querySelectorAll('img[src]').forEach((image) => {
+      if (!image.closest('[data-xianban-loader]')) {
+        sources.add(image.getAttribute('src'));
       }
     });
-    return preloadPromise;
+    document.querySelectorAll('source[srcset]').forEach((source) => {
+      if (!source.closest('[data-xianban-loader]')) {
+        sources.add(source.getAttribute('srcset').split(',')[0].trim().split(' ')[0]);
+      }
+    });
+    return Array.from(sources).filter(Boolean);
+  }
+
+  async function preloadAllHomeCharacterImages(roleCatalogReadyPromise) {
+    await Promise.resolve(roleCatalogReadyPromise).catch(() => false);
+    const catalogCharacters = roleCatalogState === 'ready'
+      ? Array.from(rolePricingByKey.keys())
+        .map((characterKey) => charactersByKey.get(characterKey))
+        .filter(Boolean)
+      : characters.slice();
+    return Promise.all(catalogCharacters.map(async (character) => {
+      try {
+        return await preloadCharacterImage(character);
+      } catch {
+        return { characterKey: character.key, status: 'fallback' };
+      }
+    }));
+  }
+
+  function preloadHomeDocumentVisuals() {
+    const sources = collectStartupDocumentVisuals();
+    return Promise.all(sources.map(preloadStartupVisual)).then((results) => {
+      results.filter((result) => result.status === 'fallback').forEach((result) => {
+        document.querySelectorAll('img[src]').forEach((image) => {
+          if (image.getAttribute('src') === result.url) {
+            image.hidden = true;
+          }
+        });
+        document.querySelectorAll('source[srcset]').forEach((source) => {
+          if (source.getAttribute('srcset').startsWith(result.url)) {
+            source.removeAttribute('srcset');
+          }
+        });
+      });
+      return results;
+    });
   }
 
   function waitForStartupImage(image, onFailure) {
@@ -1332,41 +1407,6 @@
     }
   }
 
-  function scheduleHomeAdjacentWarmupAfterStartup() {
-    if (!homePage) {
-      return;
-    }
-    const schedule = () => scheduleAdjacentCharacterWarmup(currentCharacterKey);
-    if (
-      document.documentElement
-      && document.documentElement.classList
-      && document.documentElement.classList.contains('is-xianban-loading')
-    ) {
-      window.addEventListener('xianban:startup-complete', schedule, {
-        once: true,
-      });
-      return;
-    }
-    schedule();
-  }
-
-  function warmAdjacentCharacterImages(characterKey) {
-    const currentIndex = characters.findIndex(
-      (character) => character.key === characterKey
-    );
-    if (currentIndex === -1 || characters.length < 2) {
-      return;
-    }
-
-    const adjacentIndexes = new Set([
-      (currentIndex - 1 + characters.length) % characters.length,
-      (currentIndex + 1) % characters.length,
-    ]);
-    adjacentIndexes.forEach((index) => {
-      preloadCharacterImage(characters[index]).catch(() => {});
-    });
-  }
-
   async function selectCharacter(characterKey, source) {
     if (isStartingCall) {
       return false;
@@ -1378,17 +1418,17 @@
     const requestId = ++characterSelectionRequestId;
     if (character.key === currentCharacterKey) {
       renderCharacter(character);
-      warmAdjacentCharacterImages(character.key);
+      if (unavailableCharacterImageKeys.has(character.key)) {
+        degradeHomeCharacterImage();
+      }
       return true;
     }
 
+    let imageReady = true;
     try {
       await preloadCharacterImage(character);
     } catch (error) {
-      if (requestId === characterSelectionRequestId) {
-        showToast('角色图片加载失败，请稍后再试');
-      }
-      return false;
+      imageReady = false;
     }
     if (requestId !== characterSelectionRequestId) {
       return false;
@@ -1399,7 +1439,10 @@
     }
     currentCharacterKey = character.key;
     renderCharacter(character);
-    warmAdjacentCharacterImages(character.key);
+    if (!imageReady) {
+      degradeHomeCharacterImage();
+      showToast('当前角色画面暂时无法显示，已使用简化模式');
+    }
     if (source === 'swipe-left' || source === 'swipe-right') {
       showToast(`已切换为${character.name}`);
     }
@@ -2810,9 +2853,6 @@
     });
     setPaymentUiState('idle');
     updateRechargeSelectionSummary();
-    if (homePage) {
-      scheduleHomeAdjacentWarmupAfterStartup();
-    }
     uiInitialization = {
       accountStartupPromise,
       roleCatalogReadyPromise,
@@ -2837,6 +2877,9 @@
         }
       );
       if (homePage) {
+        const allCharacterImagesPromise = preloadAllHomeCharacterImages(
+          uiInitialization.roleCatalogReadyPromise
+        );
         const currentImagePromise = waitForStartupImage(
           sceneImage,
           degradeHomeCharacterImage
@@ -2845,6 +2888,22 @@
           blocking: false,
           failureMessage: '当前角色画面暂时无法显示，页面已进入降级模式',
         });
+        startup.registerTask(
+          'home-all-character-images',
+          allCharacterImagesPromise,
+          {
+            blocking: false,
+            failureMessage: '部分角色画面暂时无法显示，页面已使用简化模式',
+          }
+        );
+        startup.registerTask(
+          'home-page-visuals',
+          preloadHomeDocumentVisuals(),
+          {
+            blocking: false,
+            failureMessage: '部分页面图标暂时无法显示，页面已使用简化模式',
+          }
+        );
         startup.registerTask(
           'home-audioworklet',
           preloadStartupResource('/realtime-call/pcm_capture_processor.js'),

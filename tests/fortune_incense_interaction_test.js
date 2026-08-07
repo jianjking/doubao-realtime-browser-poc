@@ -181,6 +181,25 @@ function clickSpeakControl(runtime) {
   runtime.speakControlButton.trigger('click');
 }
 
+function swipeFortuneScene(runtime, pointerId, startX, endX) {
+  const baseEvent = {
+    button: 0,
+    clientY: 300,
+    isPrimary: true,
+    pointerId,
+    target: runtime.page,
+  };
+  runtime.page.trigger('pointerdown', {
+    ...baseEvent,
+    clientX: startX,
+  });
+  runtime.page.trigger('pointerup', {
+    ...baseEvent,
+    clientX: endX,
+    preventDefault() {},
+  });
+}
+
 function loadFortuneRuntime(options = {}) {
   const page = new FakeElement({
     classes: ['fortune-page'],
@@ -194,6 +213,9 @@ function loadFortuneRuntime(options = {}) {
     dataset: { fortuneCharacterImage: '' },
   });
   const fortuneCharacterUnavailable = new FakeElement({ hidden: true });
+  const fortuneCharacterName = new FakeElement({
+    textContent: '观音菩萨',
+  });
   const offerButton = new FakeElement({ hidden: true });
   const incenseState = new FakeElement({
     textContent: '三柱清香已燃',
@@ -299,6 +321,7 @@ function loadFortuneRuntime(options = {}) {
   const elements = new Map([
     ['.fortune-page', page],
     ['[data-fortune-character-image]', fortuneCharacterImage],
+    ['[data-fortune-character-name]', fortuneCharacterName],
     [
       '[data-fortune-character-unavailable]',
       fortuneCharacterUnavailable,
@@ -635,6 +658,7 @@ function loadFortuneRuntime(options = {}) {
     fortuneChargeSuccess,
     fortuneLoginOverlay,
     fortuneCharacterImage,
+    fortuneCharacterName,
     fortuneCharacterUnavailable,
     flyingWishPaper,
     flyingWishPaperText,
@@ -676,6 +700,7 @@ function loadFortuneRuntime(options = {}) {
     wishOfferingStage,
     wishPaper,
     windowListeners,
+    windowLocation: context.window.location,
     abortControllers,
     audioElements,
     createdObjectUrls,
@@ -1023,7 +1048,7 @@ function verifyStaticSceneAndSafety() {
   assert.match(js, /window\.URL\.revokeObjectURL\(objectUrl\)/);
   assert.match(
     js,
-    /body:\s*JSON\.stringify\(\{\s*clientRequestId:\s*activeFortuneClientRequestId,\s*characterKey:\s*resolveRequestedCharacterKey\(\),\s*situationText:\s*currentTranscript\.trim\(\),\s*\}\)/
+    /body:\s*JSON\.stringify\(\{\s*clientRequestId:\s*activeFortuneClientRequestId,\s*characterKey:\s*currentFortuneCharacterKey,\s*situationText:\s*currentTranscript\.trim\(\),\s*\}\)/
   );
   assert.doesNotMatch(
     asrJs,
@@ -1060,6 +1085,7 @@ function verifyCharacterVisualSelection() {
     './assets/fortune/scenes/fortune-scene-guanyin-v1.png'
   );
   assert.equal(defaultRuntime.page.dataset.fortuneCharacterKey, 'guanyin');
+  assert.equal(defaultRuntime.fortuneCharacterName.textContent, '观音菩萨');
   assert.equal(defaultRuntime.fortuneCharacterImage.hidden, false);
 
   const sunwukongRuntime = loadFortuneRuntime({
@@ -1091,8 +1117,43 @@ function verifyCharacterVisualSelection() {
   assert.equal(sunwukongRuntime.fortuneCharacterImage.hidden, true);
   assert.equal(
     sunwukongRuntime.page.dataset.fortuneCharacterKey,
-    'unavailable'
+    'sunwukong'
   );
+}
+
+async function verifyFortuneCharacterSwipeConsistency() {
+  const runtime = loadFortuneRuntime();
+  swipeFortuneScene(runtime, 11, 340, 190);
+  assert.equal(runtime.page.dataset.fortuneCharacterKey, 'caishen');
+  assert.equal(runtime.fortuneCharacterName.textContent, '财神爷');
+  assert.match(runtime.windowLocation.search, /characterKey=caishen/);
+  assert.equal(
+    runtime.fortuneCharacterImage.getAttribute('src'),
+    './assets/fortune/scenes/fortune-scene-caishen-v1.png'
+  );
+
+  swipeFortuneScene(runtime, 12, 340, 190);
+  assert.equal(runtime.page.dataset.fortuneCharacterKey, 'rulai');
+  assert.equal(runtime.fortuneCharacterName.textContent, '如来佛祖');
+  swipeFortuneScene(runtime, 13, 340, 190);
+  assert.equal(runtime.page.dataset.fortuneCharacterKey, 'guanyin');
+  swipeFortuneScene(runtime, 14, 140, 310);
+  assert.equal(runtime.page.dataset.fortuneCharacterKey, 'rulai');
+
+  const businessRuntime = loadFortuneRuntime();
+  swipeFortuneScene(businessRuntime, 15, 340, 190);
+  clickSpeakControl(businessRuntime);
+  await flushPromises();
+  clickSpeakControl(businessRuntime);
+  businessRuntime.wishOfferingStage.trigger('animationend', {
+    animationName: 'wish-offering-stage-sequence',
+    target: businessRuntime.wishOfferingStage,
+  });
+  await flushPromises();
+  const sessionRequest = businessRuntime.fetchRequests.find(
+    (request) => request.pathname === '/api/fortune-sessions'
+  );
+  assert.equal(JSON.parse(sessionRequest.body).characterKey, 'caishen');
 }
 
 function verifySingleOfferingFlow() {
@@ -3697,6 +3758,7 @@ async function main() {
   verifyStagedRitualStaticContract();
   verifyInitialReadyState();
   verifyCharacterVisualSelection();
+  await verifyFortuneCharacterSwipeConsistency();
   await verifyClickAndStagedFlow();
   await verifyAutoplayRejectionFallback();
   await verifyDrawWaitingFailureAndInvalidFinal();
