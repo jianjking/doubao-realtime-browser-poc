@@ -262,6 +262,10 @@ body[data-auth-ready="false"] .app-shell.is-startup-failed {
   transform-origin: 50% 42%;
 }
 
+.app-shell.is-character-image-unavailable .scene-image {
+  display: none;
+}
+
 .scene-image.is-character-switching {
   animation: character-image-in 260ms ease-out;
 }
@@ -1873,10 +1877,10 @@ body[data-auth-ready="false"] .app-shell.is-startup-failed {
   top: calc(var(--safe-top) + 8px);
   right: calc(var(--safe-right) + 10px);
   left: calc(var(--safe-left) + 10px);
-  display: flex;
+  display: grid;
   align-items: start;
-  justify-content: space-between;
-  gap: 0;
+  grid-template-columns: minmax(58px, 0.8fr) minmax(0, 1.45fr) minmax(92px, 1fr);
+  column-gap: 6px;
 }
 
 .unified-return-link {
@@ -1901,18 +1905,18 @@ body[data-auth-ready="false"] .app-shell.is-startup-failed {
 }
 
 .unified-title-area {
-  position: absolute;
+  position: static;
   z-index: 2;
   top: 0;
-  left: 50%;
-  width: min(160px, calc(100% - 264px));
+  width: auto;
   min-width: 0;
   padding: 3px 4px;
   pointer-events: none;
   color: var(--cream);
   text-align: center;
   text-shadow: 0 2px 10px rgba(35, 10, 14, 0.72);
-  transform: translateX(-50%);
+  grid-column: 2;
+  justify-self: stretch;
 }
 
 .unified-title-area > span {
@@ -1928,22 +1932,25 @@ body[data-auth-ready="false"] .app-shell.is-startup-failed {
 }
 
 .unified-title-area h1 {
-  overflow: hidden;
+  overflow: visible;
   margin: 2px 0 0;
   font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
   font-size: 23px;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .unified-account-area {
   display: grid;
-  width: min(132px, 34vw);
+  width: 100%;
+  max-width: 132px;
   min-width: 0;
   gap: 4px;
+  grid-column: 3;
   justify-self: end;
   pointer-events: none;
 }

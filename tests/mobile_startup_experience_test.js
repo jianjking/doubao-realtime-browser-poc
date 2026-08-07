@@ -11,7 +11,12 @@ const UI_ROOT = path.join(
   'ui_prototypes',
   'yuhuang_mobile_v1'
 );
-const MOBILE_PAGES = ['index.html', 'choice.html', 'home.html'];
+const MOBILE_PAGES = [
+  'index.html',
+  'choice.html',
+  'home.html',
+  'fortune.html',
+];
 const MONKEY_ASSET_FILENAME = 'sunwukong-loader-runner-v1.webp';
 const FULL_MONKEY_ASSET_FILENAME = 'sunwukong-home-hero-v2.webp';
 const MONKEY_ASSET = path.join(
@@ -155,7 +160,119 @@ test('startup loader waits for real milestones and supports slow networks', () =
   assert.match(authJs, /typeof window\.XianBanStartup\.markAppReady/);
   assert.match(homeJs, /typeof window\.XianBanStartup\.markAppReady/);
   assert.match(authJs, /XianBanStartup\.markAppReady\(\)/);
-  assert.match(homeJs, /XianBanStartup\.markAppReady\(\)/);
+  assert.match(homeJs, /startup\.markAppReady\(\)/);
+});
+
+test('home title prioritizes full role names over long account copy', () => {
+  const homeCss = readUiFile('ui.css');
+  const homeJs = readUiFile('ui.js');
+  const roleNames = [
+    '玉皇大帝',
+    '孙悟空',
+    '观音菩萨',
+    '财神爷',
+    '如来佛祖',
+    '猪八戒',
+    '沙悟净',
+    '唐僧',
+  ];
+
+  assert.match(
+    homeCss,
+    /\.unified-top-controls\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:/
+  );
+  assert.match(
+    homeCss,
+    /\.unified-title-area\s*\{[\s\S]*?position:\s*static;[\s\S]*?width:\s*auto;/
+  );
+  assert.match(
+    homeCss,
+    /\.unified-title-area h1\s*\{[\s\S]*?overflow:\s*visible;[\s\S]*?text-overflow:\s*clip;[\s\S]*?white-space:\s*normal;/
+  );
+  assert.match(
+    homeCss,
+    /\.unified-account-area \.account-summary-copy strong\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
+  );
+  for (const roleName of roleNames) {
+    assert.ok(homeJs.includes(`name: '${roleName}'`));
+  }
+});
+
+test('startup loader gates required tasks without a fixed minimum delay', () => {
+  const loaderJs = readUiFile('startup-loader.js');
+
+  assert.match(loaderJs, /const tasks = new Map\(\)/);
+  assert.match(loaderJs, /startupApi\.registerTask = registerTask/);
+  assert.match(loaderJs, /startupApi\.markTaskReady = markTaskReady/);
+  assert.match(loaderJs, /startupApi\.markTaskFailed = markTaskFailed/);
+  assert.match(loaderJs, /startupApi\.getState/);
+  assert.match(loaderJs, /task\.status = 'degraded'/);
+  assert.match(loaderJs, /task\.status = 'failed'/);
+  assert.match(loaderJs, /hasPendingRequiredTasks\(\)/);
+  assert.match(loaderJs, /Math\.min\(value, 95\)/);
+  assert.match(loaderJs, /finishFrame = requestFrame[\s\S]*?stableFrame = requestFrame/);
+  assert.match(loaderJs, /tasks\.clear\(\)/);
+  assert.match(loaderJs, /xianban:startup-complete/);
+  assert.doesNotMatch(loaderJs, /minimumVisibleUntil/);
+  assert.doesNotMatch(loaderJs, /startedAt \+ 550/);
+});
+
+test('home startup registers image, account, UI, worklet and layout gates', () => {
+  const homeHtml = readUiFile('home.html');
+  const homeJs = readUiFile('ui.js');
+  const startupBlock = homeJs.slice(
+    homeJs.indexOf("startup.registerTask('ui-initialization'")
+  );
+
+  assert.match(homeHtml, /data-startup-critical-style/);
+  assert.match(homeHtml, /data-startup-critical-image/);
+  assert.match(homeJs, /waitForStartupImage\(/);
+  assert.match(homeJs, /degradeHomeCharacterImage/);
+  assert.match(homeJs, /is-character-image-unavailable/);
+  assert.match(startupBlock, /'ui-initialization'/);
+  assert.match(startupBlock, /'account-state'/);
+  assert.match(startupBlock, /'home-current-character-image'/);
+  assert.match(startupBlock, /'home-audioworklet'/);
+  assert.match(startupBlock, /'home-css-layout'/);
+  assert.match(startupBlock, /'home-role-catalog'/);
+  assert.match(startupBlock, /\/realtime-call\/pcm_capture_processor\.js/);
+  assert.match(homeJs, /response\.arrayBuffer\(\)/);
+  assert.match(homeJs, /xianban:startup-complete/);
+  assert.doesNotMatch(startupBlock, /getUserMedia\s*\(/);
+  assert.doesNotMatch(startupBlock, /new WebSocket\s*\(/);
+  assert.doesNotMatch(startupBlock, /fetch\(CALL_API_URL/);
+});
+
+test('fortune uses the shared loader and registers complete startup gates', () => {
+  const fortuneHtml = readUiFile('fortune.html');
+  const fortuneJs = readUiFile('fortune.js');
+  const startupBlock = fortuneJs.slice(
+    fortuneJs.indexOf('const paidStateReadyPromise')
+  );
+
+  assert.ok(fortuneHtml.indexOf('data-xianban-loader') > 0);
+  assert.ok(
+    fortuneHtml.indexOf('src="./startup-loader.js"')
+      < fortuneHtml.indexOf('src="./fortune.js"')
+  );
+  assert.equal(
+    (fortuneHtml.match(/data-startup-critical-style/g) || []).length,
+    2
+  );
+  assert.match(fortuneJs, /fortuneSceneReadyPromise/);
+  assert.match(startupBlock, /'fortune-scene-image'/);
+  assert.match(startupBlock, /'fortune-acolyte-image'/);
+  assert.match(startupBlock, /'fortune-paid-state'/);
+  assert.match(startupBlock, /'fortune-asr-api'/);
+  assert.match(startupBlock, /'fortune-asr-worklet'/);
+  assert.match(startupBlock, /'fortune-css-layout'/);
+  assert.match(startupBlock, /'fortune-ui-initialization'/);
+  assert.match(startupBlock, /'fortune-button-bindings'/);
+  assert.match(startupBlock, /\/realtime-assets\/pcm_capture_processor\.js/);
+  assert.doesNotMatch(startupBlock, /getUserMedia\s*\(/);
+  assert.doesNotMatch(startupBlock, /new WebSocket\s*\(/);
+  assert.doesNotMatch(startupBlock, /createSession\s*\(/);
+  assert.doesNotMatch(startupBlock, /fetch\(FORTUNE_SESSION_API_URL/);
 });
 
 test('loader stages, estimates, comfort rotation, and cleanup stay bounded', () => {

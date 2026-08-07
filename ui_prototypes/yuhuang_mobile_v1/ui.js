@@ -261,6 +261,7 @@
   let roleCatalogState = 'loading';
   let roleCatalogLoadPromise = null;
   let rolePricingByKey = new Map();
+  let uiInitialization = null;
 
   const homePage = document.querySelector('.app-shell');
   const homeTitle = document.querySelector('.top-controls h1');
@@ -1163,6 +1164,10 @@
       : `${character.name}语音正在准备中`;
 
     if (sceneImage) {
+      sceneImage.hidden = false;
+      if (homePage) {
+        homePage.classList.remove('is-character-image-unavailable');
+      }
       const sceneImageWebp = document.querySelector(
         '[data-character-image-webp]'
       );
@@ -1247,6 +1252,102 @@
       }
     });
     return preloadPromise;
+  }
+
+  function waitForStartupImage(image, onFailure) {
+    return new Promise((resolve, reject) => {
+      if (!image) {
+        reject(new Error('home character image is missing'));
+        return;
+      }
+
+      const settle = (isReady) => {
+        image.removeEventListener('load', handleLoad);
+        image.removeEventListener('error', handleError);
+        if (isReady) {
+          resolve(true);
+          return;
+        }
+        if (typeof onFailure === 'function') {
+          onFailure();
+        }
+        reject(new Error('home character image is unavailable'));
+      };
+      const handleLoad = () => settle(true);
+      const handleError = () => settle(false);
+
+      if (image.complete) {
+        settle(image.naturalWidth > 0);
+        return;
+      }
+      image.addEventListener('load', handleLoad, { once: true });
+      image.addEventListener('error', handleError, { once: true });
+    });
+  }
+
+  function waitForStartupLayout(element) {
+    return new Promise((resolve, reject) => {
+      const requestFrame = typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 0);
+      requestFrame(() => {
+        requestFrame(() => {
+          if (!element || window.getComputedStyle(element).display === 'none') {
+            reject(new Error('home layout is unavailable'));
+            return;
+          }
+          resolve(true);
+        });
+      });
+    });
+  }
+
+  function preloadStartupResource(url) {
+    if (typeof window.fetch !== 'function') {
+      return Promise.reject(new Error('startup resource fetch is unavailable'));
+    }
+    return window.fetch(url, {
+      credentials: 'same-origin',
+      cache: 'force-cache',
+    }).then((response) => {
+      if (!response.ok) {
+        throw new Error(`startup resource failed: ${response.status}`);
+      }
+      return response.arrayBuffer();
+    });
+  }
+
+  function degradeHomeCharacterImage() {
+    if (homePage) {
+      homePage.classList.add('is-character-image-unavailable');
+    }
+    if (sceneImage) {
+      sceneImage.hidden = true;
+    }
+    if (characterReadyText) {
+      characterReadyText.textContent = '当前角色画面暂时无法显示，仍可继续使用';
+    }
+    if (characterStatusDetail) {
+      characterStatusDetail.textContent = '请稍后重试或切换其他角色';
+    }
+  }
+
+  function scheduleHomeAdjacentWarmupAfterStartup() {
+    if (!homePage) {
+      return;
+    }
+    const schedule = () => scheduleAdjacentCharacterWarmup(currentCharacterKey);
+    if (
+      document.documentElement
+      && document.documentElement.classList
+      && document.documentElement.classList.contains('is-xianban-loading')
+    ) {
+      window.addEventListener('xianban:startup-complete', schedule, {
+        once: true,
+      });
+      return;
+    }
+    schedule();
   }
 
   function warmAdjacentCharacterImages(characterKey) {
@@ -2567,21 +2668,24 @@
     getValidatedAuthState();
     applyPaymentCapabilities(null);
 
+    let roleCatalogReadyPromise = Promise.resolve(true);
+
     document.body.dataset.authReady = 'true';
     renderAccountSummary(currentAuthState);
     renderAccountProfile(currentAuthState);
     if (homePage) {
       renderCharacter(charactersByKey.get(currentCharacterKey));
       if (rolePricingTrigger && rolePricingOverlay) {
-        void loadPublicRoleCatalog();
+        roleCatalogReadyPromise = loadPublicRoleCatalog();
       }
     }
-    void loadAccountState().then(async (hasAccountAccess) => {
+    const accountStartupPromise = loadAccountState().then(async (hasAccountAccess) => {
       consumePendingAction(hasAccountAccess);
       if (hasAccountAccess && canRecharge) {
         await resumeStoredPaymentOrder();
       }
     });
+    void accountStartupPromise;
 
     if (accountSummaryButton && accountProfileOverlay) {
       accountSummaryButton.addEventListener('click', () => {
@@ -2707,8 +2811,13 @@
     setPaymentUiState('idle');
     updateRechargeSelectionSummary();
     if (homePage) {
-      scheduleAdjacentCharacterWarmup(currentCharacterKey);
+      scheduleHomeAdjacentWarmupAfterStartup();
     }
+    uiInitialization = {
+      accountStartupPromise,
+      roleCatalogReadyPromise,
+    };
+    return uiInitialization;
   }
 
   initializeUi();
@@ -2716,6 +2825,50 @@
     window.XianBanStartup
     && typeof window.XianBanStartup.markAppReady === 'function'
   ) {
-    window.XianBanStartup.markAppReady();
+    const startup = window.XianBanStartup;
+    if (typeof startup.registerTask === 'function') {
+      startup.registerTask('ui-initialization', Promise.resolve(true));
+      startup.registerTask(
+        'account-state',
+        uiInitialization.accountStartupPromise,
+        {
+          blocking: false,
+          failureMessage: '账户状态暂时无法同步，页面将以游客状态继续',
+        }
+      );
+      if (homePage) {
+        const currentImagePromise = waitForStartupImage(
+          sceneImage,
+          degradeHomeCharacterImage
+        );
+        startup.registerTask('home-current-character-image', currentImagePromise, {
+          blocking: false,
+          failureMessage: '当前角色画面暂时无法显示，页面已进入降级模式',
+        });
+        startup.registerTask(
+          'home-audioworklet',
+          preloadStartupResource('/realtime-call/pcm_capture_processor.js'),
+          {
+            failureMessage: '通话准备资源未能加载，请重新加载后再试',
+          }
+        );
+        startup.registerTask(
+          'home-css-layout',
+          waitForStartupLayout(homePage),
+          { failureMessage: '页面布局未能稳定，请重新加载后再试' }
+        );
+        startup.registerTask(
+          'home-role-catalog',
+          uiInitialization.roleCatalogReadyPromise,
+          {
+            blocking: false,
+            failureMessage: '角色价格信息暂时无法加载，页面仍可继续使用',
+          }
+        );
+      }
+      startup.markAppReady();
+    } else {
+      startup.markAppReady();
+    }
   }
 })();

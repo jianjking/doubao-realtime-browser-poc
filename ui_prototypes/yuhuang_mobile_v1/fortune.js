@@ -78,6 +78,7 @@
   const fortuneCharacterUnavailable = document.querySelector(
     '[data-fortune-character-unavailable]'
   );
+  const acolyteImage = document.querySelector('.acolyte-character');
   const incenseState = document.querySelector('[data-incense-state]');
   const acolyteGuidance = document.querySelector(
     '[data-acolyte-guidance]'
@@ -655,6 +656,69 @@
     return `./assets/characters/${characterKey}/${characterKey}-home-hero-${version}.png`;
   }
 
+  function waitForStartupImage(image, onFailure) {
+    return new Promise((resolve, reject) => {
+      if (!image) {
+        reject(new Error('fortune image is missing'));
+        return;
+      }
+
+      const settle = (isReady) => {
+        image.removeEventListener('load', handleLoad);
+        image.removeEventListener('error', handleError);
+        if (isReady) {
+          resolve(true);
+          return;
+        }
+        if (typeof onFailure === 'function') {
+          onFailure();
+        }
+        reject(new Error('fortune image is unavailable'));
+      };
+      const handleLoad = () => settle(true);
+      const handleError = () => settle(false);
+
+      if (image.complete) {
+        settle(image.naturalWidth > 0);
+        return;
+      }
+      image.addEventListener('load', handleLoad, { once: true });
+      image.addEventListener('error', handleError, { once: true });
+    });
+  }
+
+  function waitForStartupLayout(element) {
+    return new Promise((resolve, reject) => {
+      const requestFrame = typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 0);
+      requestFrame(() => {
+        requestFrame(() => {
+          if (!element || window.getComputedStyle(element).display === 'none') {
+            reject(new Error('fortune layout is unavailable'));
+            return;
+          }
+          resolve(true);
+        });
+      });
+    });
+  }
+
+  function preloadStartupResource(url) {
+    if (typeof window.fetch !== 'function') {
+      return Promise.reject(new Error('fortune resource fetch is unavailable'));
+    }
+    return window.fetch(url, {
+      credentials: 'same-origin',
+      cache: 'force-cache',
+    }).then((response) => {
+      if (!response.ok) {
+        throw new Error(`fortune resource failed: ${response.status}`);
+      }
+      return response.arrayBuffer();
+    });
+  }
+
   function renderUnavailableFortuneCharacter() {
     fortuneCharacterImage.hidden = true;
     fortuneCharacterImage.removeAttribute('src');
@@ -673,7 +737,7 @@
 
     if (imageSrc === null) {
       renderUnavailableFortuneCharacter();
-      return;
+      return Promise.resolve(false);
     }
 
     const usesIntegratedScene =
@@ -704,14 +768,16 @@
         : '当前所选神仙角色主视觉'
     );
 
-    fortuneCharacterImage.addEventListener(
-      'error',
-      renderUnavailableFortuneCharacter,
-      { once: true }
+    return waitForStartupImage(
+      fortuneCharacterImage,
+      renderUnavailableFortuneCharacter
     );
   }
 
-  renderFortuneCharacter();
+  const fortuneSceneReadyPromise = renderFortuneCharacter();
+  if (!window.XianBanStartup) {
+    fortuneSceneReadyPromise.catch(() => {});
+  }
 
   function resetFortuneSceneSwipe() {
     fortuneSceneSwipePointerId = null;
@@ -2693,7 +2759,64 @@
   resetWishPaper();
   renderSpeechState();
   renderPaidSummary();
-  void initializePaidFortuneState();
+  const paidStateReadyPromise = initializePaidFortuneState();
+  if (
+    window.XianBanStartup
+    && typeof window.XianBanStartup.registerTask === 'function'
+  ) {
+    const startup = window.XianBanStartup;
+    startup.registerTask(
+      'fortune-scene-image',
+      fortuneSceneReadyPromise,
+      {
+        blocking: false,
+        failureMessage: '神仙主视觉暂时无法显示，页面已进入降级模式',
+      }
+    );
+    startup.registerTask(
+      'fortune-acolyte-image',
+      waitForStartupImage(acolyteImage, () => {
+        if (acolyteImage) {
+          acolyteImage.hidden = true;
+        }
+        if (acolyteGuidance) {
+          acolyteGuidance.textContent = '道童画面暂时无法显示，仍可继续求签';
+        }
+      }),
+      {
+        blocking: false,
+        failureMessage: '道童画面暂时无法显示，页面已进入降级模式',
+      }
+    );
+    startup.registerTask(
+      'fortune-paid-state',
+      paidStateReadyPromise,
+      {
+        blocking: false,
+        failureMessage: '求签价格或账户状态暂时无法同步，页面仍可继续使用',
+      }
+    );
+    startup.registerTask(
+      'fortune-asr-api',
+      window.FortuneAsrBrowser
+        && typeof window.FortuneAsrBrowser.createSession === 'function'
+        ? Promise.resolve(true)
+        : Promise.reject(new Error('fortune ASR module is unavailable')),
+      { failureMessage: '语音识别模块未能加载，请重新加载后再试' }
+    );
+    startup.registerTask(
+      'fortune-asr-worklet',
+      preloadStartupResource('/realtime-assets/pcm_capture_processor.js'),
+      { failureMessage: '语音识别准备资源未能加载，请重新加载后再试' }
+    );
+    startup.registerTask(
+      'fortune-css-layout',
+      waitForStartupLayout(page),
+      { failureMessage: '求签页面布局未能稳定，请重新加载后再试' }
+    );
+    startup.registerTask('fortune-ui-initialization', Promise.resolve(true));
+    startup.registerTask('fortune-button-bindings', Promise.resolve(true));
+  }
   window.addEventListener(
     'companion:account-balance-updated',
     handleAccountBalanceUpdated

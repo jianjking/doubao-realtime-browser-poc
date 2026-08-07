@@ -92,17 +92,19 @@
     '请别着急，马上就好',
     '网络较慢时，准备时间会多一点',
   ]);
-  const minimumVisibleUntil = startedAt + 550;
+  const tasks = new Map();
   let shownProgress = 12;
   let targetProgress = 18;
   let progressFrame = 0;
-  let domReady = false;
+  let finishFrame = 0;
+  let stableFrame = 0;
+  let domReady = document.readyState !== 'loading';
   let imageReady = !criticalImage;
   let appReady = document.body.dataset.startupApp === 'static';
   let windowReady = document.readyState === 'complete';
   let hasFailed = false;
   let isFinishing = false;
-  let finishTimer = 0;
+  let isDisposed = false;
   let completionTimer = 0;
   let removalTimer = 0;
   let firstSlowNoticeTimer = 0;
@@ -126,7 +128,19 @@
   }
 
   function handleCriticalImageError() {
-    failStartup('首屏画面未能加载，请重新加载后再试');
+    criticalImage.hidden = true;
+    const picture = criticalImage.closest('picture');
+    if (picture) {
+      picture.classList.add('is-startup-image-unavailable');
+    }
+    imageReady = true;
+    loader.dataset.startupDegraded = 'true';
+    refreshMilestone();
+  }
+
+  function handleDomReady() {
+    domReady = true;
+    refreshMilestone();
   }
 
   function handleWindowLoad() {
@@ -149,6 +163,7 @@
       criticalImage.removeEventListener('load', handleCriticalImageLoad);
       criticalImage.removeEventListener('error', handleCriticalImageError);
     }
+    document.removeEventListener('DOMContentLoaded', handleDomReady);
     window.removeEventListener('load', handleWindowLoad);
     if (monkeyImage) {
       monkeyImage.removeEventListener('error', handleMonkeyError);
@@ -156,13 +171,11 @@
   }
 
   function clearLoadingTimers() {
-    window.clearTimeout(finishTimer);
     window.clearTimeout(completionTimer);
     window.clearTimeout(firstSlowNoticeTimer);
     window.clearTimeout(secondSlowNoticeTimer);
     window.clearInterval(estimateTimer);
     window.clearInterval(comfortTimer);
-    finishTimer = 0;
     completionTimer = 0;
     firstSlowNoticeTimer = 0;
     secondSlowNoticeTimer = 0;
@@ -177,11 +190,21 @@
     removeViewportListeners();
     removeMilestoneListeners();
     clearLoadingTimers();
+    isDisposed = true;
+    tasks.clear();
     window.clearTimeout(removalTimer);
     removalTimer = 0;
     if (progressFrame) {
       window.cancelAnimationFrame(progressFrame);
       progressFrame = 0;
+    }
+    if (finishFrame) {
+      window.cancelAnimationFrame(finishFrame);
+      finishFrame = 0;
+    }
+    if (stableFrame) {
+      window.cancelAnimationFrame(stableFrame);
+      stableFrame = 0;
     }
     if (reloadButton) {
       reloadButton.removeEventListener('click', handleReload);
@@ -282,6 +305,7 @@
         loader.classList.add('is-complete');
         loader.setAttribute('aria-hidden', 'true');
         root.classList.remove('is-xianban-loading');
+        window.dispatchEvent(new CustomEvent('xianban:startup-complete'));
         removeMilestoneListeners();
         clearLoadingTimers();
         if (reloadButton) {
@@ -300,6 +324,104 @@
     }
   }
 
+  function getPendingRequiredTasks() {
+    return Array.from(tasks.values()).filter((task) => (
+      task.required && task.status === 'pending'
+    ));
+  }
+
+  function getTaskSnapshot() {
+    return Array.from(tasks.entries()).map(([name, task]) => ({
+      name,
+      status: task.status,
+      required: task.required,
+      blocking: task.blocking,
+    }));
+  }
+
+  function markTaskReady(name) {
+    if (isDisposed || hasFailed) {
+      return;
+    }
+    const task = tasks.get(String(name));
+    if (!task || task.status !== 'pending') {
+      return;
+    }
+    task.status = 'ready';
+    refreshMilestone();
+  }
+
+  function markTaskFailed(name, options = {}) {
+    if (isDisposed || hasFailed) {
+      return;
+    }
+    const taskName = String(name);
+    let task = tasks.get(taskName);
+    if (!task) {
+      task = {
+        status: 'pending',
+        required: options.required !== false,
+        blocking: options.blocking !== false,
+        failureMessage: options.failureMessage || '',
+      };
+      tasks.set(taskName, task);
+    }
+    if (task.status !== 'pending') {
+      return;
+    }
+    const blocking = options.blocking === undefined
+      ? task.blocking
+      : options.blocking !== false;
+    if (blocking && task.required) {
+      task.status = 'failed';
+      failStartup(
+        options.failureMessage
+          || task.failureMessage
+          || '页面初始化未完成，请重新加载后再试'
+      );
+      return;
+    }
+    task.status = 'degraded';
+    loader.dataset.startupDegraded = 'true';
+    refreshMilestone();
+  }
+
+  function registerTask(name, promise, options = {}) {
+    if (isDisposed || hasFailed || isFinishing) {
+      return promise;
+    }
+    const taskName = String(name);
+    if (tasks.has(taskName)) {
+      return tasks.get(taskName).promise || promise;
+    }
+    const task = {
+      status: 'pending',
+      required: options.required !== false,
+      blocking: options.blocking !== false,
+      failureMessage: options.failureMessage || '',
+      promise,
+    };
+    tasks.set(taskName, task);
+    if (!promise || typeof promise.then !== 'function') {
+      markTaskReady(taskName);
+      return promise;
+    }
+    Promise.resolve(promise).then(
+      () => markTaskReady(taskName),
+      (error) => markTaskFailed(taskName, {
+        blocking: task.blocking,
+        failureMessage: task.failureMessage
+          || (error && error.message),
+      })
+    );
+    refreshMilestone();
+    return promise;
+  }
+
+  function hasPendingRequiredTasks() {
+    return getPendingRequiredTasks().length > 0;
+  }
+
   function finishWhenAllowed() {
     if (
       hasFailed
@@ -308,24 +430,35 @@
       || !imageReady
       || !appReady
       || !windowReady
+      || hasPendingRequiredTasks()
     ) {
       return;
     }
-    const waitTime = Math.max(
-      0,
-      Math.ceil(minimumVisibleUntil - window.performance.now())
-    );
-    if (finishTimer) {
+    if (finishFrame || stableFrame) {
       return;
     }
-    finishTimer = window.setTimeout(() => {
-      finishTimer = 0;
-      if (hasFailed || isFinishing) {
-        return;
-      }
-      isFinishing = true;
-      setTargetProgress(100);
-    }, waitTime);
+    const requestFrame = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 0);
+    finishFrame = requestFrame(() => {
+      finishFrame = 0;
+      stableFrame = requestFrame(() => {
+        stableFrame = 0;
+        if (
+          hasFailed
+          || isFinishing
+          || !domReady
+          || !imageReady
+          || !appReady
+          || !windowReady
+          || hasPendingRequiredTasks()
+        ) {
+          return;
+        }
+        isFinishing = true;
+        setTargetProgress(100);
+      });
+    });
   }
 
   function refreshMilestone() {
@@ -334,8 +467,19 @@
       return;
     }
     setTargetProgress(imageReady ? 80 : 70);
-    if (imageReady && appReady) {
+    const requiredTasks = Array.from(tasks.values()).filter(
+      (task) => task.required
+    );
+    const settledRequiredTasks = requiredTasks.filter(
+      (task) => task.status !== 'pending'
+    );
+    if (imageReady && appReady && !hasPendingRequiredTasks()) {
       setTargetProgress(95);
+    } else if (requiredTasks.length > 0) {
+      const taskProgress = 80 + Math.round(
+        (settledRequiredTasks.length / requiredTasks.length) * 14
+      );
+      setTargetProgress(Math.min(taskProgress, 94));
     }
     finishWhenAllowed();
   }
@@ -372,6 +516,18 @@
     );
   }
 
+  startupApi.registerTask = registerTask;
+  startupApi.markTaskReady = markTaskReady;
+  startupApi.markTaskFailed = markTaskFailed;
+  startupApi.getState = () => Object.freeze({
+    appReady,
+    domReady,
+    imageReady,
+    windowReady,
+    isFinishing,
+    hasFailed,
+    tasks: getTaskSnapshot(),
+  });
   startupApi.markAppReady = function () {
     if (appReady || hasFailed || isFinishing) {
       return;
@@ -394,14 +550,16 @@
     }
   }
 
-  domReady = true;
+  if (!domReady) {
+    document.addEventListener('DOMContentLoaded', handleDomReady, { once: true });
+  }
   setTargetProgress(38);
 
   if (criticalImage) {
     if (criticalImage.complete && criticalImage.naturalWidth > 0) {
       imageReady = true;
     } else if (criticalImage.complete) {
-      failStartup('首屏画面未能加载，请重新加载后再试');
+      handleCriticalImageError();
     } else {
       criticalImage.addEventListener('load', handleCriticalImageLoad, {
         once: true,
@@ -415,6 +573,15 @@
   if (!windowReady) {
     window.addEventListener('load', handleWindowLoad, { once: true });
   }
+
+  const criticalStyles = document.querySelectorAll(
+    'link[data-startup-critical-style]'
+  );
+  criticalStyles.forEach((styleLink) => {
+    if (!styleLink.sheet) {
+      failStartup('页面样式未能加载，请重新加载后再试');
+    }
+  });
 
   const firstSlowNoticeDelay = Math.max(
     0,
@@ -446,8 +613,10 @@
   }
 
   updateEstimate();
-  estimateTimer = window.setInterval(updateEstimate, 1000);
-  comfortTimer = window.setInterval(rotateComfortMessage, 4500);
+  if (!hasFailed) {
+    estimateTimer = window.setInterval(updateEstimate, 1000);
+    comfortTimer = window.setInterval(rotateComfortMessage, 4500);
+  }
   renderProgress(shownProgress);
   refreshMilestone();
 })();
