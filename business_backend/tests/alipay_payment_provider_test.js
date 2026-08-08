@@ -36,6 +36,23 @@ function createOrder(overrides = {}) {
   };
 }
 
+test('Alipay WAP checkout puts charset on the official gateway URL', async () => {
+  const keys = createTemporaryPaymentKeys();
+  try {
+    const provider = new AlipayPaymentProvider({
+      config: createTestAlipayConfig(keys),
+    });
+    const checkout = await provider.createCheckout(createOrder());
+    assert.equal(
+      checkout.action,
+      'https://openapi.alipay.com/gateway.do?charset=utf-8'
+    );
+    assert.equal(Object.hasOwn(checkout.fields, 'charset'), false);
+  } finally {
+    keys.cleanup();
+  }
+});
+
 test('Alipay Provider creates signed WAP form and uses signed query/close', async () => {
   const keys = createTemporaryPaymentKeys();
   const platform = await startFakePaymentPlatform(keys);
@@ -52,12 +69,36 @@ test('Alipay Provider creates signed WAP form and uses signed query/close', asyn
     const checkout = await provider.createCheckout(order);
     assert.equal(checkout.kind, 'alipay_wap');
     assert.equal(checkout.method, 'POST');
-    assert.equal(checkout.action, platform.gatewayUrl);
+    const checkoutUrl = new URL(checkout.action);
+    const gatewayUrl = new URL(platform.gatewayUrl);
+    assert.equal(checkoutUrl.origin, gatewayUrl.origin);
+    assert.equal(checkoutUrl.pathname, gatewayUrl.pathname);
+    assert.equal(checkoutUrl.search, '?charset=utf-8');
+    assert.equal(checkoutUrl.searchParams.get('charset'), 'utf-8');
     assert.equal(checkout.fields.method, 'alipay.trade.wap.pay');
     assert.equal(checkout.fields.sign_type, 'RSA2');
+    assert.equal(Object.hasOwn(checkout.fields, 'charset'), false);
+    for (const key of [
+      'app_id',
+      'method',
+      'format',
+      'sign_type',
+      'timestamp',
+      'version',
+      'notify_url',
+      'return_url',
+      'biz_content',
+      'sign',
+    ]) {
+      assert.equal(Object.hasOwn(checkout.fields, key), true, key);
+    }
+    const signedParameters = {
+      ...checkout.fields,
+      charset: checkoutUrl.searchParams.get('charset'),
+    };
     assert.equal(
       verifyRsaSha256(
-        canonicalizeAlipayParameters(checkout.fields, {
+        canonicalizeAlipayParameters(signedParameters, {
           excludeSignType: true,
         }),
         checkout.fields.sign,
@@ -67,7 +108,32 @@ test('Alipay Provider creates signed WAP form and uses signed query/close', asyn
     );
     assert.equal(
       verifyRsaSha256(
-        canonicalizeAlipayParameters(checkout.fields),
+        canonicalizeAlipayParameters(signedParameters),
+        checkout.fields.sign,
+        keys.alipayApp.publicKey
+      ),
+      false
+    );
+    assert.equal(
+      verifyRsaSha256(
+        canonicalizeAlipayParameters({
+          ...signedParameters,
+          charset: 'gbk',
+        }, {
+          excludeSignType: true,
+        }),
+        checkout.fields.sign,
+        keys.alipayApp.publicKey
+      ),
+      false
+    );
+    const missingCharsetParameters = { ...signedParameters };
+    delete missingCharsetParameters.charset;
+    assert.equal(
+      verifyRsaSha256(
+        canonicalizeAlipayParameters(missingCharsetParameters, {
+          excludeSignType: true,
+        }),
         checkout.fields.sign,
         keys.alipayApp.publicKey
       ),
@@ -83,6 +149,13 @@ test('Alipay Provider creates signed WAP form and uses signed query/close', asyn
       redirect: 'manual',
     });
     assert.equal(wapResponse.status, 200);
+    const wapRequest = platform.requests.find(
+      (request) => request.queryParameters
+        && request.formParameters.method === 'alipay.trade.wap.pay'
+    );
+    assert.ok(wapRequest);
+    assert.deepEqual(wapRequest.queryParameters, { charset: 'utf-8' });
+    assert.equal(Object.hasOwn(wapRequest.formParameters, 'charset'), false);
 
     platform.alipayTrades.set(order.merchantOrderNo, {
       code: '10000',

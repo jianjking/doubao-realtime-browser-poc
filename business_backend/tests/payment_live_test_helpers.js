@@ -242,11 +242,14 @@ async function startFakePaymentPlatform(keys) {
   const server = http.createServer(async (request, response) => {
     try {
       const rawBody = await readRequestBody(request);
-      requests.push({
+      const requestUrl = new URL(request.url, 'http://127.0.0.1');
+      const requestRecord = {
         method: request.method,
-        path: request.url,
+        path: requestUrl.pathname,
+        url: request.url,
         body: rawBody.toString('utf8'),
-      });
+      };
+      requests.push(requestRecord);
       if (request.url.startsWith('/v3/')) {
         const authorization = parseWechatAuthorization(
           request.headers.authorization
@@ -329,8 +332,39 @@ async function startFakePaymentPlatform(keys) {
         }
       }
 
-      if (request.url === '/gateway.do') {
-        const parameters = parseAlipayFormBodyStrict(rawBody);
+      if (requestUrl.pathname === '/gateway.do') {
+        const formParameters = parseAlipayFormBodyStrict(rawBody);
+        const queryParameters = Object.create(null);
+        for (const [key, value] of requestUrl.searchParams) {
+          if (key === '' || Object.hasOwn(queryParameters, key)) {
+            response.writeHead(400).end();
+            return;
+          }
+          queryParameters[key] = value;
+        }
+        requestRecord.queryParameters = Object.freeze({ ...queryParameters });
+        requestRecord.formParameters = formParameters;
+        for (const key of Object.keys(queryParameters)) {
+          if (Object.hasOwn(formParameters, key)) {
+            response.writeHead(400).end();
+            return;
+          }
+        }
+        const parameters = Object.freeze({
+          ...formParameters,
+          ...queryParameters,
+        });
+        if (
+          parameters.method === 'alipay.trade.wap.pay'
+          && (
+            queryParameters.charset !== 'utf-8'
+            || Object.keys(queryParameters).length !== 1
+            || Object.hasOwn(formParameters, 'charset')
+          )
+        ) {
+          response.writeHead(400).end();
+          return;
+        }
         if (
           parameters.app_id !== '0000000000000000'
           || !verifyRsaSha256(

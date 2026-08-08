@@ -177,7 +177,7 @@ class AlipayPaymentProvider extends PaymentProvider {
         'Alipay payment scene is invalid'
       );
     }
-    const fields = this.buildSignedParameters(
+    const signedParameters = this.buildSignedParameters(
       'alipay.trade.wap.pay',
       {
         out_trade_no: order.merchantOrderNo,
@@ -189,11 +189,15 @@ class AlipayPaymentProvider extends PaymentProvider {
       },
       { includeCheckoutUrls: true }
     );
+    const actionUrl = new URL(this.gatewayUrl);
+    actionUrl.searchParams.set('charset', signedParameters.charset);
+    const fields = { ...signedParameters };
+    delete fields.charset;
     return Object.freeze({
       kind: 'alipay_wap',
-      action: this.gatewayUrl,
+      action: actionUrl.toString(),
       method: 'POST',
-      fields,
+      fields: Object.freeze(fields),
     });
   }
 
