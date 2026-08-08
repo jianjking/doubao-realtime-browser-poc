@@ -57,11 +57,21 @@ test('Alipay Provider creates signed WAP form and uses signed query/close', asyn
     assert.equal(checkout.fields.sign_type, 'RSA2');
     assert.equal(
       verifyRsaSha256(
-        canonicalizeAlipayParameters(checkout.fields),
+        canonicalizeAlipayParameters(checkout.fields, {
+          excludeSignType: true,
+        }),
         checkout.fields.sign,
         keys.alipayApp.publicKey
       ),
       true
+    );
+    assert.equal(
+      verifyRsaSha256(
+        canonicalizeAlipayParameters(checkout.fields),
+        checkout.fields.sign,
+        keys.alipayApp.publicKey
+      ),
+      false
     );
     const bizContent = JSON.parse(checkout.fields.biz_content);
     assert.equal(bizContent.total_amount, '7.25');

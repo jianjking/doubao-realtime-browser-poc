@@ -77,7 +77,9 @@ function canonicalizeAlipayParameters(parameters, {
 }
 
 function createSignedAlipayParameters(parameters, privateKey) {
-  const signContent = canonicalizeAlipayParameters(parameters);
+  const signContent = canonicalizeAlipayParameters(parameters, {
+    excludeSignType: true,
+  });
   return Object.freeze({
     ...parameters,
     sign: signRsaSha256(signContent, privateKey),

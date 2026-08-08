@@ -334,7 +334,9 @@ async function startFakePaymentPlatform(keys) {
         if (
           parameters.app_id !== '0000000000000000'
           || !verifyRsaSha256(
-            canonicalizeAlipayParameters(parameters),
+            canonicalizeAlipayParameters(parameters, {
+              excludeSignType: true,
+            }),
             parameters.sign,
             keys.alipayApp.publicKey
           )

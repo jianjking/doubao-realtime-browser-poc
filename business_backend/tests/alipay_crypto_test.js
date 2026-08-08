@@ -13,6 +13,9 @@ const {
   verifyAlipayNotificationParameters,
 } = require('../payments/alipay_crypto');
 const {
+  verifyRsaSha256,
+} = require('../payments/wechat_pay_crypto');
+const {
   createTemporaryPaymentKeys,
 } = require('./payment_live_test_helpers');
 
@@ -39,51 +42,64 @@ test('Alipay amount conversion is exact and rejects unsafe decimal input', () =>
   }
 });
 
-test('Alipay RSA2 signatures are canonical and parameter changes fail', () => {
+test('Alipay RSA2 request signatures exclude sign and sign_type but retain both fields', () => {
   const keys = createTemporaryPaymentKeys();
   try {
     const parameters = {
-      sign_type: 'RSA2',
-      charset: 'utf-8',
       app_id: '0000000000000000',
-      method: 'alipay.trade.wap.pay',
       biz_content: '{"total_amount":"10.00"}',
+      charset: 'utf-8',
+      method: 'alipay.trade.wap.pay',
+      sign_type: 'RSA2',
+      timestamp: '2026-08-02 16:00:00',
+      version: '1.0',
     };
     const signed = createSignedAlipayParameters(
       parameters,
       keys.alipayApp.privateKey
     );
-    const notificationShape = {
-      ...signed,
-      sign: createSignedAlipayParameters(
-        Object.fromEntries(
-          Object.entries(parameters).filter(([key]) => key !== 'sign_type')
-        ),
-        keys.alipayApp.privateKey
-      ).sign,
-    };
+    const signContent = canonicalizeAlipayParameters(signed, {
+      excludeSignType: true,
+    });
+    const incorrectSignContent = canonicalizeAlipayParameters(signed);
     assert.equal(
-      canonicalizeAlipayParameters(parameters),
+      signContent,
       'app_id=0000000000000000&biz_content={"total_amount":"10.00"}'
-        + '&charset=utf-8&method=alipay.trade.wap.pay&sign_type=RSA2'
+        + '&charset=utf-8&method=alipay.trade.wap.pay'
+        + '&timestamp=2026-08-02 16:00:00&version=1.0'
+    );
+    assert.match(signContent, /(?:^|&)charset=utf-8(?:&|$)/);
+    assert.match(signContent, /(?:^|&)method=alipay\.trade\.wap\.pay(?:&|$)/);
+    assert.match(signContent, /(?:^|&)biz_content=\{"total_amount":"10\.00"\}(?:&|$)/);
+    assert.doesNotMatch(signContent, /(?:^|&)sign(?:=|&)/);
+    assert.doesNotMatch(signContent, /(?:^|&)sign_type=/);
+    assert.equal(signed.sign_type, 'RSA2');
+    assert.equal(typeof signed.sign, 'string');
+    assert.equal(
+      verifyRsaSha256(signContent, signed.sign, keys.alipayApp.publicKey),
+      true
+    );
+    assert.equal(
+      verifyRsaSha256(incorrectSignContent, signed.sign, keys.alipayApp.publicKey),
+      false
     );
     assert.equal(
       verifyAlipayNotificationParameters(
-        notificationShape,
+        signed,
         keys.alipayApp.publicKey
       ),
       true
     );
     assert.equal(
       verifyAlipayNotificationParameters(
-        notificationShape,
+        signed,
         keys.alipayPlatform.publicKey
       ),
       false
     );
     assert.equal(
       verifyAlipayNotificationParameters(
-        { ...notificationShape, app_id: '0000000000000001' },
+        { ...signed, app_id: '0000000000000001' },
         keys.alipayApp.publicKey
       ),
       false
