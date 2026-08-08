@@ -13,7 +13,6 @@
   const PAYMENT_POLL_INTERVAL_MS = 1000;
   const PAYMENT_POLL_TIMEOUT_MS = 60000;
   const WECHAT_BRIDGE_TIMEOUT_MS = 8000;
-  const ALIPAY_WAP_GATEWAY = 'https://openapi.alipay.com/gateway.do';
   const AUTH_STORAGE_KEY = 'companion_auth_state_v1';
   const PENDING_ACTION_STORAGE_KEY = 'companion_pending_action_v1';
   const TOAST_DURATION_MS = 3200;
@@ -2120,6 +2119,35 @@
     await loadAccountState();
   }
 
+  function parseAlipayWapAction(value) {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    try {
+      const actionUrl = new URL(value);
+      const queryParameters = [...actionUrl.searchParams];
+      if (
+        actionUrl.protocol !== 'https:'
+        || actionUrl.hostname !== 'openapi.alipay.com'
+        || actionUrl.port !== ''
+        || actionUrl.username !== ''
+        || actionUrl.password !== ''
+        || actionUrl.pathname !== '/gateway.do'
+        || actionUrl.hash !== ''
+        || queryParameters.length !== 1
+        || queryParameters[0][0] !== 'charset'
+        || queryParameters[0][1] !== 'utf-8'
+      ) {
+        return null;
+      }
+      actionUrl.search = '';
+      actionUrl.searchParams.set('charset', 'utf-8');
+      return actionUrl.toString();
+    } catch {
+      return null;
+    }
+  }
+
   function parsePaymentCheckout(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return null;
@@ -2163,14 +2191,17 @@
         return null;
       }
     }
-    if (
-      value.kind === 'alipay_wap'
-      && value.action === ALIPAY_WAP_GATEWAY
-      && value.method === 'POST'
-      && value.fields
-      && typeof value.fields === 'object'
-      && !Array.isArray(value.fields)
-    ) {
+    if (value.kind === 'alipay_wap') {
+      const action = parseAlipayWapAction(value.action);
+      if (
+        action === null
+        || value.method !== 'POST'
+        || !value.fields
+        || typeof value.fields !== 'object'
+        || Array.isArray(value.fields)
+      ) {
+        return null;
+      }
       const fieldNames = Object.keys(value.fields);
       if (
         fieldNames.length < 1
@@ -2189,7 +2220,7 @@
       }
       return Object.freeze({
         kind: 'alipay_wap',
-        action: value.action,
+        action,
         method: 'POST',
         fields: Object.freeze({ ...value.fields }),
       });

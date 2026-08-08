@@ -12,6 +12,7 @@ const UI_PATH = path.resolve(
 );
 const PAYMENT_STORAGE_KEY = 'companion_pending_payment_order_v1';
 const ALIPAY_GATEWAY = 'https://openapi.alipay.com/gateway.do';
+const ALIPAY_WAP_ACTION = `${ALIPAY_GATEWAY}?charset=utf-8`;
 
 class FakeElement {
   constructor(tagName = 'div', eventLog = []) {
@@ -243,17 +244,53 @@ function validJsapiCheckout() {
 function validAlipayCheckout() {
   return {
     kind: 'alipay_wap',
-    action: ALIPAY_GATEWAY,
+    action: ALIPAY_WAP_ACTION,
     method: 'POST',
     fields: {
       app_id: '0000000000000000',
       method: 'alipay.trade.wap.pay',
+      format: 'JSON',
       sign_type: 'RSA2',
-      sign: 'base64-signature',
+      timestamp: '2026-08-08 13:00:00',
+      version: '1.0',
+      notify_url: 'https://merchant.example/api/payment-notifications/alipay',
+      return_url: 'https://merchant.example/payment-return',
       biz_content: '{"out_trade_no":"MO_TEST"}',
+      sign: 'base64-signature',
     },
   };
 }
+
+test('production Alipay checkout with charset query parses successfully', () => {
+  const runtime = loadRuntime();
+  const checkout = runtime.api.parsePaymentCheckout(validAlipayCheckout());
+  assert.ok(checkout);
+  assert.equal(checkout.kind, 'alipay_wap');
+  assert.equal(checkout.action, ALIPAY_WAP_ACTION);
+});
+
+test('Alipay checkout rejects every unsafe gateway action', () => {
+  const runtime = loadRuntime();
+  for (const action of [
+    'not-a-url',
+    'http://openapi.alipay.com/gateway.do?charset=utf-8',
+    ALIPAY_GATEWAY,
+    `${ALIPAY_GATEWAY}?charset=gbk`,
+    `${ALIPAY_WAP_ACTION}&foo=bar`,
+    `${ALIPAY_WAP_ACTION}&charset=utf-8`,
+    'https://evil.example/gateway.do?charset=utf-8',
+    'https://openapi.alipay.com.evil.example/gateway.do?charset=utf-8',
+    'https://openapi.alipay.com:444/gateway.do?charset=utf-8',
+    'https://openapi.alipay.com/other?charset=utf-8',
+    'https://user:password@openapi.alipay.com/gateway.do?charset=utf-8',
+    `${ALIPAY_WAP_ACTION}#payment`,
+  ]) {
+    assert.equal(runtime.api.parsePaymentCheckout({
+      ...validAlipayCheckout(),
+      action,
+    }), null, action);
+  }
+});
 
 test('checkout parser accepts only bounded provider-specific structures', () => {
   const runtime = loadRuntime();
@@ -281,12 +318,6 @@ test('checkout parser accepts only bounded provider-specific structures', () => 
     }), null);
   }
 
-  assert.equal(runtime.api.parsePaymentCheckout(validAlipayCheckout()).kind,
-    'alipay_wap');
-  assert.equal(runtime.api.parsePaymentCheckout({
-    ...validAlipayCheckout(),
-    action: 'https://evil.example/gateway.do',
-  }), null);
   assert.equal(runtime.api.parsePaymentCheckout({
     ...validAlipayCheckout(),
     fields: { ...validAlipayCheckout().fields, 'bad-name': 'value' },
@@ -359,7 +390,7 @@ test('WeChat H5 and Alipay WAP persist the order before leaving the page', () =>
   const form = alipayRuntime.body.children[0];
   assert.equal(form.tagName, 'FORM');
   assert.equal(form.method, 'POST');
-  assert.equal(form.action, ALIPAY_GATEWAY);
+  assert.equal(form.action, ALIPAY_WAP_ACTION);
   assert.equal(form.submitted, true);
   assert.equal(
     form.children.length,
@@ -368,5 +399,24 @@ test('WeChat H5 and Alipay WAP persist the order before leaving the page', () =>
   assert.equal(
     form.children.find((input) => input.name === 'method').value,
     'alipay.trade.wap.pay'
+  );
+  assert.equal(
+    form.children.some((input) => input.name === 'charset'),
+    false
+  );
+  assert.deepEqual(
+    form.children.map((input) => input.name).sort(),
+    [
+      'app_id',
+      'biz_content',
+      'format',
+      'method',
+      'notify_url',
+      'return_url',
+      'sign',
+      'sign_type',
+      'timestamp',
+      'version',
+    ]
   );
 });
