@@ -53,6 +53,7 @@ function alipayAmountToCents(amount) {
 
 function canonicalizeAlipayParameters(parameters, {
   excludeSignType = false,
+  excludeCharset = false,
 } = {}) {
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
     throw new TypeError('Alipay parameters must be an object');
@@ -61,6 +62,7 @@ function canonicalizeAlipayParameters(parameters, {
     .filter((key) => (
       key !== 'sign'
       && (!excludeSignType || key !== 'sign_type')
+      && (!excludeCharset || key !== 'charset')
       && parameters[key] !== undefined
       && parameters[key] !== null
       && parameters[key] !== ''
@@ -76,9 +78,12 @@ function canonicalizeAlipayParameters(parameters, {
     .join('&');
 }
 
-function createSignedAlipayParameters(parameters, privateKey) {
+function createSignedAlipayParameters(parameters, privateKey, {
+  excludeCharset = false,
+} = {}) {
   const signContent = canonicalizeAlipayParameters(parameters, {
     excludeSignType: true,
+    excludeCharset,
   });
   return Object.freeze({
     ...parameters,

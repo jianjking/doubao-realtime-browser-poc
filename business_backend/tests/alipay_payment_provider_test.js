@@ -92,15 +92,27 @@ test('Alipay Provider creates signed WAP form and uses signed query/close', asyn
     ]) {
       assert.equal(Object.hasOwn(checkout.fields, key), true, key);
     }
-    const signedParameters = {
-      ...checkout.fields,
-      charset: checkoutUrl.searchParams.get('charset'),
-    };
+    const gatewayCanonical = canonicalizeAlipayParameters(checkout.fields, {
+      excludeSignType: true,
+    });
+    assert.equal(
+      gatewayCanonical,
+      `app_id=${checkout.fields.app_id}`
+        + `&biz_content=${checkout.fields.biz_content}`
+        + `&format=${checkout.fields.format}`
+        + `&method=${checkout.fields.method}`
+        + `&notify_url=${checkout.fields.notify_url}`
+        + `&return_url=${checkout.fields.return_url}`
+        + `&timestamp=${checkout.fields.timestamp}`
+        + `&version=${checkout.fields.version}`
+    );
+    assert.doesNotMatch(gatewayCanonical, /(?:^|&)charset=/);
+    assert.doesNotMatch(gatewayCanonical, /(?:^|&)sign_type=/);
+    assert.doesNotMatch(gatewayCanonical, /(?:^|&)sign=/);
+    assert.doesNotMatch(checkout.fields.biz_content, /%7B/i);
     assert.equal(
       verifyRsaSha256(
-        canonicalizeAlipayParameters(signedParameters, {
-          excludeSignType: true,
-        }),
+        gatewayCanonical,
         checkout.fields.sign,
         keys.alipayApp.publicKey
       ),
@@ -108,7 +120,7 @@ test('Alipay Provider creates signed WAP form and uses signed query/close', asyn
     );
     assert.equal(
       verifyRsaSha256(
-        canonicalizeAlipayParameters(signedParameters),
+        canonicalizeAlipayParameters(checkout.fields),
         checkout.fields.sign,
         keys.alipayApp.publicKey
       ),
@@ -117,21 +129,9 @@ test('Alipay Provider creates signed WAP form and uses signed query/close', asyn
     assert.equal(
       verifyRsaSha256(
         canonicalizeAlipayParameters({
-          ...signedParameters,
-          charset: 'gbk',
+          ...checkout.fields,
+          charset: 'utf-8',
         }, {
-          excludeSignType: true,
-        }),
-        checkout.fields.sign,
-        keys.alipayApp.publicKey
-      ),
-      false
-    );
-    const missingCharsetParameters = { ...signedParameters };
-    delete missingCharsetParameters.charset;
-    assert.equal(
-      verifyRsaSha256(
-        canonicalizeAlipayParameters(missingCharsetParameters, {
           excludeSignType: true,
         }),
         checkout.fields.sign,

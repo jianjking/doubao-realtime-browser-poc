@@ -365,13 +365,16 @@ async function startFakePaymentPlatform(keys) {
           response.writeHead(400).end();
           return;
         }
+        const signedParameters = parameters.method === 'alipay.trade.wap.pay'
+          ? formParameters
+          : parameters;
         if (
           parameters.app_id !== '0000000000000000'
           || !verifyRsaSha256(
-            canonicalizeAlipayParameters(parameters, {
+            canonicalizeAlipayParameters(signedParameters, {
               excludeSignType: true,
             }),
-            parameters.sign,
+            signedParameters.sign,
             keys.alipayApp.publicKey
           )
         ) {

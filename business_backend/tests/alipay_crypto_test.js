@@ -109,6 +109,59 @@ test('Alipay RSA2 request signatures exclude sign and sign_type but retain both 
   }
 });
 
+test('Alipay RSA2 signing can exclude charset only for an explicit caller', () => {
+  const keys = createTemporaryPaymentKeys();
+  try {
+    const parameters = {
+      app_id: '0000000000000000',
+      biz_content: '{"total_amount":"10.00"}',
+      charset: 'utf-8',
+      format: 'JSON',
+      method: 'alipay.trade.wap.pay',
+      sign_type: 'RSA2',
+      timestamp: '2026-08-02 16:00:00',
+      version: '1.0',
+    };
+    const signed = createSignedAlipayParameters(
+      parameters,
+      keys.alipayApp.privateKey,
+      { excludeCharset: true }
+    );
+    const wapSignContent = canonicalizeAlipayParameters(signed, {
+      excludeCharset: true,
+      excludeSignType: true,
+    });
+    assert.equal(
+      wapSignContent,
+      'app_id=0000000000000000&biz_content={"total_amount":"10.00"}'
+        + '&format=JSON&method=alipay.trade.wap.pay'
+        + '&timestamp=2026-08-02 16:00:00&version=1.0'
+    );
+    assert.equal(
+      verifyRsaSha256(wapSignContent, signed.sign, keys.alipayApp.publicKey),
+      true
+    );
+    assert.equal(
+      verifyRsaSha256(
+        canonicalizeAlipayParameters(signed, { excludeSignType: true }),
+        signed.sign,
+        keys.alipayApp.publicKey
+      ),
+      false
+    );
+    assert.equal(
+      verifyRsaSha256(
+        canonicalizeAlipayParameters(signed, { excludeCharset: true }),
+        signed.sign,
+        keys.alipayApp.publicKey
+      ),
+      false
+    );
+  } finally {
+    keys.cleanup();
+  }
+});
+
 test('Alipay form parser decodes once and rejects duplicate keys', () => {
   assert.deepEqual(
     { ...parseAlipayFormBodyStrict(Buffer.from('a=1%202&b=x%2By')) },

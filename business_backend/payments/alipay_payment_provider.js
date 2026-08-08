@@ -72,7 +72,10 @@ class AlipayPaymentProvider extends PaymentProvider {
     return 'alipay_wap';
   }
 
-  buildSignedParameters(method, bizContent, { includeCheckoutUrls = false } = {}) {
+  buildSignedParameters(method, bizContent, {
+    includeCheckoutUrls = false,
+    excludeCharset = false,
+  } = {}) {
     const parameters = {
       app_id: this.config.appId,
       method,
@@ -89,7 +92,8 @@ class AlipayPaymentProvider extends PaymentProvider {
     };
     return createSignedAlipayParameters(
       parameters,
-      this.config.appPrivateKey
+      this.config.appPrivateKey,
+      { excludeCharset }
     );
   }
 
@@ -187,7 +191,10 @@ class AlipayPaymentProvider extends PaymentProvider {
         quit_url: this.config.returnUrl,
         timeout_express: '15m',
       },
-      { includeCheckoutUrls: true }
+      {
+        includeCheckoutUrls: true,
+        excludeCharset: true,
+      }
     );
     const actionUrl = new URL(this.gatewayUrl);
     actionUrl.searchParams.set('charset', signedParameters.charset);
